@@ -20,8 +20,9 @@
   --r:14px; --sat:env(safe-area-inset-top,0px); --sab:env(safe-area-inset-bottom,0px);
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-body{display:flex;flex-direction:column;min-height:100%}
+html,body{margin:0;height:100%;height:100dvh;overflow:hidden;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body{display:flex;flex-direction:column;height:100%}
+/* a rolagem acontece dentro do <main>: assim a barra da fila fica SEMPRE no rodapé, inclusive no iPhone */
 button{font:inherit;cursor:pointer;border:0;border-radius:12px;padding:12px 16px;background:var(--navy);color:#fff;font-weight:600}
 button.sec{background:#fff;color:var(--navy);border:1.5px solid var(--navy)}
 button.green{background:var(--green)}
@@ -38,7 +39,8 @@ header .t{flex:1;min-width:0}
 header .t b{display:block;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 header .t small{display:block;font-size:12px;opacity:.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 header button{background:rgba(255,255,255,.14);padding:8px 12px;font-size:13px}
-main{flex:1;padding:14px 16px calc(90px + var(--sab));max-width:720px;width:100%;margin:0 auto}
+main{flex:1 1 0;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:14px 16px 16px;width:100%;margin:0 auto}
+main>*{max-width:720px;margin-left:auto;margin-right:auto}
 .card{background:var(--card);border-radius:var(--r);padding:14px;margin-bottom:12px;box-shadow:0 1px 2px rgba(17,62,107,.06)}
 .card h2{margin:0 0 8px;font-size:17px;color:var(--navy)}
 .card h3{margin:14px 0 6px;font-size:14px;color:var(--green-2);text-transform:uppercase;letter-spacing:.04em}
@@ -52,7 +54,7 @@ main{flex:1;padding:14px 16px calc(90px + var(--sab));max-width:720px;width:100%
 .obra{display:block;width:100%;text-align:left;background:#fff;color:var(--ink);border:1.5px solid var(--line);padding:14px;margin-bottom:10px;border-radius:var(--r);font-weight:500}
 .obra b{display:block;color:var(--navy);font-size:16px;margin-bottom:3px}
 .obra small{color:var(--muted);font-size:13px}
-.tabs{display:flex;gap:6px;overflow-x:auto;padding:4px 0 10px;scrollbar-width:none;position:sticky;top:calc(56px + var(--sat));background:var(--bg);z-index:10}
+.tabs{display:flex;gap:6px;overflow-x:auto;padding:4px 0 10px;scrollbar-width:none;position:sticky;top:-14px;background:var(--bg);z-index:10}
 .tabs::-webkit-scrollbar{display:none}
 .tabs button{flex:0 0 auto;background:#fff;color:var(--navy);border:1.5px solid var(--line);padding:9px 14px;font-size:14px;border-radius:999px}
 .tabs button.on{background:var(--navy);color:#fff;border-color:var(--navy)}
@@ -80,7 +82,7 @@ details[open] summary::after{content:"–"}
 .auto{display:grid;grid-template-columns:1fr;gap:8px}
 .auto div{border-radius:10px;padding:10px;font-size:14px}
 .auto .s{background:var(--ok-bg)} .auto .a{background:var(--warn-bg)} .auto .p{background:var(--err-bg)}
-.fila{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1.5px solid var(--line);padding:10px 16px calc(10px + var(--sab));display:flex;align-items:center;gap:10px;z-index:20}
+.fila{flex:none;background:#fff;border-top:1.5px solid var(--line);padding:10px 16px calc(10px + var(--sab));display:flex;align-items:center;gap:10px;z-index:20}
 .fila .s{flex:1;font-size:14px}
 .fila .s b{color:var(--navy)}
 .fila button{padding:10px 14px;font-size:14px}
@@ -195,14 +197,14 @@ details[open] summary::after{content:"–"}
 <div class="toast" id="toast"></div>
 <canvas id="cv" class="hide"></canvas>
 
-<script src="fichas.js?v=1.6.1"></script>
+<script src="fichas.js?v=1.6.4"></script>
 <script>
 /* ============================================================
    CAMPO · Natural Engenharia — app de campo (PWA)
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.6.1';
+const APP_VERSAO = '1.6.4';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -294,13 +296,17 @@ const DB = {
 };
 async function recarregarFila(){ S.fila = (await DB.all()).sort((a,b)=>a.criadoEm<b.criadoEm?-1:1); pintarFila(); }
 function pintarFila(){
-  const pend=S.fila.filter(x=>x.status!=='enviado'), err=S.fila.filter(x=>x.status==='erro');
-  const hojeEnv=S.fila.filter(x=>x.status==='enviado' && (x.enviadoEm||'').slice(0,10)===hoje()).length;
+  // dentro de uma obra, a barra mostra só o que é DESTA obra (o resto sobe igual, em silêncio)
+  const daObra = S.obraId ? S.fila.filter(x=>x.obraId===S.obraId) : S.fila;
+  const pend=daObra.filter(x=>x.status!=='enviado'), err=daObra.filter(x=>x.status==='erro');
+  const outras = S.obraId ? S.fila.filter(x=>x.obraId!==S.obraId && x.status!=='enviado').length : 0;
+  const hojeEnv=daObra.filter(x=>x.status==='enviado' && (x.enviadoEm||'').slice(0,10)===hoje()).length;
   const t=$('#filaTxt'), b=$('#filaBtn');
   if(S.enviando){ t.innerHTML=`<b>Enviando…</b> ${pend.length} na fila`; b.disabled=true; return; }
-  b.disabled = pend.length===0;
-  if(pend.length===0) t.innerHTML = `<b>Tudo enviado.</b> ${hojeEnv? hojeEnv+' arquivo(s) hoje.':''} ${navigator.onLine?'':'Sem internet.'}`;
-  else t.innerHTML = `<b>${pend.length} na fila</b>${err.length?` · <span style="color:var(--err)">${err.length} com erro</span>`:''} · ${navigator.onLine?'com internet':'sem internet — sobe sozinho depois'}`;
+  b.disabled = pend.length===0 && outras===0;
+  const nota = outras? ` · <span class="muted">${outras} de outras obras</span>`:'';
+  if(pend.length===0) t.innerHTML = `<b>${hojeEnv? (S.obraId?'Tudo enviado desta obra.':'Tudo enviado.') : (S.obraId?'Nada na fila desta obra.':'Nada na fila.')}</b> ${hojeEnv? hojeEnv+' arquivo(s) hoje.':''} ${navigator.onLine?'':'Sem internet.'}${nota}`;
+  else t.innerHTML = `<b>${pend.length} na fila${S.obraId?' desta obra':''}</b>${err.length?` · <span style="color:var(--err)">${err.length} com erro</span>`:''} · ${navigator.onLine?'com internet':'sem internet — sobe sozinho depois'}${nota}`;
 }
 
 /* ---------------- EXIF: leitura (GPS, data, orientação) ---------------- */
@@ -640,11 +646,11 @@ async function daGaleria(files, slot, slotTitulo, extra){
 }
 
 /* ---------------- Áudio do diário ---------------- */
-const REC={ mr:null, chunks:[], t0:0, timer:null, blob:null };
+const REC={ mr:null, chunks:[], t0:0, timer:null, blob:null, obraId:null, ultimoId:null }; // obraId: o áudio gravado é só da obra em que foi gravado
 async function gravar(){
   if(REC.mr){ REC.mr.stop(); return; }
   try{ const st=await navigator.mediaDevices.getUserMedia({audio:true}); const mime=['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/aac',''].find(m=>!m||MediaRecorder.isTypeSupported(m));
-    REC.mr=new MediaRecorder(st, mime?{mimeType:mime}:undefined); REC.chunks=[]; REC.blob=null;
+    REC.mr=new MediaRecorder(st, mime?{mimeType:mime}:undefined); REC.chunks=[]; REC.blob=null; REC.obraId=S.obraId;
     REC.mr.ondataavailable=e=>REC.chunks.push(e.data);
     REC.mr.onstop=async()=>{ st.getTracks().forEach(t=>t.stop()); REC.blob=new Blob(REC.chunks,{type:REC.mr.mimeType||'audio/webm'}); REC.mr=null; clearInterval(REC.timer); const ext=(REC.blob.type.includes('mp4')||REC.blob.type.includes('aac'))?'m4a':'webm'; REC.ultimoId=await enfileirarArquivo(REC.blob,'audio',`${agoraArq()}_diario_${slug(S.quem)}.${ext}`); toast('Áudio guardado na fila'); render(); };
     REC.mr.start(); REC.t0=Date.now(); REC.timer=setInterval(()=>{ const s=Math.floor((Date.now()-REC.t0)/1000); const el=$('#timer'); if(el) el.textContent=`${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')} / 00:40`; if(s>=40 && REC.mr) REC.mr.stop(); },250);
@@ -691,6 +697,7 @@ function fotosDaObra(ob){ return S.fila.filter(x=>x.obraId===ob.id && (x.tipo===
 
 /* ---------------- Telas ---------------- */
 function render(){
+  pintarFila(); // a barra da fila acompanha a obra aberta
   const m=$('#main'); const P=S.pacote; const ob=obraAtual();
   if(ob && window.FICHAS && FICHAS.aberta()){ FICHAS.desenharEditor(); return; }
   if(!ob){ $('#hTit').textContent='Campo'; $('#hSub').textContent='Natural Engenharia'; $('#hBtn').classList.add('hide'); m.innerHTML=telaInicio(); ligarInicio(); return; }
@@ -730,7 +737,7 @@ function ligarInicio(){
   $('#atualizar').onclick=()=>baixarPacote(false);
   $('#ajustes').onclick=telaAjustes;
 }
-function ligarObras(){ document.querySelectorAll('.obra').forEach(b=>b.onclick=()=>{ if(!S.quem){ toast('Escreva seu nome primeiro'); $('#quem').focus(); return; } S.obraId=b.dataset.id; S.tab='roteiro'; LS.set('obraId',S.obraId); render(); window.scrollTo(0,0); iniciarGPS(); }); }
+function ligarObras(){ document.querySelectorAll('.obra').forEach(b=>b.onclick=()=>{ if(!S.quem){ toast('Escreva seu nome primeiro'); $('#quem').focus(); return; } S.obraId=b.dataset.id; REC.blob=null; REC.ultimoId=null; REC.obraId=null; S.tab='roteiro'; LS.set('obraId',S.obraId); render(); window.scrollTo(0,0); iniciarGPS(); }); }
 function telaAjustes(){
   const m=$('#main'); $('#hTit').textContent='Ajustes'; $('#hBtn').classList.remove('hide'); $('#hBtn').textContent='Voltar';
   m.innerHTML=`<div class="card"><h2>Robô de campo</h2><label>URL do robô (Apps Script, termina em /exec)</label><input id="cfgScript" value="${esc(S.cfg.script)}" placeholder="https://script.google.com/macros/s/…/exec"><label>Chave</label><input id="cfgToken" value="${esc(S.cfg.token)}"><div class="nota">A URL vem do escritório. Depois de colar, toque em Salvar e em Atualizar lista.</div></div>
@@ -804,11 +811,11 @@ function ligarFotos(ob){
     barraDesfazer('Apagado da fila.', async()=>{ for(const g of guardados) await DB.put(g); await recarregarFila(); render(); toast('De volta na fila'); }); });
 }
 function telaDiario(ob){
-  const P=S.pacote; const gravando=!!REC.mr;
+  const P=S.pacote; const gravando=!!REC.mr; const meuAudio = REC.blob && REC.obraId===ob.id; // áudio de outra obra não aparece aqui
   let h=`<div class="card"><h2>Diário de obra — 40 segundos</h2><div class="nota">Cinco frases, nesta ordem. O escritório transcreve e vira o registro do dia.</div>`;
   h+=(P.roteiroDiario||[]).map((f,i)=>`<div class="frase"><span>${i+1}</span><div>${esc(f)}</div></div>`).join('');
   h+=`<div class="timer" id="timer">${gravando?'00:00 / 00:40':'00:40'}</div><button class="rec ${gravando?'on':''}" id="rec">${gravando?'■':'●'}</button><div class="nota" style="text-align:center">${gravando?'Gravando… toque para parar':'Toque para gravar'}</div><div class="nota" style="text-align:center">Precisa falar mais? Grave outro: cada áudio vai separado, quantos quiser.</div>`;
-  if(REC.blob) h+=`<audio controls src="${URL.createObjectURL(REC.blob)}" style="width:100%;margin-top:8px"></audio><div class="row" style="margin-top:10px"><div class="nota">Já está guardado na fila. Não gostou? Apague e grave de novo.</div><div class="row" style="margin-top:10px"><button class="sec" id="descartar">Apagar e regravar</button></div>`;
+  if(meuAudio) h+=`<audio controls src="${URL.createObjectURL(REC.blob)}" style="width:100%;margin-top:8px"></audio><div class="row" style="margin-top:10px"><div class="nota">Já está guardado na fila. Não gostou? Apague e grave de novo.</div><div class="row" style="margin-top:10px"><button class="sec" id="descartar">Apagar e regravar</button></div>`;
   h+=`</div>`; return h;
 }
 function ligarDiario(ob){
