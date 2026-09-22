@@ -184,14 +184,14 @@ details[open] summary::after{content:"–"}
 <div class="toast" id="toast"></div>
 <canvas id="cv" class="hide"></canvas>
 
-<script src="fichas.js"></script>
+<script src="fichas.js?v=1.4.1"></script>
 <script>
 /* ============================================================
    CAMPO · Natural Engenharia — app de campo (PWA)
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.4.0';
+const APP_VERSAO = '1.4.1';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -816,7 +816,8 @@ function ligarOcorr(ob){
   });
   // cada toque renova a trava do voltar (o navegador só respeita trava criada com toque do usuário)
   document.addEventListener('pointerdown',()=>{ if(!history.state || history.state.t==='base'){ try{ history.pushState({t:'app'},''); }catch(e){} } },true);
-  if('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js').catch(()=>{}); }
+  if('serviceWorker' in navigator){ const tinha=!!navigator.serviceWorker.controller; navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).then(r=>r.update()).catch(()=>{});
+    navigator.serviceWorker.addEventListener('controllerchange',()=>{ if(!tinha) return; const b=document.createElement('button'); b.textContent='Versão nova do app — toque para atualizar (nada se perde)'; b.style.cssText='position:fixed;left:12px;right:12px;top:calc(12px + env(safe-area-inset-top));z-index:9998;background:#19A878;color:#fff;border:0;border-radius:12px;padding:14px;font:700 15px system-ui;box-shadow:0 4px 16px rgba(0,0,0,.25)'; b.onclick=()=>location.reload(); document.body.appendChild(b); }); }
   prepararFonteCarimbo(); // baixa a fonte do carimbo agora (com internet) para o SW guardar
   // pede ao celular para NÃO apagar os dados do app quando faltar espaço (fila, fichas, rascunhos)
   try{ if(navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(()=>{}); }catch(e){}
