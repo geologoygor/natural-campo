@@ -117,6 +117,8 @@ details[open] summary::after{content:"–"}
 #cam .top{position:absolute;top:0;left:0;right:0;padding:calc(10px + var(--sat)) 12px 10px;display:flex;gap:8px;align-items:center;background:linear-gradient(rgba(0,0,0,.6),transparent);color:#fff;font-size:13px}
 #cam .top select{width:auto;flex:1;background:rgba(255,255,255,.15);color:#fff;border:0;padding:8px}
 #cam .top select option{color:#000}
+#cam #camRes{position:absolute;right:12px;top:calc(62px + var(--sat));color:#fff;font:11px ui-monospace,Menlo,monospace;background:rgba(0,0,0,.45);padding:4px 8px;border-radius:8px;z-index:2}
+#cam #camNativa{position:absolute;right:8px;bottom:calc(272px + var(--sab));color:#fff;background:rgba(0,0,0,.5);font-size:12px;border-radius:10px;z-index:3}
 #cam #camLogo{position:absolute;left:12px;top:calc(62px + var(--sat));width:52px;height:52px;border-radius:10px;opacity:.92;box-shadow:0 2px 8px rgba(0,0,0,.45);z-index:2}
 #cam.semmarca #camLogo{display:none}
 #cam .tiras{position:absolute;left:0;right:0;bottom:calc(210px + var(--sab));display:flex;gap:8px;align-items:center;padding:0 12px;overflow-x:auto;z-index:3}
@@ -126,6 +128,7 @@ details[open] summary::after{content:"–"}
 #camVer{position:absolute;inset:0;background:#000;z-index:8;display:flex;flex-direction:column}
 #camVer.hide{display:none}
 #camVer img{flex:1 1 0;min-height:0;width:100%;object-fit:contain;background:#000}
+#camVer #camVerInfo{color:#bbb;font:12px ui-monospace,Menlo,monospace;text-align:center;padding:6px 8px;background:#111}
 #camVer .cvbot{display:flex;gap:10px;padding:12px 14px calc(14px + var(--sab));background:#111}
 #camVer .cvbot button{flex:1;min-height:50px}
 #cam .geo2{position:absolute;left:12px;right:12px;bottom:calc(170px + var(--sab));pointer-events:none;color:#fff;font-family:ui-monospace,Menlo,monospace;font-size:12px;background:rgba(17,62,107,.7);padding:6px 10px;border-radius:8px}
@@ -197,9 +200,12 @@ details[open] summary::after{content:"–"}
     <button class="ghost" id="camTrocar">⟲</button>
   </div>
   <img id="camLogo" src="icon-192.png" alt="">
+  <div id="camRes"></div>
+  <button class="ghost" id="camNativa">Câmera do celular (máxima)</button>
+  <input type="file" id="camNativaIn" accept="image/*" capture="environment" class="hide">
   <div class="tiras" id="camTiras"></div>
   <div class="geo2" id="camGeo">Procurando GPS…</div>
-  <div id="camVer" class="hide"><img id="camVerImg" alt=""><div class="cvbot"><button class="sec" id="cvFechar">Voltar</button><button class="danger" id="cvApagar">Apagar esta foto</button></div></div>
+  <div id="camVer" class="hide"><img id="camVerImg" alt=""><div id="camVerInfo"></div><div class="cvbot"><button class="sec" id="cvFechar">Voltar</button><button class="danger" id="cvApagar">Apagar esta foto</button></div></div>
   <div class="bot">
     <div class="tg"><button class="sw" id="tgMarca"></button><span>logo Natural</span></div>
     <div class="mid"><div class="modo"><button id="mFoto" class="on">Foto</button><button id="mVideo">Vídeo</button></div>
@@ -211,19 +217,19 @@ details[open] summary::after{content:"–"}
 <div class="toast" id="toast"></div>
 <canvas id="cv" class="hide"></canvas>
 
-<script src="fichas.js?v=1.7.0"></script>
+<script src="fichas.js?v=1.7.1"></script>
 <script>
 /* ============================================================
    CAMPO · Natural Engenharia — app de campo (PWA)
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.7.0';
+const APP_VERSAO = '1.7.1';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
-  maxLado: 2560,              // maior lado da foto enviada (px)
-  qualidade: 0.9,
+  maxLado: 3200,              // maior lado da foto enviada (px) — ~8 MP, boa para relatório e impressão
+  qualidade: 0.92,
 };
 const LS = {
   get(k, d){ try{ const v = localStorage.getItem('nc_'+k); return v==null? d : JSON.parse(v);}catch(e){return d;} },
@@ -509,7 +515,7 @@ async function enfileirarFoto(blobOriginal, opts){
   await recarregarFila(); render(); toast('Foto guardada na fila'+(pos?'':' — sem coordenada'));
   if(navigator.onLine) enviarFila();
 }
-async function miniatura(bmp){ const oc=document.createElement('canvas'); const k=220/Math.max(bmp.width,bmp.height); oc.width=Math.round(bmp.width*k); oc.height=Math.round(bmp.height*k); oc.getContext('2d').drawImage(bmp,0,0,oc.width,oc.height); return oc.toDataURL('image/jpeg',0.6); }
+async function miniatura(bmp){ const oc=document.createElement('canvas'); const k=Math.min(1,520/Math.max(bmp.width,bmp.height)); oc.width=Math.round(bmp.width*k); oc.height=Math.round(bmp.height*k); oc.getContext('2d').drawImage(bmp,0,0,oc.width,oc.height); return oc.toDataURL('image/jpeg',0.72); }
 async function enfileirarArquivo(blob, tipo, nome, extra){
   const ob=obraAtual(); if(!ob) return toast('Escolha a obra primeiro');
   const id=tipo[0].toUpperCase()+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
@@ -559,9 +565,17 @@ async function abrirCamera(slot, titulo){
 }
 async function ligarStream(){
   if(CAM.stream) CAM.stream.getTracks().forEach(t=>t.stop());
-  CAM.stream=await navigator.mediaDevices.getUserMedia({video: CAM.modo==='video' ? {facingMode:{ideal:CAM.facing}, width:{ideal:1280}, height:{ideal:720}} : {facingMode:{ideal:CAM.facing}, width:{ideal:4096}, height:{ideal:3072}}, audio:false});
-  $('#video').srcObject=CAM.stream;
+  const alvo = CAM.modo==='video' ? {facingMode:{ideal:CAM.facing}, width:{ideal:1280}, height:{ideal:720}}
+                                  : {facingMode:{ideal:CAM.facing}, width:{ideal:4096}, height:{ideal:3072}, frameRate:{ideal:15}};
+  CAM.stream=await navigator.mediaDevices.getUserMedia({video:alvo, audio:false});
+  const tr=CAM.stream.getVideoTracks()[0];
+  if(CAM.modo!=='video'){ // iPhone costuma entregar menos do que pediram: pede o máximo que o aparelho diz ter
+    try{ const cap=tr.getCapabilities&&tr.getCapabilities(); if(cap&&cap.width&&cap.height) await tr.applyConstraints({width:{ideal:cap.width.max}, height:{ideal:cap.height.max}}); }catch(e){}
+  }
+  $('#video').srcObject=CAM.stream; mostrarResolucao();
 }
+function mostrarResolucao(){ const el=$('#camRes'); if(!el) return; const tr=CAM.stream&&CAM.stream.getVideoTracks()[0]; const s=tr&&tr.getSettings?tr.getSettings():{};
+  const mp=(s.width&&s.height)?((s.width*s.height)/1e6).toFixed(1):''; el.textContent = s.width? `${s.width}×${s.height}${mp?` · ${mp} MP`:''}` : ''; }
 function abrirCamHist(){ try{ history.pushState({t:'cam'},''); }catch(e){} }
 function fecharCamera(){ if(CAM.rec) pararGravacao(); CAM.extra=null; CAM.slotTitulo=null; modoCamera('foto'); $('#cam').classList.remove('on'); if(CAM.stream){ CAM.stream.getTracks().forEach(t=>t.stop()); CAM.stream=null; } }
 async function fotografar(){
@@ -660,8 +674,11 @@ function pintarTiras(){ // o que já foi fotografado NESTE item, para conferir n
   el.querySelectorAll('[data-ver]').forEach(b=>b.onclick=()=>verFotoDaCamera(b.dataset.ver)); }
 async function verFotoDaCamera(id){
   const it=(S.fila||[]).find(x=>x.id===id); if(!it) return;
-  const box=$('#camVer'), img=$('#camVerImg'); let url=null;
-  try{ const reg=it.blob?it:await DB.get(id); url=reg&&reg.blob?URL.createObjectURL(reg.blob):it.thumb; }catch(e){ url=it.thumb; }
+  const box=$('#camVer'), img=$('#camVerImg'), inf=$('#camVerInfo'); let url=null, reg=null;
+  try{ reg=await DB.get(id); }catch(e){}
+  if(!reg||!reg.blob) reg = it && it.blob ? it : null;
+  url = reg && reg.blob ? URL.createObjectURL(reg.blob) : it.thumb;   // sem o arquivo (já enviado), mostra a miniatura
+  img.onload=()=>{ if(inf) inf.textContent = `${img.naturalWidth}×${img.naturalHeight}${reg&&reg.blob?` · ${(reg.blob.size/1048576).toFixed(1)} MB`:' · miniatura (já enviada)'}`; };
   img.src=url||''; box.classList.remove('hide');
   const fechar=()=>{ box.classList.add('hide'); if(url&&url.startsWith('blob:')) setTimeout(()=>URL.revokeObjectURL(url),500); };
   $('#cvFechar').onclick=fechar;
@@ -941,6 +958,12 @@ function ligarOcorr(ob){
   $('#filaBtn').onclick=()=>enviarFila();
   $('#camFechar').onclick=()=>{ if(history.state&&history.state.t==='cam') history.back(); else fecharCamera(); }; $('#shutter').onclick=()=> CAM.modo==='video'? gravarOuParar() : fotografar(); $('#mFoto').onclick=()=>{ if(!CAM.rec) modoCamera('foto'); }; $('#mVideo').onclick=()=>{ if(!CAM.rec) modoCamera('video'); };
   $('#camSlot').onchange=()=>pintarTiras();
+  // câmera nativa do celular: qualidade máxima (o carimbo entra igual, com o GPS do momento)
+  $('#camNativa').onclick=()=>$('#camNativaIn').click();
+  $('#camNativaIn').onchange=async e=>{ const files=[...e.target.files]; e.target.value=''; if(!files.length) return;
+    const slot=$('#camSlot').value; const st=(slot===CAM.slot&&CAM.slotTitulo)?{t:CAM.slotTitulo}:(slotsDaObra().find(x=>x.k===slot)||{t:slot});
+    toast('Carimbando a foto…'); for(const f of files){ await enfileirarFoto(f,{slot, slotTitulo:st.t, fonte:'camera', extra:(slot===CAM.slot?CAM.extra:null)||null}); }
+    pintarTiras(); };
   $('#camTrocar').onclick=async()=>{ if(CAM.rec) return toast('Pare a gravação antes de trocar a câmera'); CAM.facing=CAM.facing==='environment'?'user':'environment'; try{ await ligarStream(); }catch(e){ toast(e.message); } };
   $('#tgMarca').onclick=()=>{ S.marca=!S.marca; LS.set('marca',S.marca); pintarToggles(); };
   $('#tgFmt').onclick=()=>{ S.fmt=S.fmt==='utm'?'geo':'utm'; LS.set('fmt',S.fmt); pintarToggles(); atualizarGeo(); };
