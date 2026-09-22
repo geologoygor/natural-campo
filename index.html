@@ -220,14 +220,14 @@ details[open] summary::after{content:"–"}
 <div class="toast" id="toast"></div>
 <canvas id="cv" class="hide"></canvas>
 
-<script src="fichas.js?v=1.7.3"></script>
+<script src="fichas.js?v=1.7.4"></script>
 <script>
 /* ============================================================
    CAMPO · Natural Engenharia — app de campo (PWA)
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.7.3';
+const APP_VERSAO = '1.7.4';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -446,10 +446,16 @@ function textoCoordFicha(p){ if(!p) return ''; const u=toUTM(p.lat,p.lon); retur
 function desenharCarimbo(c,W,H,info){
   // Carimbo enxuto: só as coordenadas e o N da Natural. Data, hora, quem tirou e o item
   // já ficam no nome do arquivo e no EXIF — não precisam tomar a imagem.
-  const base=Math.min(W,H); const fs=Math.max(11,Math.round(base*0.023)); const m=Math.round(base*0.028); const lh=Math.round(fs*1.3);
+  const base=Math.min(W,H); const fs=Math.max(13,Math.round(base*0.030)); const m=Math.round(base*0.028); const lh=Math.round(fs*1.3);
   const linhas=[];
-  if(info.pos){ linhas.push({t:coordDMS(info.pos), w:700});
-    linhas.push({t:(info.fmt==='utm'? coordUTMtxt(info.pos)+'   ·   SIRGAS 2000' : `Lat ${info.pos.lat.toFixed(6).replace('.',',')}°   Lon ${info.pos.lon.toFixed(6).replace('.',',')}°`), w:400, k:0.92}); }
+  if(info.pos){
+    // uma coordenada por vez: o que estiver escolhido no botão da câmera (UTM ou Lat/Lon)
+    const erro = info.pos.acc? `±${Math.round(info.pos.acc)} m` : '';
+    if(info.fmt==='utm'){ linhas.push({t:coordUTMtxt(info.pos), w:700});
+      linhas.push({t:['SIRGAS 2000',erro].filter(Boolean).join('   ·   '), w:400, k:0.8}); }
+    else { linhas.push({t:coordDMS(info.pos), w:700});
+      if(erro) linhas.push({t:erro, w:400, k:0.8}); }
+  }
   else linhas.push({t:'SEM COORDENADA (GPS indisponível)', w:700});
   const alturaTexto = linhas.reduce((a,l)=>a+lh*(l.k||1),0);
   const logoH = (info.marca && IMG.logoN) ? Math.round(alturaTexto*0.92) : 0;
