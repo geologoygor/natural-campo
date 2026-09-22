@@ -101,6 +101,14 @@ details[open] summary::after{content:"–"}
 .seg button.on{background:var(--navy);color:#fff}
 /* câmera */
 #cam{position:fixed;inset:0;background:#000;z-index:50;display:none;flex-direction:column}
+#verPdf{position:fixed;inset:0;z-index:60;background:#3a3f47;display:flex;flex-direction:column}
+#verPdf .vtop{display:flex;align-items:center;gap:8px;padding:calc(8px + var(--sat)) 10px 8px;background:var(--navy);color:#fff}
+#verPdf .vtop b{flex:1;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#verPdf .vtop button{color:#fff;min-height:40px;padding:6px 12px;font-size:16px}
+#verPdf .vcorpo{flex:1 1 0;min-height:0;overflow:auto;padding:10px;-webkit-overflow-scrolling:touch}
+#verPdf .vcorpo img{display:block;margin:0 auto 10px;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.4);max-width:none}
+#verPdf .vbot{display:flex;gap:8px;padding:10px 10px calc(10px + var(--sab));background:#fff}
+#verPdf .vbot button{flex:1;min-height:50px}
 #cam.on{display:flex}
 #cam video{flex:1 1 0;min-height:0;width:100%;object-fit:cover;background:#000}
 #cam .bot{flex:none;position:relative;z-index:2}
@@ -184,14 +192,14 @@ details[open] summary::after{content:"–"}
 <div class="toast" id="toast"></div>
 <canvas id="cv" class="hide"></canvas>
 
-<script src="fichas.js?v=1.4.2"></script>
+<script src="fichas.js?v=1.5.1"></script>
 <script>
 /* ============================================================
    CAMPO · Natural Engenharia — app de campo (PWA)
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.4.2';
+const APP_VERSAO = '1.5.1';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -638,7 +646,33 @@ async function gravar(){
 /* ---------------- Dados derivados ---------------- */
 function sopsDaObra(ob){ const P=S.pacote; if(!P||!ob) return []; return (ob.sops||[]).map(c=>P.sops[c]).filter(Boolean); }
 function slotsDaObra(){ const P=S.pacote; const base=(P?.roteiroFotos||[]).map(s=>({k:s.k,t:s.t,d:s.d})); base.push({k:'ficha',t:'Ficha preenchida',d:'Foto da ficha de campo preenchida, legível, folha inteira.'}); base.push({k:'extra',t:'Foto extra',d:'Qualquer outra foto que ajude o escritório.'}); base.push({k:'ocorrencia',t:'Ocorrência',d:'Local, equipamento e causa, antes de mexer.'}); return base; }
-function checklistDaObra(ob){ const out=[]; for(const s of sopsDaObra(ob)) for(const p of (s.pronto||[])) out.push({sop:s.codigo,t:p}); return out; }
+/* "Antes de sair do ponto" — só o ESSENCIAL de campo (o critério completo de cada SOP continua na aba Procedimentos).
+   O que o app consegue conferir sozinho, ele confere (fotos, áudio, coordenada, ficha); o resto é marcado à mão. */
+const ESSENCIAL={
+  spt:[ ['Todos os furos até 12 m ou até o impenetrável, com o motivo da parada','SOP-017'], ['Amostras com o adesivo da Natural (obra, furo, profundidade, data)','SOP-017'], ['Furos tapados e área limpa','SOP-017'] ],
+  poco:[ ['Minuto em que o nível estabilizou e em que voltou ao NE, anotados','SOP-008'], ['Deu rocha? Só avançou depois do sim do cliente por escrito','SOP-021'], ['Laje, tampa, selo e cercado prontos; local sem entulho','SOP-020'] ],
+  'limpeza-poco':[ ['Água saindo limpa, sem areia, com a hora anotada','SOP-020'], ['Local sem entulho','SOP-020'] ],
+  outorga:[ ['Poço conferido contra o processo (cliente, endereço, propriedade)','SOP-018'], ['Amostra de água coletada e entregue em até 24 h, com recibo','SOP-003'], ['Documentos do cliente pedidos (ou a falta anotada)','SOP-018'] ],
+  agua:[ ['Frasco identificado na hora com o adesivo da Natural','SOP-003'], ['Amostra no gelo desde a coleta','SOP-003'], ['Entregue ao laboratório em até 24 h, com recibo','SOP-003'] ],
+  georef:[ ['Todos os vértices e pontos do escopo levantados','SOP-016'], ['Equipamento conferido antes de ir embora','SOP-016'] ],
+  topografia:[ ['Todos os vértices e pontos do escopo levantados','SOP-016'], ['Equipamento conferido antes de ir embora','SOP-016'] ] };
+function hojeISO(x){ return (x||'').slice(0,10)===hoje() || (x && new Date(x).toDateString()===new Date().toDateString()); }
+function checklistDaObra(ob){
+  const doDia=S.fila.filter(x=>x.obraId===ob.id && hojeISO(x.criadoEm));
+  const fotosHoje=doDia.filter(x=>x.tipo==='foto'&&!x.meta?.original);
+  const cinco=(S.pacote?.roteiroFotos||[]).map(r=>r.k); const feitos5=cinco.filter(k=>fotosHoje.some(x=>x.slot===k)).length;
+  const temFicha=(ob.linhas||[]).some(l=>(window.FICHAS_DA_LINHA||{})[l]?.length);
+  const fichaOk=temFicha && ((window.FICHAS&&FICHAS.encerradasHoje)?FICHAS.encerradasHoje(ob.id):0)+fotosHoje.filter(x=>x.slot==='ficha').length>0;
+  const out=[
+    {t:`As 5 fotos (${feitos5}/5)`, sop:'SOP-001', auto:true, ok:feitos5>=5},
+    {t:'Áudio do dia gravado', sop:'SOP-001', auto:true, ok:doDia.some(x=>x.tipo==='audio')},
+    {t:'Coordenada registrada', sop:'SOP-001', auto:true, ok:fotosHoje.some(x=>x.meta?.lat!=null)||!!S.pos} ];
+  if(temFicha) out.push({t:'Ficha encerrada no app (ou a de papel fotografada)', sop:'SOP-001', auto:true, ok:fichaOk});
+  const vistos=new Set();
+  for(const l of (ob.linhas||[])) for(const [t,sop] of (ESSENCIAL[l]||[])) if(!vistos.has(t)){ vistos.add(t); out.push({t,sop}); }
+  if(LS.get('ocorr_'+ob.id+'_'+hoje(),false)){ out.push({t:'Ocorrência: Ygor avisado hoje',sop:'SOP-022'}); out.push({t:'Ocorrência: fotos do local antes de mexer',sop:'SOP-022'}); }
+  const est=estadoChk(ob); out.forEach(c=>{ if(!c.auto) c.ok=!!est[c.t]; });
+  return out; }
 function estadoChk(ob){ return LS.get('chk_'+ob.id+'_'+hoje(),{}); }
 function fotosDaObra(ob){ return S.fila.filter(x=>x.obraId===ob.id && (x.tipo==='foto'||x.tipo==='video') && !x.meta?.original); }
 
@@ -705,9 +739,11 @@ function telaRoteiro(ob){
   h+=`<div class="card"><h2>As 5 fotos + o que mais precisar</h2><div class="nota">Operação acontecendo, não posada. Horizontal. Toque no item: a câmera fica aberta e você tira <b>quantas fotos quiser</b> em cada um. Para <b>vídeo</b>, toque em "Vídeo" na câmera (até 1min30, com coordenada na imagem).</div><div class="slots">`;
   for(const s of slotsDaObra()){ const fs=fotos.filter(f=>f.slot===s.k); const n=P.roteiroFotos.findIndex(r=>r.k===s.k); h+=`<button class="slot ${fs.length?'done':''}" data-slot="${esc(s.k)}"><span class="n">${n>=0?n+1:'+'}</span><b>${esc(s.t)}</b><small>${esc(s.d)}</small>${fs.length?`${fs[fs.length-1].thumb?`<img src="${fs[fs.length-1].thumb}" alt="">`:""}<span class="cnt">${fs.length}</span>`:''}</button>`; }
   h+=`</div><div class="row" style="margin-top:10px"><select id="galSlot">${slotsDaObra().map(s=>`<option value="${esc(s.k)}">${esc(s.t)}</option>`).join('')}</select><button class="sec" id="galRot">Da galeria</button><input type="file" id="galRotIn" accept="image/*,video/*" multiple class="hide"></div><div class="nota">Foto ou vídeo já feito com a câmera do celular: escolha o item e toque em "Da galeria" (pode marcar vários de uma vez).</div></div>`;
-  h+=`<div class="card"><h2>Antes de sair do ponto</h2><div class="nota">Critério de pronto dos procedimentos desta obra. O que não der para cumprir, deixe desmarcado e diga no diário por quê.</div>`;
-  h+=chk.map((c,i)=>`<label class="chk" style="text-transform:none;letter-spacing:0;font-size:15px;color:var(--ink);margin:0;font-weight:400"><input type="checkbox" data-i="${i}" ${est[i]?'checked':''}><span>${esc(c.t)} <span class="chip" style="font-size:10px">${esc(c.sop)}</span></span></label>`).join('');
-  h+=`<label>O que ficou faltando ou deu errado hoje</label><textarea id="obsDia" placeholder="Pode deixar em branco.">${esc(LS.get('obs_'+ob.id+'_'+hoje(),''))}</textarea><button class="big" id="fecharDia" style="margin-top:12px">Registrar o dia (${Object.values(est).filter(Boolean).length}/${chk.length} feitos)</button><div class="nota">Manda para o escritório o que foi feito, o que ficou faltando e a coordenada. Junto com as fotos e o áudio, isso é o registro do dia.</div></div>`;
+  h+=`<div class="card"><h2>Antes de sair do ponto</h2><div class="nota">Só o essencial. Os de cima o app confere sozinho.</div>`;
+  h+=chk.map((c,i)=> c.auto
+    ? `<div class="chk" style="font-size:15px;color:var(--ink);margin:0;align-items:center"><span style="width:24px;text-align:center;font-weight:700;color:${c.ok?'var(--green)':'var(--muted)'}">${c.ok?'✓':'○'}</span><span>${esc(c.t)}</span></div>`
+    : `<label class="chk" style="text-transform:none;letter-spacing:0;font-size:15px;color:var(--ink);margin:0;font-weight:400"><input type="checkbox" data-t="${esc(c.t)}" ${c.ok?'checked':''}><span>${esc(c.t)}</span></label>`).join('');
+  h+=`<label>O que ficou faltando ou deu errado hoje</label><textarea id="obsDia" placeholder="Pode deixar em branco.">${esc(LS.get('obs_'+ob.id+'_'+hoje(),''))}</textarea><button class="big" id="fecharDia" style="margin-top:12px">Registrar o dia (${chk.filter(c=>c.ok).length}/${chk.length} feitos)</button><div class="nota">Manda para o escritório o que foi feito, o que ficou faltando e a coordenada. Junto com as fotos e o áudio, isso é o registro do dia.</div></div>`;
   return h;
 }
 function ligarRoteiro(ob){
@@ -715,10 +751,10 @@ function ligarRoteiro(ob){
   document.querySelectorAll('.slot').forEach(b=>b.onclick=()=>abrirCamera(b.dataset.slot));
   $('#galRot').onclick=()=>$('#galRotIn').click();
   $('#galRotIn').onchange=async e=>{ const files=[...e.target.files]; if(!files.length) return; const k=$('#galSlot').value; const st=slotsDaObra().find(s=>s.k===k)||{t:k}; toast('Processando '+files.length+' foto(s)…'); await daGaleria(files,k,st.t); };
-  document.querySelectorAll('input[data-i]').forEach(c=>c.onchange=()=>{ const est=estadoChk(ob); est[c.dataset.i]=c.checked; LS.set('chk_'+ob.id+'_'+hoje(),est); $('#fecharDia').textContent=`Registrar o dia (${Object.values(est).filter(Boolean).length}/${checklistDaObra(ob).length} feitos)`; });
+  document.querySelectorAll('input[data-t]').forEach(c=>c.onchange=()=>{ const est=estadoChk(ob); est[c.dataset.t]=c.checked; LS.set('chk_'+ob.id+'_'+hoje(),est); const l=checklistDaObra(ob); $('#fecharDia').textContent=`Registrar o dia (${l.filter(x=>x.ok).length}/${l.length} feitos)`; });
   $('#obsDia').oninput=e=>LS.set('obs_'+ob.id+'_'+hoje(),e.target.value);
   $('#fecharDia').onclick=async()=>{ const chk=checklistDaObra(ob); const est=estadoChk(ob); const obs=$('#obsDia').value.trim();
-    await enfileirarRegistro({ tipo:'dia', obraId:ob.id, obra:ob.nome, quem:S.quem, data:new Date().toISOString(), coordenada:S.pos, feitos:chk.filter((c,i)=>est[i]).map(c=>c.t), pendentes:chk.filter((c,i)=>!est[i]).map(c=>c.t), fotos:fotosDaObra(ob).length, obs, app:APP_VERSAO }, `${agoraArq()}_registro_do_dia_${slug(S.quem)}.json`);
+    await enfileirarRegistro({ tipo:'dia', obraId:ob.id, obra:ob.nome, quem:S.quem, data:new Date().toISOString(), coordenada:S.pos, feitos:chk.filter(c=>c.ok).map(c=>c.t), pendentes:chk.filter(c=>!c.ok).map(c=>c.t), fotos:fotosDaObra(ob).length, obs, app:APP_VERSAO }, `${agoraArq()}_registro_do_dia_${slug(S.quem)}.json`);
     toast('Registro do dia na fila'); };
 }
 function telaFotos(ob){
@@ -765,6 +801,28 @@ function telaProc(ob){
 // PDFs oficiais das fichas de papel, hospedados junto do app (id do arquivo no Drive -> arquivo local)
 const PAPEL={ '1B3N762GGR5AGVMk4NsMDRDnI0oTwjTzx':'papel_FC-SPT.pdf', '1dUzlRls578ddzWKOJbdijV88rQI6kp3x':'papel_FC-POCO-teste-entrega.pdf', '1DRZdCA0EAnGR35D3Fm80o-LICy0_Tqhk':'papel_FC-POCO-completa.pdf' };
 function papelLocal(url){ const m=/\/d\/([\w-]{20,})/.exec(url||''); return m&&PAPEL[m[1]]||null; }
+// páginas já em imagem (geradas do PDF oficial) para ver dentro do app sem leitor externo
+const PAPEL_PAG={ 'papel_FC-SPT.pdf':['papel_FC-SPT_p1.jpg'], 'papel_FC-POCO-completa.pdf':['papel_FC-POCO-completa_p1.jpg','papel_FC-POCO-completa_p2.jpg','papel_FC-POCO-completa_p3.jpg'], 'papel_FC-POCO-teste-entrega.pdf':['papel_FC-POCO-completa_p2.jpg','papel_FC-POCO-completa_p3.jpg'] };
+/* Visualizador de PDF dentro do app: mostra as páginas, amplia, compartilha (impressora, WhatsApp) — sem sair da tela */
+const VER={ aberto:false, urls:[] };
+async function verPDF(o){ // o: {titulo, paginas:[url|Blob], pdf: ()=>Promise<Blob>, nome}
+  fecharPDF(true); VER.aberto=true; VER.o=o; VER.zoom=1;
+  const urls=o.paginas.map(x=> typeof x==='string'? x : URL.createObjectURL(x)); VER.urls=urls.filter((u,i)=>typeof o.paginas[i]!=='string');
+  const ov=document.createElement('div'); ov.id='verPdf';
+  ov.innerHTML=`<div class="vtop"><button class="ghost" id="vFechar">✕ Fechar</button><b>${esc(o.titulo||'PDF')}</b><button class="ghost" id="vMenos">−</button><button class="ghost" id="vMais">+</button></div>
+    <div class="vcorpo" id="vCorpo">${urls.map((u,i)=>`<img src="${u}" alt="página ${i+1}" style="width:100%">`).join('')}</div>
+    <div class="vbot"><button class="green" id="vShare">Compartilhar / imprimir</button><button class="sec" id="vBaixar">Salvar no celular</button></div>`;
+  document.body.appendChild(ov); try{ history.pushState({t:'pdf'},''); }catch(e){}
+  const z=d=>{ VER.zoom=Math.min(3,Math.max(1,VER.zoom+d)); ov.querySelectorAll('.vcorpo img').forEach(im=>im.style.width=(VER.zoom*100)+'%'); };
+  $('#vMais').onclick=()=>z(0.5); $('#vMenos').onclick=()=>z(-0.5);
+  $('#vFechar').onclick=()=>{ if(history.state&&history.state.t==='pdf') history.back(); else fecharPDF(); };
+  $('#vBaixar').onclick=async()=>{ try{ baixarBlob(await o.pdf(), o.nome||'ficha.pdf'); }catch(e){ toast('Não consegui salvar: '+e.message); } };
+  $('#vShare').onclick=async()=>{ try{ const b=await o.pdf(); const f=new File([b], o.nome||'ficha.pdf', {type:'application/pdf'});
+      if(navigator.canShare && navigator.canShare({files:[f]})) await navigator.share({files:[f], title:o.titulo||o.nome});
+      else { baixarBlob(b, o.nome||'ficha.pdf'); toast('Este aparelho não compartilha arquivo direto: salvei no celular.',4000); } }
+    catch(e){ if(e && e.name!=='AbortError') toast('Não deu para compartilhar: '+e.message,4000); } };
+}
+function fecharPDF(silencioso){ const ov=$('#verPdf'); if(ov) ov.remove(); (VER.urls||[]).forEach(u=>URL.revokeObjectURL(u)); VER.urls=[]; VER.aberto=false; }
 function baixarBlob(blob, nome){ const u=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=u; a.download=nome; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(u),60000); }
 function telaFichas(ob){
   const sops=sopsDaObra(ob).filter(s=>s.ficha);
@@ -772,12 +830,13 @@ function telaFichas(ob){
   if(!sops.length) h+=`<div class="card"><div class="muted">Esta linha de serviço não tem ficha de campo cadastrada. Use o diário e as fotos.</div></div>`;
   const vistos=new Set();
   for(const s of sops){ const f=s.ficha; const loc=papelLocal(f.pdf); if(loc&&vistos.has(loc)) continue; if(loc) vistos.add(loc);
-    h+=`<div class="card"><h2>${esc(f.codigo||'Ficha')}</h2><div class="muted" style="margin-bottom:10px">${esc(f.nome||'')}<br><small>${esc(s.codigo)} · ${esc(s.titulo)}</small></div>${loc?`<button class="big" data-papel="${esc(loc)}">Baixar PDF para imprimir</button><div class="nota">Guardado no celular: funciona sem internet.</div>`:`<div class="nota">Peça a folha impressa ao escritório.</div>`}</div>`; }
+    h+=`<div class="card"><h2>${esc(f.codigo||'Ficha')}</h2><div class="muted" style="margin-bottom:10px">${esc(f.nome||'')}<br><small>${esc(s.codigo)} · ${esc(s.titulo)}</small></div>${loc?`<button class="big" data-papel="${esc(loc)}" data-titulo="${esc(f.codigo||'Ficha')} — folha de papel">Ver a folha / imprimir</button><div class="nota">Guardada no celular: abre sem internet.</div>`:`<div class="nota">Peça a folha impressa ao escritório.</div>`}</div>`; }
   h+=`<div class="card"><h2>Ficha preenchida</h2><div class="nota">Uma foto por folha. Diga o furo/ponto/página quando houver mais de uma.</div><label>Identificação (furo, ponto, folha)</label><input id="fichaId" placeholder="ex.: SP-03 folha 1"><div class="row" style="margin-top:10px"><button class="big green" id="fichaCam">📷 Fotografar ficha</button><button class="big sec" id="fichaGal">Da galeria</button></div><input type="file" id="fichaIn" accept="image/*,video/*" multiple class="hide"></div>`;
   return h;
 }
 function ligarFichas(ob){
-  document.querySelectorAll('[data-papel]').forEach(b=>b.onclick=async()=>{ try{ const r=await fetch(b.dataset.papel); if(!r.ok) throw new Error('HTTP '+r.status); baixarBlob(await r.blob(), b.dataset.papel); }catch(e){ toast('PDF ainda não guardado neste celular. Abra o app uma vez com internet.',4000); } });
+  document.querySelectorAll('[data-papel]').forEach(b=>b.onclick=()=>{ const nome=b.dataset.papel;
+    verPDF({ titulo:b.dataset.titulo||nome, paginas:PAPEL_PAG[nome]||[], nome, pdf:async()=>{ const r=await fetch(nome); if(!r.ok) throw new Error('PDF ainda não guardado — abra o app uma vez com internet'); return r.blob(); } }); });
   if(window.FICHAS) FICHAS.ligarLista(ob);
   $('#fichaCam').onclick=()=>{ CAM.extra={ficha:$('#fichaId').value.trim()}; abrirCamera('ficha'); };
   $('#fichaGal').onclick=()=>$('#fichaIn').click();
@@ -799,7 +858,7 @@ function ligarOcorr(ob){
   $('#ocFoto').onclick=()=>abrirCamera('ocorrencia');
   $('#ocEnviar').onclick=async()=>{ const txt=$('#ocTxt').value.trim(); if(!txt) return toast('Escreva o que aconteceu');
     await enfileirarRegistro({ tipo:'ocorrencia', obraId:ob.id, obra:ob.nome, quem:S.quem, data:new Date().toISOString(), coordenada:S.pos, categoria:$('#ocTipo').value, gravidade:grav, relato:txt, fotos:S.fila.filter(x=>x.obraId===ob.id&&x.slot==='ocorrencia').length, app:APP_VERSAO }, `${agoraArq()}_OCORRENCIA_${grav}_${slug(S.quem)}.json`);
-    $('#ocTxt').value=''; LS.set('oc_'+ob.id,''); toast('Ocorrência registrada na fila. Agora ligue para o Ygor.',4000); };
+    LS.set('ocorr_'+ob.id+'_'+hoje(),true); $('#ocTxt').value=''; LS.set('oc_'+ob.id,''); toast('Ocorrência registrada na fila. Agora ligue para o Ygor.',4000); };
 }
 
 /* ---------------- Boot ---------------- */
@@ -817,6 +876,7 @@ function ligarOcorr(ob){
   // Botão "voltar": fecha a câmera/ficha, volta para a lista de obras e NUNCA sai do app
     try{ history.replaceState({t:'base'},''); history.pushState({t:'app'},''); }catch(e){}
   window.addEventListener('popstate',()=>{
+    if(VER.aberto){ fecharPDF(); return; }
     if($('#cam').classList.contains('on')){ fecharCamera(); return; }
     if(window.FICHAS && FICHAS.aberta()){ FICHAS.fechar(); return; }
     if(S.obraId){ S.obraId=null; LS.set('obraId',null); render(); window.scrollTo(0,0); try{ history.pushState({t:'app'},''); }catch(e){} return; }

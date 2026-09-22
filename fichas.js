@@ -304,7 +304,7 @@ function desenharEditor(){
   const av=def.avisos(d);
   h+=`<div class="card" id="avisosBox"><h2>O que ainda falta</h2>${av.length?av.map(x=>`<div class="erro">${esc(x)}</div>`).join(''):'<div class="muted">Nada pendente.</div>'}<div class="nota">Nenhum aviso impede encerrar. Não mediu? Deixe em branco e escreva o porquê. Nunca invente.</div></div>`;
   if(!ro) h+=`<button class="big green" id="encerrar">Encerrar ficha e enviar</button><button class="big ghost" id="excluir" style="margin-top:8px;color:var(--err)">Excluir esta ficha</button>`;
-  else h+=`<button class="big sec" id="reabrir">Reabrir para corrigir (gera versão ${f.versao+1})</button><button class="big ghost" id="pdfver" style="margin-top:8px">Baixar o PDF</button>`;
+  else h+=`<button class="big sec" id="reabrir">Reabrir para corrigir (gera versão ${f.versao+1})</button><button class="big ghost" id="pdfver" style="margin-top:8px">Ver o PDF / compartilhar</button>`;
   $('#main').innerHTML=h; ligarEditor(f);
 }
 function ligarEditor(f){
@@ -333,7 +333,7 @@ function ligarEditor(f){
   const enc=$('#encerrar'); if(enc) enc.onclick=()=>encerrar(f);
   const exc=$('#excluir'); if(exc) exc.onclick=()=>{ if(exc.dataset.c!=='1'){ exc.dataset.c='1'; exc.textContent='Toque de novo para excluir de vez'; return; } remover(f.id); fechar(); };
   const rea=$('#reabrir'); if(rea) rea.onclick=()=>{ f.status='rascunho'; f.versao=(f.versao||1)+1; gravar(f); desenharEditor(); toast('Reaberta: versão '+f.versao); };
-  const pv=$('#pdfver'); if(pv) pv.onclick=async()=>{ const b=await gerarPDF(f); baixarBlob(b, `${def.codigo.replace(/\s+/g,'-')}_${slug(def.ident(f.dados))}_v${f.versao||1}.pdf`); }; // baixa, não navega: o app não sai da tela
+  const pv=$('#pdfver'); if(pv) pv.onclick=async()=>{ const b=await gerarPDF(f); verPDF({ titulo:`${def.codigo} · ${def.ident(f.dados)}`, paginas:b._paginas, nome:`${def.codigo.replace(/\s+/g,'-')}_${slug(def.ident(f.dados))}_v${f.versao||1}.pdf`, pdf:async()=>b }); }; // mostra dentro do app
   ligarProx(f);
   if(f.tipo==='poco_teste' && f.status!=='encerrada'){ clearInterval(window.__proxT); window.__proxT=setInterval(()=>{ const p=$('#prox'); if(!p||!aberta()){ clearInterval(window.__proxT); return; } if(document.activeElement && document.activeElement.id==='ldv') return; renderProx(f); },20000); }
 }
@@ -422,8 +422,8 @@ async function gerarPDF(f){
   if(def.nota){ const ls=quebra(def.nota,W-2*M-20,15); garante(ls.length*20+24); c.fillStyle='#E7F6ED'; c.fillRect(M,y,W-2*M,ls.length*20+18); c.fillStyle='#137F5B'; c.font=fonte(15); ls.forEach((l,i)=>c.fillText(l,M+10,y+22+i*20)); y+=ls.length*20+30; }
   const av=def.avisos(d); if(av.length){ titulo('Avisos no encerramento (campo em branco é permitido)'); av.forEach(a=>{ const ls=quebra('• '+a,W-2*M,15); garante(ls.length*20); c.fillStyle='#B45309'; c.font=fonte(15); ls.forEach(l=>{ c.fillText(l,M,y+14); y+=20; }); }); }
   rodape();
-  const jpgs=[]; for(const p of paginas){ const b=await new Promise(ok=>p.toBlob(ok,'image/jpeg',0.85)); jpgs.push(new Uint8Array(await b.arrayBuffer())); }
-  return montarPDF(jpgs, W, H);
+  const jpgs=[], imgs=[]; for(const p of paginas){ const b=await new Promise(ok=>p.toBlob(ok,'image/jpeg',0.85)); imgs.push(b); jpgs.push(new Uint8Array(await b.arrayBuffer())); }
+  const pdf=montarPDF(jpgs, W, H); pdf._paginas=imgs; return pdf;
 }
 function montarPDF(jpgs, W, H){
   // PDF mínimo: uma página A4 por imagem JPEG
@@ -634,5 +634,7 @@ async function encerrar(f){
   }catch(e){ toast('Não consegui gerar o PDF: '+e.message,5000); $('#encerrar').disabled=false; $('#encerrar').textContent='Encerrar ficha e enviar'; }
 }
 
-window.FICHAS = { secaoLista, ligarLista, abrir, fechar, aberta, desenharEditor, gerarPDF, DEF, _novaFicha:novaFicha, _pegar:pegar };
+window.FICHAS_DA_LINHA = FICHAS_DA_LINHA;
+function encerradasHoje(obraId){ const h=HOJE(); return todas().filter(f=>f.obraId===obraId && f.status==='encerrada' && f.encerradaEm && new Date(f.encerradaEm).toDateString()===new Date().toDateString()).length; }
+window.FICHAS = { encerradasHoje, secaoLista, ligarLista, abrir, fechar, aberta, desenharEditor, gerarPDF, DEF, _novaFicha:novaFicha, _pegar:pegar };
 })();
