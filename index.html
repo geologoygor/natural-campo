@@ -163,7 +163,7 @@ details[open] summary::after{content:"–"}
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.0.2';
+const APP_VERSAO = '1.0.3';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -409,6 +409,7 @@ async function enfileirarArquivo(blob, tipo, nome, extra){
   const id=tipo[0].toUpperCase()+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
   await DB.put({ id, tipo, obraId:ob.id, obraNome:ob.nome, pastaId:ob.pastaId||null, quem:S.quem, slot:tipo, slotTitulo:tipo, nome, mime:blob.type||'application/octet-stream', blob, thumb:null, meta:{quando:new Date().toISOString(), lat:S.pos?.lat??null, lon:S.pos?.lon??null, acc:S.pos?.acc??null, app:APP_VERSAO, extra:extra||null}, status:'pendente', criadoEm:new Date().toISOString() });
   await recarregarFila(); render(); if(navigator.onLine) enviarFila();
+  return id;
 }
 async function enfileirarRegistro(obj, nome){
   const blob=new Blob([JSON.stringify(obj,null,1)],{type:'application/json'});
@@ -428,7 +429,7 @@ async function enviarFila(){
         const j=await r.json().catch(()=>({ok:false,erro:'resposta inválida'}));
         if(j.ok){ it.status='enviado'; it.enviadoEm=new Date().toISOString(); it.url=j.url||null; it.pasta=j.pasta||null; it.blob=null; it.erro=null; }
         else { it.status='erro'; it.erro=j.erro||('HTTP '+r.status); }
-      }catch(e){ it.status='erro'; it.erro=String(e.message||e); }
+      }catch(e){ if(e instanceof TypeError || !navigator.onLine){ it.status='pendente'; it.erro=null; await DB.put(it); break; } it.status='erro'; it.erro=String(e.message||e); }
       await DB.put(it); pintarFila();
       if(it.status==='erro' && !navigator.onLine) break;
     }
@@ -447,7 +448,7 @@ async function baixarPacote(silencioso){
 const CAM={ stream:null, facing:'environment', slot:null };
 async function abrirCamera(slot){
   CAM.slot=slot; const sel=$('#camSlot'); sel.innerHTML=slotsDaObra().map(s=>`<option value="${esc(s.k)}" ${s.k===slot?'selected':''}>${esc(s.t)}</option>`).join('');
-  $('#cam').classList.add('on'); pintarToggles(); iniciarGPS(); atualizarGeo();
+  $('#cam').classList.add('on'); abrirCamHist(); pintarToggles(); iniciarGPS(); atualizarGeo();
   try{ await ligarStream(); }catch(e){ $('#cam').classList.remove('on'); toast('Câmera indisponível: '+e.message+'. Use "Da galeria".',4000); }
 }
 async function ligarStream(){
@@ -455,6 +456,7 @@ async function ligarStream(){
   CAM.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:CAM.facing}, width:{ideal:4096}, height:{ideal:3072}}, audio:false});
   $('#video').srcObject=CAM.stream;
 }
+function abrirCamHist(){ try{ history.pushState({t:'cam'},''); }catch(e){} }
 function fecharCamera(){ $('#cam').classList.remove('on'); if(CAM.stream){ CAM.stream.getTracks().forEach(t=>t.stop()); CAM.stream=null; } }
 async function fotografar(){
   const track=CAM.stream?.getVideoTracks()[0]; if(!track) return;
@@ -479,7 +481,7 @@ async function gravar(){
   try{ const st=await navigator.mediaDevices.getUserMedia({audio:true}); const mime=['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/aac',''].find(m=>!m||MediaRecorder.isTypeSupported(m));
     REC.mr=new MediaRecorder(st, mime?{mimeType:mime}:undefined); REC.chunks=[]; REC.blob=null;
     REC.mr.ondataavailable=e=>REC.chunks.push(e.data);
-    REC.mr.onstop=()=>{ st.getTracks().forEach(t=>t.stop()); REC.blob=new Blob(REC.chunks,{type:REC.mr.mimeType||'audio/webm'}); REC.mr=null; clearInterval(REC.timer); render(); };
+    REC.mr.onstop=async()=>{ st.getTracks().forEach(t=>t.stop()); REC.blob=new Blob(REC.chunks,{type:REC.mr.mimeType||'audio/webm'}); REC.mr=null; clearInterval(REC.timer); const ext=(REC.blob.type.includes('mp4')||REC.blob.type.includes('aac'))?'m4a':'webm'; REC.ultimoId=await enfileirarArquivo(REC.blob,'audio',`${hoje()}_diario_${slug(S.quem)}.${ext}`); toast('Áudio guardado na fila'); render(); };
     REC.mr.start(); REC.t0=Date.now(); REC.timer=setInterval(()=>{ const s=Math.floor((Date.now()-REC.t0)/1000); const el=$('#timer'); if(el) el.textContent=`${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')} / 00:40`; if(s>=40 && REC.mr) REC.mr.stop(); },250);
     render();
   }catch(e){ toast('Microfone indisponível: '+e.message); }
@@ -582,13 +584,12 @@ function telaDiario(ob){
   let h=`<div class="card"><h2>Diário de obra — 40 segundos</h2><div class="nota">Cinco frases, nesta ordem. O escritório transcreve e vira o registro do dia.</div>`;
   h+=(P.roteiroDiario||[]).map((f,i)=>`<div class="frase"><span>${i+1}</span><div>${esc(f)}</div></div>`).join('');
   h+=`<div class="timer" id="timer">${gravando?'00:00 / 00:40':'00:40'}</div><button class="rec ${gravando?'on':''}" id="rec">${gravando?'■':'●'}</button><div class="nota" style="text-align:center">${gravando?'Gravando… toque para parar':'Toque para gravar'}</div>`;
-  if(REC.blob) h+=`<audio controls src="${URL.createObjectURL(REC.blob)}" style="width:100%;margin-top:8px"></audio><div class="row" style="margin-top:10px"><button class="green" id="enviarAudio">Guardar na fila</button><button class="sec" id="descartar">Regravar</button></div>`;
+  if(REC.blob) h+=`<audio controls src="${URL.createObjectURL(REC.blob)}" style="width:100%;margin-top:8px"></audio><div class="row" style="margin-top:10px"><div class="nota">Já está guardado na fila. Não gostou? Apague e grave de novo.</div><div class="row" style="margin-top:10px"><button class="sec" id="descartar">Apagar e regravar</button></div>`;
   h+=`</div>`; return h;
 }
 function ligarDiario(ob){
   $('#rec').onclick=gravar;
-  const b=$('#enviarAudio'); if(b) b.onclick=async()=>{ const ext=(REC.blob.type.includes('mp4')||REC.blob.type.includes('aac'))?'m4a':'webm'; await enfileirarArquivo(REC.blob,'audio',`${hoje()}_diario_${slug(S.quem)}.${ext}`); REC.blob=null; toast('Áudio na fila'); render(); };
-  const d=$('#descartar'); if(d) d.onclick=()=>{REC.blob=null;render();};
+  const d=$('#descartar'); if(d) d.onclick=async()=>{ const it=S.fila.find(x=>x.id===REC.ultimoId); if(it && it.status!=='enviado'){ await DB.del(it.id); await recarregarFila(); toast('Áudio apagado'); } else if(it) toast('Esse já tinha sido enviado; o novo vai junto'); REC.blob=null; REC.ultimoId=null; render(); };
 }
 function telaProc(ob){
   const sops=sopsDaObra(ob); const P=S.pacote;
@@ -622,18 +623,19 @@ function telaOcorr(ob){
   const P=S.pacote; const s22=P.sops['SOP-022'];
   let h=`<div class="card"><h2>Aconteceu alguma coisa?</h2><div class="nota">Acidente, quase-acidente, dano, equipamento quebrado, acesso negado, chuva que parou o serviço, rocha, cliente pedindo coisa fora do combinado. Registre na hora: hora, o quê, quem. Depois ligue para o Ygor.</div>
   <label>Tipo</label><select id="ocTipo"><option>Acidente com pessoa</option><option>Quase-acidente</option><option>Dano a bem do cliente</option><option>Equipamento falhou</option><option>Acesso negado / responsável ausente</option><option>Chuva ou condição impeditiva</option><option>Rocha / mudança de método</option><option>Cliente pediu fora do escopo</option><option>Outro</option></select>
-  <label>O que aconteceu</label><textarea id="ocTxt" placeholder="Hora, o que aconteceu, quem, o que foi feito, estado da pessoa, o que quebrou."></textarea>
+  <label>O que aconteceu</label><textarea id="ocTxt" placeholder="Hora, o que aconteceu, quem, o que foi feito, estado da pessoa, o que quebrou.">${esc(LS.get('oc_'+ob.id,''))}</textarea>
   <label>Gravidade</label><div class="seg"><button data-g="leve" class="on">Leve</button><button data-g="media">Média</button><button data-g="grave">Grave</button></div>
   <div class="row" style="margin-top:12px"><button class="big sec" id="ocFoto">📷 Fotos do local</button><button class="big danger" id="ocEnviar">Registrar ocorrência</button></div></div>`;
   if(s22){ h+=`<div class="card"><h2>${esc(s22.codigo)} · ${esc(s22.titulo)}</h2>`; for(const f of (s22.fases||[])){ h+=`<h3>${esc(f.nome||f.titulo||'')}</h3>`+(f.etapas||[]).map(e=>`<div class="etapa">${esc(e.t)}</div>`).join(''); } h+=`</div>`; }
   return h;
 }
 function ligarOcorr(ob){
+  $('#ocTxt').oninput=e=>LS.set('oc_'+ob.id,e.target.value);
   let grav='leve'; document.querySelectorAll('[data-g]').forEach(b=>b.onclick=()=>{ grav=b.dataset.g; document.querySelectorAll('[data-g]').forEach(x=>x.classList.toggle('on',x===b)); });
   $('#ocFoto').onclick=()=>abrirCamera('ocorrencia');
   $('#ocEnviar').onclick=async()=>{ const txt=$('#ocTxt').value.trim(); if(!txt) return toast('Escreva o que aconteceu');
     await enfileirarRegistro({ tipo:'ocorrencia', obraId:ob.id, obra:ob.nome, quem:S.quem, data:new Date().toISOString(), coordenada:S.pos, categoria:$('#ocTipo').value, gravidade:grav, relato:txt, fotos:S.fila.filter(x=>x.obraId===ob.id&&x.slot==='ocorrencia').length, app:APP_VERSAO }, `${hoje()}_OCORRENCIA_${grav}_${slug(S.quem)}.json`);
-    $('#ocTxt').value=''; toast('Ocorrência registrada na fila. Agora ligue para o Ygor.',4000); };
+    $('#ocTxt').value=''; LS.set('oc_'+ob.id,''); toast('Ocorrência registrada na fila. Agora ligue para o Ygor.',4000); };
 }
 
 /* ---------------- Boot ---------------- */
@@ -641,13 +643,22 @@ function ligarOcorr(ob){
   await DB.open(); await recarregarFila();
   $('#hBtn').onclick=()=>{ S.obraId=null; LS.set('obraId',null); render(); };
   $('#filaBtn').onclick=()=>enviarFila();
-  $('#camFechar').onclick=fecharCamera; $('#shutter').onclick=fotografar;
+  $('#camFechar').onclick=()=>{ if(history.state&&history.state.t==='cam') history.back(); else fecharCamera(); }; $('#shutter').onclick=fotografar;
   $('#camTrocar').onclick=async()=>{ CAM.facing=CAM.facing==='environment'?'user':'environment'; try{ await ligarStream(); }catch(e){ toast(e.message); } };
   $('#tgMarca').onclick=()=>{ S.marca=!S.marca; LS.set('marca',S.marca); pintarToggles(); };
   $('#tgFmt').onclick=()=>{ S.fmt=S.fmt==='utm'?'geo':'utm'; LS.set('fmt',S.fmt); pintarToggles(); atualizarGeo(); };
   window.addEventListener('online',()=>{ pintarFila(); enviarFila(); }); window.addEventListener('offline',pintarFila);
   const ob=LS.get('obraId',null); if(ob && S.pacote?.obras.some(o=>o.id===ob)) S.obraId=ob;
   render(); if(S.obraId) iniciarGPS();
+  // Botão "voltar" do celular: fecha a câmera, volta para a lista de obras e só sai do app com dois toques seguidos
+  let ultimoVoltar=0;
+  try{ history.replaceState({t:'base'},''); history.pushState({t:'app'},''); }catch(e){}
+  window.addEventListener('popstate',()=>{
+    if($('#cam').classList.contains('on')){ fecharCamera(); return; }
+    if(S.obraId){ S.obraId=null; LS.set('obraId',null); render(); window.scrollTo(0,0); try{ history.pushState({t:'app'},''); }catch(e){} return; }
+    if(Date.now()-ultimoVoltar<2500){ history.back(); return; }
+    ultimoVoltar=Date.now(); toast('Toque em voltar de novo para sair. Nada se perde: a fila fica guardada.'); try{ history.pushState({t:'app'},''); }catch(e){}
+  });
   if('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js').catch(()=>{}); }
   if(navigator.onLine){ baixarPacote(true); enviarFila(); }
   // pacote de demonstração local (quando abre pelo repositório sem robô configurado)
