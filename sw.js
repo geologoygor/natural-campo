@@ -1,7 +1,7 @@
 /* Campo · Natural Engenharia — service worker
    Rede primeiro (pega sempre a versão nova e os SOPs atualizados);
    sem internet, usa a cópia guardada no celular. */
-const V = 'campo-v1.7.4';
+const V = 'campo-v1.7.5';
 const FONTES = 'campo-fontes'; // não muda de versão: a fonte baixada uma vez fica
 const SHELL = ['./', 'index.html', 'fichas.js', 'manifest.webmanifest', 'logo-white.png', 'logo-color.png', 'icon-192.png', 'icon-512.png', 'campo.json'];
 const PAPEL = ['papel_FC-SPT.pdf', 'papel_FC-POCO-teste-entrega.pdf', 'papel_FC-POCO-completa.pdf', 'papel_FC-SPT_p1.jpg', 'papel_FC-POCO-completa_p1.jpg', 'papel_FC-POCO-completa_p2.jpg', 'papel_FC-POCO-completa_p3.jpg']; // fichas de papel para imprimir sem internet

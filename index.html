@@ -117,8 +117,6 @@ details[open] summary::after{content:"–"}
 #cam .top{position:absolute;top:0;left:0;right:0;padding:calc(10px + var(--sat)) 12px 10px;display:flex;gap:8px;align-items:center;background:linear-gradient(rgba(0,0,0,.6),transparent);color:#fff;font-size:13px}
 #cam .top select{width:auto;flex:1;background:rgba(255,255,255,.15);color:#fff;border:0;padding:8px}
 #cam .top select option{color:#000}
-#cam #camRes{position:absolute;right:12px;top:calc(62px + var(--sat));color:#fff;font:11px ui-monospace,Menlo,monospace;background:rgba(0,0,0,.45);padding:4px 8px;border-radius:8px;z-index:2}
-#cam #camNativa{position:absolute;right:8px;bottom:calc(272px + var(--sab));color:#fff;background:rgba(0,0,0,.5);font-size:12px;border-radius:10px;z-index:3}
 #cam #camGaleria{position:absolute;left:8px;bottom:calc(272px + var(--sab));color:#fff;background:rgba(0,0,0,.5);font-size:12px;border-radius:10px;z-index:3}
 #cam #camLogo{position:absolute;left:12px;top:calc(62px + var(--sat));width:52px;height:52px;border-radius:10px;opacity:.92;box-shadow:0 2px 8px rgba(0,0,0,.45);z-index:2}
 #cam.semmarca #camLogo{display:none}
@@ -201,9 +199,6 @@ details[open] summary::after{content:"–"}
     <button class="ghost" id="camTrocar">⟲</button>
   </div>
   <img id="camLogo" src="icon-192.png" alt="">
-  <div id="camRes"></div>
-  <button class="ghost" id="camNativa">Câmera do celular (máxima)</button>
-  <input type="file" id="camNativaIn" accept="image/*" capture="environment" class="hide">
   <button class="ghost" id="camGaleria">🖼 Da galeria</button>
   <input type="file" id="camGaleriaIn" accept="image/*,video/*" multiple class="hide">
   <div class="tiras" id="camTiras"></div>
@@ -220,14 +215,14 @@ details[open] summary::after{content:"–"}
 <div class="toast" id="toast"></div>
 <canvas id="cv" class="hide"></canvas>
 
-<script src="fichas.js?v=1.7.4"></script>
+<script src="fichas.js?v=1.7.5"></script>
 <script>
 /* ============================================================
    CAMPO · Natural Engenharia — app de campo (PWA)
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.7.4';
+const APP_VERSAO = '1.7.5';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -590,8 +585,7 @@ async function ligarStream(){
   }
   $('#video').srcObject=CAM.stream; mostrarResolucao();
 }
-function mostrarResolucao(){ const el=$('#camRes'); if(!el) return; const tr=CAM.stream&&CAM.stream.getVideoTracks()[0]; const s=tr&&tr.getSettings?tr.getSettings():{};
-  const mp=(s.width&&s.height)?((s.width*s.height)/1e6).toFixed(1):''; el.textContent = s.width? `${s.width}×${s.height}${mp?` · ${mp} MP`:''}` : ''; }
+function mostrarResolucao(){ /* a câmera abre sempre na resolução máxima; nada é mostrado na tela */ }
 function abrirCamHist(){ try{ history.pushState({t:'cam'},''); }catch(e){} }
 function fecharCamera(){ if(CAM.rec) pararGravacao(); CAM.extra=null; CAM.slotTitulo=null; modoCamera('foto'); $('#cam').classList.remove('on'); if(CAM.stream){ CAM.stream.getTracks().forEach(t=>t.stop()); CAM.stream=null; } }
 async function fotografar(){
@@ -972,12 +966,6 @@ function ligarOcorr(ob){
   $('#filaBtn').onclick=()=>enviarFila();
   $('#camFechar').onclick=()=>{ if(history.state&&history.state.t==='cam') history.back(); else fecharCamera(); }; $('#shutter').onclick=()=> CAM.modo==='video'? gravarOuParar() : fotografar(); $('#mFoto').onclick=()=>{ if(!CAM.rec) modoCamera('foto'); }; $('#mVideo').onclick=()=>{ if(!CAM.rec) modoCamera('video'); };
   $('#camSlot').onchange=()=>pintarTiras();
-  // câmera nativa do celular: qualidade máxima (o carimbo entra igual, com o GPS do momento)
-  $('#camNativa').onclick=()=>$('#camNativaIn').click();
-  $('#camNativaIn').onchange=async e=>{ const files=[...e.target.files]; e.target.value=''; if(!files.length) return;
-    const slot=$('#camSlot').value; const st=(slot===CAM.slot&&CAM.slotTitulo)?{t:CAM.slotTitulo}:(slotsDaObra().find(x=>x.k===slot)||{t:slot});
-    toast('Carimbando a foto…'); for(const f of files){ await enfileirarFoto(f,{slot, slotTitulo:st.t, fonte:'camera', extra:(slot===CAM.slot?CAM.extra:null)||null}); }
-    pintarTiras(); };
   // galeria: entra no MESMO item que está aberto na câmera
   $('#camGaleria').onclick=()=>$('#camGaleriaIn').click();
   $('#camGaleriaIn').onchange=async e=>{ const files=[...e.target.files]; e.target.value=''; if(!files.length) return;
