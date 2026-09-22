@@ -163,9 +163,9 @@ details[open] summary::after{content:"–"}
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.0.0';
+const APP_VERSAO = '1.0.1';
 const CFG_PADRAO = {
-  script: '',                 // URL /exec do Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
+  script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
   maxLado: 2560,              // maior lado da foto enviada (px)
   qualidade: 0.9,
@@ -175,7 +175,7 @@ const LS = {
   set(k, v){ try{ localStorage.setItem('nc_'+k, JSON.stringify(v)); }catch(e){} },
 };
 const S = {
-  cfg: Object.assign({}, CFG_PADRAO, LS.get('cfg', {})),
+  cfg: (function(){ const c = Object.assign({}, CFG_PADRAO, LS.get('cfg', {})); if(!c.script) c.script = CFG_PADRAO.script; return c; })(),
   pacote: LS.get('pacote', null),
   quem: LS.get('quem', ''),
   fmt: LS.get('fmt', 'utm'),          // 'geo' | 'utm'
