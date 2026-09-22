@@ -93,6 +93,7 @@ details[open] summary::after{content:"–"}
 .th .au{display:flex;align-items:center;justify-content:center;height:100%;font-size:34px}
 .banner{background:var(--err-bg);color:var(--err);border-radius:10px;padding:10px 12px;font-size:14px;margin-bottom:12px}
 .nota{color:var(--muted);font-size:13px;margin:6px 0}
+.instalar{background:var(--navy);color:#fff}.instalar h2{color:#fff}.instalar .passos{font-size:14px;line-height:1.6;margin-top:6px}.instalar button{background:#fff;color:var(--navy);margin-top:8px}
 .geo{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;background:#E8F1FA;border-radius:8px;padding:8px 10px;color:var(--navy)}
 .seg{display:flex;border:1.5px solid var(--navy);border-radius:10px;overflow:hidden}
 .seg button{flex:1;border-radius:0;background:#fff;color:var(--navy);padding:10px}
@@ -178,7 +179,7 @@ details[open] summary::after{content:"–"}
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.1.0';
+const APP_VERSAO = '1.1.1';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -202,6 +203,8 @@ const S = {
 };
 const $ = (s, el=document) => el.querySelector(s);
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function EH_APP(){ try{ return matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches || navigator.standalone===true; }catch(e){ return false; } }
+window.addEventListener('beforeinstallprompt',e=>{ e.preventDefault(); S.promptInstalar=e; if(!S.obraId) try{ render(); }catch(_){} });
 function toast(m, ms=2200){ const t=$('#toast'); t.textContent=m; t.classList.add('on'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('on'), ms); }
 function hoje(){ const d=new Date(); return d.toISOString().slice(0,10); }
 function fmtData(d){ d = d instanceof Date ? d : new Date(d); const p=n=>String(n).padStart(2,'0'); return `${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`; }
@@ -524,6 +527,11 @@ function render(){
 function telaInicio(){
   const P=S.pacote; const semScript=!S.cfg.script;
   let h='';
+  if(!EH_APP()){ const ios=/iPhone|iPad|iPod/.test(navigator.userAgent);
+    h+=`<div class="card instalar"><h2>Instale o app na tela inicial</h2><div class="nota" style="color:#fff">Aberto pelo navegador, a barra de baixo (com a seta de voltar) continua aparecendo. Instalado, o app abre em tela cheia, sem essa barra, e não tem como sair sem querer.</div>`+
+      (S.promptInstalar?`<button id="btInstalar">Instalar agora</button>`:
+       ios?`<div class="passos">1. Toque no botão <b>Compartilhar</b> (quadrado com seta para cima, no alto à direita no Chrome ou embaixo no Safari).<br>2. Escolha <b>Adicionar à Tela de Início</b>.<br>3. Feche o navegador e abra pelo ícone <b>Campo Natural</b>.</div>`
+          :`<div class="passos">1. Toque no menu <b>⋮</b> do navegador.<br>2. Escolha <b>Instalar app</b> ou <b>Adicionar à tela inicial</b>.<br>3. Abra pelo ícone <b>Campo Natural</b>.</div>`)+`</div>`; }
   if(semScript) h+=`<div class="banner">O robô de campo ainda não está configurado neste aparelho. Abra <b>Ajustes</b> e cole a URL do robô. Sem ele o app funciona, mas nada sobe para o Drive.</div>`;
   h+=`<div class="card"><label>Quem está usando este aparelho</label><input id="quem" placeholder="Primeiro e segundo nome" value="${esc(S.quem)}"><div class="nota">Vai no carimbo da foto e no nome do arquivo. Fica salvo neste celular.</div></div>`;
   h+=`<div class="card"><h2>Obras abertas</h2><input id="busca" placeholder="Buscar obra ou cliente…" style="margin-bottom:10px"><div id="lista">`;
@@ -538,6 +546,7 @@ function telaInicio(){
 }
 function cartaoObra(o){ const P=S.pacote; return `<button class="obra" data-id="${esc(o.id)}"><b>${esc(o.nome)}</b><small>${esc(o.cliente||'')}</small><div style="margin-top:6px">${(o.linhas||[]).map(l=>`<span class="chip">${esc(P.linhas[l]?.nome||l)}</span>`).join('')}${o.pastaId?'':'<span class="chip w">sem pasta no Drive</span>'}</div></button>`; }
 function ligarInicio(){
+  const bi=$('#btInstalar'); if(bi) bi.onclick=async()=>{ const e=S.promptInstalar; S.promptInstalar=null; try{ e.prompt(); await e.userChoice; }catch(_){} render(); };
   $('#quem').onchange=e=>{ S.quem=e.target.value.trim(); LS.set('quem',S.quem); };
   $('#busca').oninput=e=>{ const q=e.target.value.toLowerCase(); $('#lista').innerHTML=(S.pacote?.obras||[]).filter(o=>(o.nome+' '+(o.cliente||'')+' '+(o.servico||'')).toLowerCase().includes(q)).map(cartaoObra).join('')||'<div class="muted">Nada encontrado.</div>'; ligarObras(); };
   ligarObras();
@@ -667,16 +676,16 @@ function ligarOcorr(ob){
   window.addEventListener('online',()=>{ pintarFila(); enviarFila(); }); window.addEventListener('offline',pintarFila);
   const ob=LS.get('obraId',null); if(ob && S.pacote?.obras.some(o=>o.id===ob)) S.obraId=ob;
   render(); if(S.obraId) iniciarGPS();
-  // Botão "voltar" do celular: fecha a câmera, volta para a lista de obras e só sai do app com dois toques seguidos
-  let ultimoVoltar=0;
-  try{ history.replaceState({t:'base'},''); history.pushState({t:'app'},''); }catch(e){}
+  // Botão "voltar": fecha a câmera/ficha, volta para a lista de obras e NUNCA sai do app
+    try{ history.replaceState({t:'base'},''); history.pushState({t:'app'},''); }catch(e){}
   window.addEventListener('popstate',()=>{
     if($('#cam').classList.contains('on')){ fecharCamera(); return; }
     if(window.FICHAS && FICHAS.aberta()){ FICHAS.fechar(); return; }
     if(S.obraId){ S.obraId=null; LS.set('obraId',null); render(); window.scrollTo(0,0); try{ history.pushState({t:'app'},''); }catch(e){} return; }
-    if(Date.now()-ultimoVoltar<2500){ history.back(); return; }
-    ultimoVoltar=Date.now(); toast('Toque em voltar de novo para sair. Nada se perde: a fila fica guardada.'); try{ history.pushState({t:'app'},''); }catch(e){}
+    toast('Você já está na lista de obras. Para sair, feche o app. Nada se perde: a fila fica guardada.',3500); try{ history.pushState({t:'app'},''); }catch(e){}
   });
+  // cada toque renova a trava do voltar (o navegador só respeita trava criada com toque do usuário)
+  document.addEventListener('pointerdown',()=>{ if(!history.state || history.state.t==='base'){ try{ history.pushState({t:'app'},''); }catch(e){} } },true);
   if('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js').catch(()=>{}); }
   if(navigator.onLine){ baixarPacote(true); enviarFila(); }
   // pacote de demonstração local (quando abre pelo repositório sem robô configurado)
