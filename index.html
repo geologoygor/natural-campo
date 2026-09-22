@@ -119,6 +119,7 @@ details[open] summary::after{content:"–"}
 #cam .top select option{color:#000}
 #cam #camRes{position:absolute;right:12px;top:calc(62px + var(--sat));color:#fff;font:11px ui-monospace,Menlo,monospace;background:rgba(0,0,0,.45);padding:4px 8px;border-radius:8px;z-index:2}
 #cam #camNativa{position:absolute;right:8px;bottom:calc(272px + var(--sab));color:#fff;background:rgba(0,0,0,.5);font-size:12px;border-radius:10px;z-index:3}
+#cam #camGaleria{position:absolute;left:8px;bottom:calc(272px + var(--sab));color:#fff;background:rgba(0,0,0,.5);font-size:12px;border-radius:10px;z-index:3}
 #cam #camLogo{position:absolute;left:12px;top:calc(62px + var(--sat));width:52px;height:52px;border-radius:10px;opacity:.92;box-shadow:0 2px 8px rgba(0,0,0,.45);z-index:2}
 #cam.semmarca #camLogo{display:none}
 #cam .tiras{position:absolute;left:0;right:0;bottom:calc(210px + var(--sab));display:flex;gap:8px;align-items:center;padding:0 12px;overflow-x:auto;z-index:3}
@@ -203,6 +204,8 @@ details[open] summary::after{content:"–"}
   <div id="camRes"></div>
   <button class="ghost" id="camNativa">Câmera do celular (máxima)</button>
   <input type="file" id="camNativaIn" accept="image/*" capture="environment" class="hide">
+  <button class="ghost" id="camGaleria">🖼 Da galeria</button>
+  <input type="file" id="camGaleriaIn" accept="image/*,video/*" multiple class="hide">
   <div class="tiras" id="camTiras"></div>
   <div class="geo2" id="camGeo">Procurando GPS…</div>
   <div id="camVer" class="hide"><img id="camVerImg" alt=""><div id="camVerInfo"></div><div class="cvbot"><button class="sec" id="cvFechar">Voltar</button><button class="danger" id="cvApagar">Apagar esta foto</button></div></div>
@@ -217,19 +220,21 @@ details[open] summary::after{content:"–"}
 <div class="toast" id="toast"></div>
 <canvas id="cv" class="hide"></canvas>
 
-<script src="fichas.js?v=1.7.2"></script>
+<script src="fichas.js?v=1.7.3"></script>
 <script>
 /* ============================================================
    CAMPO · Natural Engenharia — app de campo (PWA)
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.7.2';
+const APP_VERSAO = '1.7.3';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
-  maxLado: 3200,              // maior lado da foto enviada (px) — ~8 MP, boa para relatório e impressão
+  maxLado: 3200,              // maior lado da foto tirada na câmera do app (px) — ~8 MP
   qualidade: 0.92,
+  maxLadoGaleria: 4096,       // foto puxada da galeria: já veio pronta, então redimensiona menos
+  qualidadeGaleria: 0.96,     // e regrava com perda mínima
 };
 const LS = {
   get(k, d){ try{ const v = localStorage.getItem('nc_'+k); return v==null? d : JSON.parse(v);}catch(e){return d;} },
@@ -280,7 +285,7 @@ function toUTM(lat, lon){
 function fmtCoord(p, fmt){ // SIRGAS 2000: o GPS dá WGS 84, que o IBGE considera equivalente na prática (diferença de centímetros)
   if(!p) return 'sem coordenada';
   if(fmt==='utm'){ const u=toUTM(p.lat,p.lon); return `UTM ${u.zone}${u.hemi}  E ${u.e}  N ${u.n}  (SIRGAS 2000)`; }
-  return `${coordDMS(p)}  (SIRGAS 2000)`;
+  return `${coordDMS(p)}`;
 }
 function fmtCoordCurta(p, fmt){
   if(!p) return '—';
@@ -417,14 +422,14 @@ async function inserirExif(blob, meta){
 /* ---------------- Carimbo e marca d'água ---------------- */
 const IMG={ logo:null, logoN:null };
 function carregarImg(src){ return new Promise((ok,er)=>{ const i=new Image(); i.onload=()=>ok(i); i.onerror=er; i.src=src; }); }
-async function carimbar(bitmap, info){
+async function carimbar(bitmap, info, q){
   // info: {obra, quem, slot, pos:{lat,lon,acc}|null, fonte:'aparelho'|'foto'|null, data:Date, fmt, marca}
   const W=bitmap.width, H=bitmap.height; const cv=$('#cv'); cv.width=W; cv.height=H; const c=cv.getContext('2d');
   c.drawImage(bitmap,0,0);
   if(info.marca && !IMG.logoN) IMG.logoN=await carregarImg('icon-192.png').catch(()=>null);
   await prepararFonteCarimbo();
   desenharCarimbo(c,W,H,info);
-  return new Promise(ok=> cv.toBlob(ok,'image/jpeg',S.cfg.qualidade));
+  return new Promise(ok=> cv.toBlob(ok,'image/jpeg', q || S.cfg.qualidade));
 }
 /* Carimbo no estilo "Timestamp Camera": texto branco com sombra, sem tarja, canto inferior esquerdo.
    Hora grande | data e dia da semana · obra · coordenada em graus-minutos-segundos e UTM (SIRGAS 2000)
@@ -437,14 +442,14 @@ function dms(v, pos, neg){ const h=v<0?neg:pos; v=Math.abs(v); let g=Math.floor(
 function coordDMS(p){ return `${dms(p.lat,'N','S')}   ${dms(p.lon,'E','W')}`; }
 function milhar(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g,'.'); }
 function coordUTMtxt(p){ const u=toUTM(p.lat,p.lon); return `UTM ${u.zone}${u.hemi}   E ${milhar(u.e)}   N ${milhar(u.n)}`; }
-function textoCoordFicha(p){ if(!p) return ''; const u=toUTM(p.lat,p.lon); return `SIRGAS 2000 · UTM ${u.zone}${u.hemi} E ${u.e} N ${u.n} · ${coordDMS(p)} · Lat ${p.lat.toFixed(6)} Lon ${p.lon.toFixed(6)} · ±${Math.round(p.acc||0)} m (GPS do celular)`; }
+function textoCoordFicha(p){ if(!p) return ''; const u=toUTM(p.lat,p.lon); return `UTM ${u.zone}${u.hemi} E ${u.e} N ${u.n} (SIRGAS 2000) · ${coordDMS(p)} · Lat ${p.lat.toFixed(6)} Lon ${p.lon.toFixed(6)} · ±${Math.round(p.acc||0)} m (GPS do celular)`; }
 function desenharCarimbo(c,W,H,info){
   // Carimbo enxuto: só as coordenadas e o N da Natural. Data, hora, quem tirou e o item
   // já ficam no nome do arquivo e no EXIF — não precisam tomar a imagem.
   const base=Math.min(W,H); const fs=Math.max(11,Math.round(base*0.023)); const m=Math.round(base*0.028); const lh=Math.round(fs*1.3);
   const linhas=[];
   if(info.pos){ linhas.push({t:coordDMS(info.pos), w:700});
-    linhas.push({t:(info.fmt==='utm'? coordUTMtxt(info.pos) : `Lat ${info.pos.lat.toFixed(6).replace('.',',')}°   Lon ${info.pos.lon.toFixed(6).replace('.',',')}°`)+'   ·   SIRGAS 2000', w:400, k:0.92}); }
+    linhas.push({t:(info.fmt==='utm'? coordUTMtxt(info.pos)+'   ·   SIRGAS 2000' : `Lat ${info.pos.lat.toFixed(6).replace('.',',')}°   Lon ${info.pos.lon.toFixed(6).replace('.',',')}°`), w:400, k:0.92}); }
   else linhas.push({t:'SEM COORDENADA (GPS indisponível)', w:700});
   const alturaTexto = linhas.reduce((a,l)=>a+lh*(l.k||1),0);
   const logoH = (info.marca && IMG.logoN) ? Math.round(alturaTexto*0.92) : 0;
@@ -467,10 +472,27 @@ function roundRect(c,x,y,w,h,r){ c.beginPath(); c.moveTo(x+r,y); c.arcTo(x+w,y,x
 async function bitmapDe(blob){
   try{ return await createImageBitmap(blob,{imageOrientation:'from-image'}); }catch(e){ return await createImageBitmap(blob); }
 }
+const AREA_MAX_CANVAS = 16777216; // limite prático de canvas no iPhone (~16,7 MP): acima disso a tela sai borrada
+function desenhoLiso(c){ c.imageSmoothingEnabled=true; try{ c.imageSmoothingQuality='high'; }catch(e){} return c; }
 async function redimensionar(bmp, max){
-  if(Math.max(bmp.width,bmp.height)<=max) return bmp;
-  const k=max/Math.max(bmp.width,bmp.height); const w=Math.round(bmp.width*k), h=Math.round(bmp.height*k);
-  const oc=document.createElement('canvas'); oc.width=w; oc.height=h; oc.getContext('2d').drawImage(bmp,0,0,w,h);
+  const W=bmp.width, H=bmp.height;
+  let k=Math.min(1, max/Math.max(W,H));
+  if(W*H*k*k > AREA_MAX_CANVAS) k=Math.min(k, Math.sqrt(AREA_MAX_CANVAS/(W*H)));
+  if(k>=1) return bmp;
+  const alvoW=Math.max(1,Math.round(W*k)), alvoH=Math.max(1,Math.round(H*k));
+  // reduz em etapas de no máximo 50% por vez: uma redução grande de uma vez só borra a foto
+  let atual=bmp;
+  while(atual.width > alvoW*2){
+    const w=Math.round(atual.width/2), h=Math.max(1,Math.round(atual.height/2));
+    const oc=document.createElement('canvas'); oc.width=w; oc.height=h;
+    desenhoLiso(oc.getContext('2d')).drawImage(atual,0,0,w,h);
+    const prox=await createImageBitmap(oc);
+    if(atual!==bmp && atual.close) atual.close();
+    atual=prox;
+  }
+  const oc=document.createElement('canvas'); oc.width=alvoW; oc.height=alvoH;
+  desenhoLiso(oc.getContext('2d')).drawImage(atual,0,0,alvoW,alvoH);
+  if(atual!==bmp && atual.close) atual.close();
   return await createImageBitmap(oc);
 }
 
@@ -484,8 +506,11 @@ async function enfileirarFoto(blobOriginal, opts){
   else { if(opts.gpsOrig){ pos={lat:opts.gpsOrig.lat,lon:opts.gpsOrig.lon,alt:opts.gpsOrig.alt,acc:null}; fonte='foto'; }
          else if(S.pos){ pos=S.pos; fonte='aparelho-tardio'; }
          if(opts.dataOrig){ const m=/^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/.exec(opts.dataOrig); if(m) data=new Date(+m[1],m[2]-1,+m[3],+m[4],+m[5],+m[6]); } }
-  let bmp=await bitmapDe(blobOriginal); bmp=await redimensionar(bmp,S.cfg.maxLado);
-  const carimbo=await carimbar(bmp,{obra:ob.nome, quem:S.quem, slot:opts.slotTitulo, pos, fonte, data, fmt:S.fmt, marca:S.marca});
+  const daGal = opts.fonte==='galeria';
+  const limite = daGal ? (S.cfg.maxLadoGaleria||4096) : S.cfg.maxLado;
+  const qual   = daGal ? (S.cfg.qualidadeGaleria||0.96) : S.cfg.qualidade;
+  let bmp=await bitmapDe(blobOriginal); bmp=await redimensionar(bmp,limite);
+  const carimbo=await carimbar(bmp,{obra:ob.nome, quem:S.quem, slot:opts.slotTitulo, pos, fonte, data, fmt:S.fmt, marca:S.marca}, qual);
   const comExif=await inserirExif(carimbo,{data, gps:pos?{lat:pos.lat,lon:pos.lon,alt:pos.alt}:null, desc:`${ob.nome} · ${opts.slotTitulo||''} · ${S.quem||''}`});
   const id='F'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
   const stamp=new Date(); const nomeBase= opts.slot==='marco' ? `${hoje()}_${String(stamp.getHours()).padStart(2,'0')}${String(stamp.getMinutes()).padStart(2,'0')}${String(stamp.getSeconds()).padStart(2,'0')}_MARCO_${(opts.extra&&opts.extra.marco)||'SEM_CODIGO'}` : `${hoje()}_${String(stamp.getHours()).padStart(2,'0')}${String(stamp.getMinutes()).padStart(2,'0')}${String(stamp.getSeconds()).padStart(2,'0')}_${slug(opts.slotTitulo||'foto')}`;
@@ -500,7 +525,7 @@ async function enfileirarFoto(blobOriginal, opts){
   await recarregarFila(); render(); toast('Foto guardada na fila'+(pos?'':' — sem coordenada'));
   if(navigator.onLine) enviarFila();
 }
-async function miniatura(bmp){ const oc=document.createElement('canvas'); const k=Math.min(1,520/Math.max(bmp.width,bmp.height)); oc.width=Math.round(bmp.width*k); oc.height=Math.round(bmp.height*k); oc.getContext('2d').drawImage(bmp,0,0,oc.width,oc.height); return oc.toDataURL('image/jpeg',0.72); }
+async function miniatura(bmp){ const oc=document.createElement('canvas'); const k=Math.min(1,520/Math.max(bmp.width,bmp.height)); oc.width=Math.round(bmp.width*k); oc.height=Math.round(bmp.height*k); desenhoLiso(oc.getContext('2d')).drawImage(bmp,0,0,oc.width,oc.height); return oc.toDataURL('image/jpeg',0.72); }
 async function enfileirarArquivo(blob, tipo, nome, extra){
   const ob=obraAtual(); if(!ob) return toast('Escolha a obra primeiro');
   const id=tipo[0].toUpperCase()+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
@@ -792,7 +817,7 @@ function telaRoteiro(ob){
   let h=`<div class="card"><h2>Coordenada agora</h2><div class="geo" id="geoLive">Procurando GPS…</div><div class="nota">Formato: ${S.fmt==='utm'?'UTM':'geográficas'} (muda em Ajustes ou na câmera).</div></div>`;
   h+=`<div class="card"><h2>As 5 fotos + o que mais precisar</h2><div class="nota">Operação acontecendo, não posada. Horizontal. Toque no item: a câmera fica aberta e você tira <b>quantas fotos quiser</b> em cada um. Para <b>vídeo</b>, toque em "Vídeo" na câmera (até 1min30, com coordenada na imagem).</div><div class="slots">`;
   for(const s of slotsDaObra()){ const fs=fotos.filter(f=>f.slot===s.k); const n=P.roteiroFotos.findIndex(r=>r.k===s.k); h+=`<button class="slot ${fs.length?'done':''}" data-slot="${esc(s.k)}"><span class="n">${n>=0?n+1:'+'}</span><b>${esc(s.t)}</b><small>${esc(s.d)}</small>${fs.length?`${fs[fs.length-1].thumb?`<img src="${fs[fs.length-1].thumb}" alt="">`:""}<span class="cnt">${fs.length}</span>`:''}</button>`; }
-  h+=`</div><div class="row" style="margin-top:10px"><select id="galSlot">${slotsDaObra().map(s=>`<option value="${esc(s.k)}">${esc(s.t)}</option>`).join('')}</select><button class="sec" id="galRot">Da galeria</button><input type="file" id="galRotIn" accept="image/*,video/*" multiple class="hide"></div><div class="nota">Foto ou vídeo já feito com a câmera do celular: escolha o item e toque em "Da galeria" (pode marcar vários de uma vez).</div></div>`;
+  h+=`</div><div class="nota">Já tem a foto ou o vídeo no celular? Toque no item para abrir a câmera e use "Da galeria" lá dentro — assim vai para o item certo.</div></div>`;
   h+=`<div class="card"><h2>Antes de sair do ponto</h2><div class="nota">Só o essencial. Os de cima o app confere sozinho.</div>`;
   h+=chk.map((c,i)=> c.auto
     ? `<div class="chk" style="font-size:15px;color:var(--ink);margin:0;align-items:center"><span style="width:24px;text-align:center;font-weight:700;color:${c.ok?'var(--green)':'var(--muted)'}">${c.ok?'✓':'○'}</span><span>${esc(c.t)}</span></div>`
@@ -803,8 +828,6 @@ function telaRoteiro(ob){
 function ligarRoteiro(ob){
   atualizarGeo();
   document.querySelectorAll('.slot').forEach(b=>b.onclick=()=>abrirCamera(b.dataset.slot));
-  $('#galRot').onclick=()=>$('#galRotIn').click();
-  $('#galRotIn').onchange=async e=>{ const files=[...e.target.files]; if(!files.length) return; const k=$('#galSlot').value; const st=slotsDaObra().find(s=>s.k===k)||{t:k}; toast('Processando '+files.length+' foto(s)…'); await daGaleria(files,k,st.t); };
   document.querySelectorAll('input[data-t]').forEach(c=>c.onchange=()=>{ const est=estadoChk(ob); est[c.dataset.t]=c.checked; LS.set('chk_'+ob.id+'_'+hoje(),est); const l=checklistDaObra(ob); $('#fecharDia').textContent=`Registrar o dia (${l.filter(x=>x.ok).length}/${l.length} feitos)`; });
   $('#obsDia').oninput=e=>LS.set('obs_'+ob.id+'_'+hoje(),e.target.value);
   $('#fecharDia').onclick=async()=>{ const chk=checklistDaObra(ob); const est=estadoChk(ob); const obs=$('#obsDia').value.trim();
@@ -948,6 +971,13 @@ function ligarOcorr(ob){
   $('#camNativaIn').onchange=async e=>{ const files=[...e.target.files]; e.target.value=''; if(!files.length) return;
     const slot=$('#camSlot').value; const st=(slot===CAM.slot&&CAM.slotTitulo)?{t:CAM.slotTitulo}:(slotsDaObra().find(x=>x.k===slot)||{t:slot});
     toast('Carimbando a foto…'); for(const f of files){ await enfileirarFoto(f,{slot, slotTitulo:st.t, fonte:'camera', extra:(slot===CAM.slot?CAM.extra:null)||null}); }
+    pintarTiras(); };
+  // galeria: entra no MESMO item que está aberto na câmera
+  $('#camGaleria').onclick=()=>$('#camGaleriaIn').click();
+  $('#camGaleriaIn').onchange=async e=>{ const files=[...e.target.files]; e.target.value=''; if(!files.length) return;
+    const slot=$('#camSlot').value; const st=(slot===CAM.slot&&CAM.slotTitulo)?{t:CAM.slotTitulo}:(slotsDaObra().find(x=>x.k===slot)||{t:slot});
+    toast('Trazendo '+files.length+' da galeria para "'+st.t+'"…');
+    await daGaleria(files, slot, st.t, (slot===CAM.slot?CAM.extra:null)||null);
     pintarTiras(); };
   $('#camTrocar').onclick=async()=>{ if(CAM.rec) return toast('Pare a gravação antes de trocar a câmera'); CAM.facing=CAM.facing==='environment'?'user':'environment'; try{ await ligarStream(); }catch(e){ toast(e.message); } };
   $('#tgMarca').onclick=()=>{ S.marca=!S.marca; LS.set('marca',S.marca); pintarToggles(); };
