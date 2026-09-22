@@ -9,6 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Campo Natural">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@400;700&display=swap"><!-- fonte do carimbo; o service worker guarda para usar sem internet -->
 <link rel="icon" href="icon-192.png">
 <title>Campo · Natural Engenharia</title>
 <style>
@@ -101,7 +102,8 @@ details[open] summary::after{content:"–"}
 /* câmera */
 #cam{position:fixed;inset:0;background:#000;z-index:50;display:none;flex-direction:column}
 #cam.on{display:flex}
-#cam video{flex:1;width:100%;object-fit:cover;background:#000}
+#cam video{flex:1 1 0;min-height:0;width:100%;object-fit:cover;background:#000}
+#cam .bot{flex:none;position:relative;z-index:2}
 #cam .top{position:absolute;top:0;left:0;right:0;padding:calc(10px + var(--sat)) 12px 10px;display:flex;gap:8px;align-items:center;background:linear-gradient(rgba(0,0,0,.6),transparent);color:#fff;font-size:13px}
 #cam .top select{width:auto;flex:1;background:rgba(255,255,255,.15);color:#fff;border:0;padding:8px}
 #cam .top select option{color:#000}
@@ -172,7 +174,7 @@ details[open] summary::after{content:"–"}
   </div>
   <div class="geo2" id="camGeo">Procurando GPS…</div>
   <div class="bot">
-    <div class="tg"><button class="sw" id="tgMarca"></button><span>marca d'água</span></div>
+    <div class="tg"><button class="sw" id="tgMarca"></button><span>logo Natural</span></div>
     <div class="mid"><div class="modo"><button id="mFoto" class="on">Foto</button><button id="mVideo">Vídeo</button></div>
     <button class="shutter" id="shutter" aria-label="Fotografar"></button><div id="recT" class="recT"></div></div>
     <div class="tg"><button class="sw" id="tgFmt"></button><span id="tgFmtTxt">UTM</span></div>
@@ -189,7 +191,7 @@ details[open] summary::after{content:"–"}
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.2.0';
+const APP_VERSAO = '1.4.0';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -222,7 +224,7 @@ function fmtData(d){ d = d instanceof Date ? d : new Date(d); const p=n=>String(
 function exifData(d){ d = d instanceof Date ? d : new Date(d); const p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}:${p(d.getMonth()+1)}:${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; }
 function slug(s){ return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^A-Za-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,60); }
 
-/* ---------------- Geodesia: WGS84 -> UTM ---------------- */
+/* ---------------- Geodesia: GPS (WGS 84 ≈ SIRGAS 2000, mesmo elipsoide GRS80/WGS84 na prática) -> UTM ---------------- */
 function toUTM(lat, lon){
   const a=6378137, f=1/298.257223563, k0=0.9996;
   const zone = Math.floor((lon+180)/6)+1, hemi = lat>=0?'N':'S';
@@ -237,10 +239,10 @@ function toUTM(lat, lon){
   E=500000+k0*A*E; N=k0*A*N; if(hemi==='S') N+=10000000;
   return {zone, hemi, e:Math.round(E), n:Math.round(N)};
 }
-function fmtCoord(p, fmt){
+function fmtCoord(p, fmt){ // SIRGAS 2000: o GPS dá WGS 84, que o IBGE considera equivalente na prática (diferença de centímetros)
   if(!p) return 'sem coordenada';
-  if(fmt==='utm'){ const u=toUTM(p.lat,p.lon); return `UTM ${u.zone}${u.hemi}  E ${u.e}  N ${u.n}  (WGS84)`; }
-  return `Lat ${p.lat.toFixed(5)}°  Lon ${p.lon.toFixed(5)}°  (WGS84)`;
+  if(fmt==='utm'){ const u=toUTM(p.lat,p.lon); return `UTM ${u.zone}${u.hemi}  E ${u.e}  N ${u.n}  (SIRGAS 2000)`; }
+  return `${coordDMS(p)}  (SIRGAS 2000)`;
 }
 function fmtCoordCurta(p, fmt){
   if(!p) return '—';
@@ -377,28 +379,62 @@ async function carimbar(bitmap, info){
   const W=bitmap.width, H=bitmap.height; const cv=$('#cv'); cv.width=W; cv.height=H; const c=cv.getContext('2d');
   c.drawImage(bitmap,0,0);
   if(info.marca && !IMG.logo) IMG.logo=await carregarImg('logo-white.png');
+  await prepararFonteCarimbo();
   desenharCarimbo(c,W,H,info);
   return new Promise(ok=> cv.toBlob(ok,'image/jpeg',S.cfg.qualidade));
 }
-function desenharCarimbo(c,W,H,info){  const base=Math.max(W,H); const fs=Math.round(base*0.0175); const pad=Math.round(fs*0.7); const lh=Math.round(fs*1.35);
+/* Carimbo no estilo "Timestamp Camera": texto branco com sombra, sem tarja, canto inferior esquerdo.
+   Hora grande | data e dia da semana · obra · coordenada em graus-minutos-segundos e UTM (SIRGAS 2000)
+   · precisão, origem do GPS, quem e o item. Logo da Natural logo acima (desliga para trabalho de terceiros). */
+const FONTE_CARIMBO="'Roboto Condensed','Arial Narrow','Roboto',Arial,sans-serif";
+const SEMANA=['domingo','segunda-feira','terça-feira','quarta-feira','quinta-feira','sexta-feira','sábado'];
+function dms(v, pos, neg){ const h=v<0?neg:pos; v=Math.abs(v); let g=Math.floor(v), m=Math.floor((v-g)*60), s=((v-g)*60-m)*60;
+  if(+s.toFixed(2)>=60){ s=0; m++; } if(m>=60){ m=0; g++; }
+  return `${g}°${String(m).padStart(2,'0')}'${s.toFixed(2).padStart(5,'0').replace('.',',')}" ${h}`; }
+function coordDMS(p){ return `${dms(p.lat,'N','S')}   ${dms(p.lon,'E','W')}`; }
+function milhar(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g,'.'); }
+function coordUTMtxt(p){ const u=toUTM(p.lat,p.lon); return `UTM ${u.zone}${u.hemi}   E ${milhar(u.e)}   N ${milhar(u.n)}`; }
+function textoCoordFicha(p){ if(!p) return ''; const u=toUTM(p.lat,p.lon); return `SIRGAS 2000 · UTM ${u.zone}${u.hemi} E ${u.e} N ${u.n} · ${coordDMS(p)} · Lat ${p.lat.toFixed(6)} Lon ${p.lon.toFixed(6)} · ±${Math.round(p.acc||0)} m (GPS do celular)`; }
+function desenharCarimbo(c,W,H,info){
+  const base=Math.min(W,H); const fs=Math.max(12,Math.round(base*0.036)); const m=Math.round(base*0.035); const lh=Math.round(fs*1.28);
+  const d=info.data instanceof Date?info.data:new Date(info.data||Date.now());
+  const hora=`${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  const dataTxt=`${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+  const origem = info.fonte==='foto'?'GPS da foto':(info.fonte==='aparelho-tardio'?'GPS do aparelho no envio (foto sem coordenada)':(info.pos?'GPS do aparelho':''));
   const linhas=[];
-  linhas.push({t: (info.obra||'').toUpperCase(), b:true});
-  if(info.pos){ linhas.push({t: fmtCoord(info.pos, info.fmt) + (info.pos.acc? `  ±${Math.round(info.pos.acc)} m`:'') , mono:true});
-    if(info.fmt==='utm') linhas.push({t: `Lat ${info.pos.lat.toFixed(5)}°  Lon ${info.pos.lon.toFixed(5)}°`, mono:true, small:true}); }
-  else linhas.push({t:'SEM COORDENADA (GPS indisponível)', mono:true});
-  linhas.push({t: `${fmtData(info.data)}  ·  ${info.quem||'—'}  ·  ${info.slot||''}` + (info.fonte==='foto'?'  ·  GPS da foto':(info.fonte==='aparelho-tardio'?'  ·  GPS do aparelho no envio (foto sem coordenada)':'')), small:true});
-  const bh=pad*2+linhas.reduce((s,l)=>s+(l.small?lh*0.85:lh),0);
-  c.fillStyle='rgba(17,62,107,0.80)'; c.fillRect(0,H-bh,W,bh);
-  c.fillStyle='#19A878'; c.fillRect(0,H-bh,Math.round(base*0.006),bh);
-  let y=H-bh+pad+fs; const x=pad+Math.round(base*0.012);
-  c.textBaseline='alphabetic'; c.shadowColor='rgba(0,0,0,.35)'; c.shadowBlur=2;
-  for(const l of linhas){ const f=l.small?fs*0.85:fs; c.font=`${l.b?'700':'500'} ${f}px ${l.mono?'ui-monospace,Menlo,Consolas,monospace':'system-ui,Roboto,Arial,sans-serif'}`; c.fillStyle='#fff';
-    let t=l.t; while(c.measureText(t).width>W-x-pad && t.length>8) t=t.slice(0,-4)+'…'; c.fillText(t,x,y); y+= l.small? lh*0.85: lh; }
-  c.shadowBlur=0;
-  if(info.marca && IMG.logo){ const lw=Math.round(W*0.26), lhh=Math.round(lw*IMG.logo.height/IMG.logo.width); const m=Math.round(base*0.018);
-    c.fillStyle='rgba(17,62,107,0.55)'; roundRect(c, W-lw-m*2, m, lw+m*1.4, lhh+m*1.2, Math.round(base*0.01)); c.fill();
-    c.globalAlpha=0.95; c.drawImage(IMG.logo, W-lw-m*1.3, m*1.6, lw, lhh); c.globalAlpha=1; }
+  linhas.push({t:(info.obra||'').toUpperCase(), w:700});
+  if(info.pos){ linhas.push({t:coordDMS(info.pos), w:700, k:1.05});
+    linhas.push({t:(info.fmt==='utm'? coordUTMtxt(info.pos) : `Lat ${info.pos.lat.toFixed(6).replace('.',',')}°   Lon ${info.pos.lon.toFixed(6).replace('.',',')}°`)+'   ·   SIRGAS 2000', w:400}); }
+  else linhas.push({t:'SEM COORDENADA (GPS indisponível)', w:700});
+  linhas.push({t:[info.pos&&info.pos.acc?`±${Math.round(info.pos.acc)} m`:'', origem, info.quem||'', info.slot||''].filter(Boolean).join('   ·   '), w:400, k:0.9});
+  { // quebra linha comprida (foto em pé) nos separadores, em vez de cortar
+    const maxW=W-m*2; const out=[];
+    for(const l of linhas){ c.font=`${l.w} ${Math.round(fs*(l.k||1))}px ${FONTE_CARIMBO}`;
+      if(c.measureText(l.t).width<=maxW){ out.push(l); continue; }
+      const partes=l.t.split(/\s{2,}·\s{2,}|\s{3,}/); let cur='';
+      for(const pt of partes){ const tent=cur?cur+'   ·   '+pt:pt; if(cur && c.measureText(tent).width>maxW){ out.push(Object.assign({},l,{t:cur})); cur=pt; } else cur=tent; }
+      if(cur) out.push(Object.assign({},l,{t:cur})); }
+    linhas.length=0; linhas.push(...out); }
+  const fsH=Math.round(fs*2.7);            // hora grande
+  const logoH = (info.marca && IMG.logo) ? Math.round(fs*2.3) : 0;
+  const alturaTopo = fsH*1.02;
+  const total = (logoH? logoH+fs*0.6 : 0) + alturaTopo + fs*0.35 + linhas.reduce((a,l)=>a+lh*(l.k||1),0);
+  // véu suave para ler em chão claro (sem tarja chapada, como no Timestamp)
+  const g=c.createLinearGradient(0,H-total-m*2.2,0,H); g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(1,'rgba(0,0,0,0.42)'); c.fillStyle=g; c.fillRect(0,H-total-m*2.2,W,total+m*2.2);
+  let y=H-m-total; const x=m;
+  c.save(); c.textBaseline='alphabetic'; c.shadowColor='rgba(0,0,0,0.75)'; c.shadowBlur=Math.max(2,fs*0.22); c.shadowOffsetX=Math.max(1,fs*0.05); c.shadowOffsetY=Math.max(1,fs*0.05); c.fillStyle='#fff';
+  if(logoH){ const lw=Math.round(logoH*IMG.logo.width/IMG.logo.height); c.drawImage(IMG.logo, x, y, lw, logoH); y+=logoH+fs*0.6; }
+  // hora | barra | data e dia da semana
+  c.font=`700 ${fsH}px ${FONTE_CARIMBO}`; const yH=y+fsH*0.86; c.fillText(hora,x,yH); const wH=c.measureText(hora).width;
+  const bx=x+wH+fs*0.55; c.fillStyle='#F2B705'; c.fillRect(bx, y+fsH*0.14, Math.max(2,fs*0.16), fsH*0.74); c.fillStyle='#fff';
+  c.font=`700 ${Math.round(fs*1.05)}px ${FONTE_CARIMBO}`; c.fillText(dataTxt, bx+fs*0.6, y+fsH*0.44);
+  c.font=`400 ${Math.round(fs*1.0)}px ${FONTE_CARIMBO}`; c.fillText(SEMANA[d.getDay()], bx+fs*0.6, y+fsH*0.84);
+  y+=alturaTopo+fs*0.35;
+  for(const l of linhas){ const f=Math.round(fs*(l.k||1)); c.font=`${l.w} ${f}px ${FONTE_CARIMBO}`; y+=lh*(l.k||1);
+    let t=l.t; while(c.measureText(t).width>W-x-m && t.length>8) t=t.slice(0,-4)+'…'; c.fillText(t,x,y-lh*0.22); }
+  c.restore();
 }
+async function prepararFonteCarimbo(){ try{ await Promise.all([document.fonts.load(`700 40px ${FONTE_CARIMBO}`), document.fonts.load(`400 40px ${FONTE_CARIMBO}`)]); }catch(e){} }
 function roundRect(c,x,y,w,h,r){ c.beginPath(); c.moveTo(x+r,y); c.arcTo(x+w,y,x+w,y+h,r); c.arcTo(x+w,y+h,x,y+h,r); c.arcTo(x,y+h,x,y,r); c.arcTo(x,y,x+w,y,r); c.closePath(); }
 async function bitmapDe(blob){
   try{ return await createImageBitmap(blob,{imageOrientation:'from-image'}); }catch(e){ return await createImageBitmap(blob); }
@@ -478,8 +514,8 @@ async function baixarPacote(silencioso){
 
 /* ---------------- Câmera ---------------- */
 const CAM={ stream:null, facing:'environment', slot:null };
-async function abrirCamera(slot){
-  CAM.slot=slot; const sel=$('#camSlot'); sel.innerHTML=slotsDaObra().map(s=>`<option value="${esc(s.k)}" ${s.k===slot?'selected':''}>${esc(s.t)}</option>`).join('');
+async function abrirCamera(slot, titulo){
+  CAM.slot=slot; CAM.slotTitulo=titulo||null; const sel=$('#camSlot'); const lista=slotsDaObra(); if(titulo && !lista.some(s=>s.k===slot)) lista.unshift({k:slot,t:titulo}); sel.innerHTML=lista.map(s=>`<option value="${esc(s.k)}" ${s.k===slot?'selected':''}>${esc(s.t)}</option>`).join('');
   $('#cam').classList.add('on'); abrirCamHist(); pintarToggles(); iniciarGPS(); atualizarGeo();
   try{ await ligarStream(); }catch(e){ $('#cam').classList.remove('on'); toast('Câmera indisponível: '+e.message+'. Use "Da galeria".',4000); }
 }
@@ -489,15 +525,15 @@ async function ligarStream(){
   $('#video').srcObject=CAM.stream;
 }
 function abrirCamHist(){ try{ history.pushState({t:'cam'},''); }catch(e){} }
-function fecharCamera(){ if(CAM.rec) pararGravacao(); modoCamera('foto'); $('#cam').classList.remove('on'); if(CAM.stream){ CAM.stream.getTracks().forEach(t=>t.stop()); CAM.stream=null; } }
+function fecharCamera(){ if(CAM.rec) pararGravacao(); CAM.extra=null; CAM.slotTitulo=null; modoCamera('foto'); $('#cam').classList.remove('on'); if(CAM.stream){ CAM.stream.getTracks().forEach(t=>t.stop()); CAM.stream=null; } }
 async function fotografar(){
   const track=CAM.stream?.getVideoTracks()[0]; if(!track) return;
   const fl=$('#flash'); fl.style.opacity=.8; setTimeout(()=>fl.style.opacity=0,120);
   let blob=null;
   if(window.ImageCapture){ try{ blob=await new ImageCapture(track).takePhoto(); }catch(e){ blob=null; } }
   if(!blob){ const v=$('#video'); const oc=document.createElement('canvas'); oc.width=v.videoWidth; oc.height=v.videoHeight; oc.getContext('2d').drawImage(v,0,0); blob=await new Promise(ok=>oc.toBlob(ok,'image/jpeg',0.95)); }
-  const slot=$('#camSlot').value; const st=slotsDaObra().find(s=>s.k===slot)||{t:slot};
-  await enfileirarFoto(blob,{slot, slotTitulo:st.t, fonte:'camera', extra:CAM.extra||null});
+  const slot=$('#camSlot').value; const st=slotsDaObra().find(s=>s.k===slot)||{t:(slot===CAM.slot&&CAM.slotTitulo)||slot};
+  await enfileirarFoto(blob,{slot, slotTitulo:st.t, fonte:'camera', extra:(slot===CAM.slot?CAM.extra:null)||null});
   toast('Foto '+st.t+' guardada');
 }
 /* ---------------- Vídeo (câmera do app e galeria) ----------------
@@ -513,7 +549,7 @@ async function iniciarGravacao(){
   const ob=obraAtual(); const v=$('#video'); if(!ob||!CAM.stream||!v.videoWidth) return toast('Câmera ainda não está pronta');
   if(!window.MediaRecorder||!window.HTMLCanvasElement.prototype.captureStream) return toast('Este celular não grava vídeo pelo app. Grave pela câmera do celular e mande "Da galeria".',5000);
   let audio=null; try{ audio=await navigator.mediaDevices.getUserMedia({audio:true}); }catch(e){ toast('Sem microfone: o vídeo sai sem som'); }
-  if(S.marca && !IMG.logo) IMG.logo=await carregarImg('logo-white.png');
+  if(S.marca && !IMG.logo) IMG.logo=await carregarImg('logo-white.png'); await prepararFonteCarimbo();
   const k=Math.min(1, VID.LADO/Math.max(v.videoWidth,v.videoHeight)); const W=Math.round(v.videoWidth*k/2)*2, H=Math.round(v.videoHeight*k/2)*2;
   const cv=document.createElement('canvas'); cv.width=W; cv.height=H; const c=cv.getContext('2d');
   const slot=$('#camSlot').value; const st=slotsDaObra().find(x=>x.k===slot)||{t:slot};
@@ -560,7 +596,7 @@ function quadroDoVideo(f){ return new Promise((ok,er)=>{ const v=document.create
   v.onloadeddata=()=>{ v.currentTime=Math.min(1,(v.duration||2)/2); }; v.onseeked=()=>{ try{ const oc=document.createElement('canvas'); const k=220/Math.max(v.videoWidth,v.videoHeight); oc.width=v.videoWidth*k; oc.height=v.videoHeight*k; oc.getContext('2d').drawImage(v,0,0,oc.width,oc.height); ok(oc.toDataURL('image/jpeg',0.6)); }catch(e){ er(e); } URL.revokeObjectURL(u); }; v.onerror=()=>er(new Error('vídeo ilegível')); setTimeout(()=>er(new Error('tempo')),8000); }); }
 function recomprimir(f, slotTitulo){ return new Promise(async (ok,er)=>{
   const ob=obraAtual(); if(!window.MediaRecorder) return er(new Error('sem gravador neste celular'));
-  if(S.marca && !IMG.logo) IMG.logo=await carregarImg('logo-white.png');
+  if(S.marca && !IMG.logo) IMG.logo=await carregarImg('logo-white.png'); await prepararFonteCarimbo();
   const v=document.createElement('video'); v.playsInline=true; const u=URL.createObjectURL(f); v.src=u;
   await new Promise((a,b)=>{ v.onloadedmetadata=a; v.onerror=()=>b(new Error('vídeo ilegível')); }).catch(er);
   const dur=v.duration||0; const bps=Math.max(400000, Math.min(VID.BPS, Math.floor(VID.LIMITE*8*0.9/Math.max(dur,1))-64000));
@@ -652,7 +688,7 @@ function telaAjustes(){
   const m=$('#main'); $('#hTit').textContent='Ajustes'; $('#hBtn').classList.remove('hide'); $('#hBtn').textContent='Voltar';
   m.innerHTML=`<div class="card"><h2>Robô de campo</h2><label>URL do robô (Apps Script, termina em /exec)</label><input id="cfgScript" value="${esc(S.cfg.script)}" placeholder="https://script.google.com/macros/s/…/exec"><label>Chave</label><input id="cfgToken" value="${esc(S.cfg.token)}"><div class="nota">A URL vem do escritório. Depois de colar, toque em Salvar e em Atualizar lista.</div></div>
   <div class="card"><h2>Foto</h2><label>Coordenada no carimbo</label><div class="seg"><button id="fGeo" class="${S.fmt==='geo'?'on':''}">Geográficas (lat/lon)</button><button id="fUtm" class="${S.fmt==='utm'?'on':''}">UTM</button></div>
-  <div class="chk" style="margin-top:10px"><input type="checkbox" id="cMarca" ${S.marca?'checked':''}><span>Marca d'água da Natural Engenharia nas fotos (dá para ligar/desligar na câmera também)</span></div>
+  <div class="chk" style="margin-top:10px"><input type="checkbox" id="cMarca" ${S.marca?'checked':''}><span>Logo da Natural Engenharia nas fotos e vídeos (desligue em trabalho para empresa terceira) (dá para ligar/desligar na câmera também)</span></div>
   <div class="chk"><input type="checkbox" id="cOrig" ${S.original?'checked':''}><span>Enviar também o original sem carimbo (para o marketing). Dobra o tamanho do envio.</span></div></div>
   <div class="card"><h2>Este aparelho</h2><div class="muted">App ${APP_VERSAO} · ${S.pacote?`lista de ${fmtData(S.pacote.geradoEm)}`:'sem lista'} · ${S.fila.length} itens no histórico</div><div class="row" style="margin-top:10px"><button class="sec" id="limparEnv">Limpar enviados</button><button class="danger" id="limparTudo">Apagar fila inteira</button></div></div>
   <button class="big green" id="salvarCfg">Salvar</button>`;
@@ -781,6 +817,7 @@ function ligarOcorr(ob){
   // cada toque renova a trava do voltar (o navegador só respeita trava criada com toque do usuário)
   document.addEventListener('pointerdown',()=>{ if(!history.state || history.state.t==='base'){ try{ history.pushState({t:'app'},''); }catch(e){} } },true);
   if('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js').catch(()=>{}); }
+  prepararFonteCarimbo(); // baixa a fonte do carimbo agora (com internet) para o SW guardar
   // pede ao celular para NÃO apagar os dados do app quando faltar espaço (fila, fichas, rascunhos)
   try{ if(navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(()=>{}); }catch(e){}
   if(navigator.onLine){ baixarPacote(true); enviarFila(); }

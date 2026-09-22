@@ -54,7 +54,7 @@ const DEF = {
     if(!d.furo) a.push('Número do furo em branco.');
     if(!d.coord) a.push('Coordenada do furo em branco.');
     if(!g.length) a.push('Nenhuma linha de golpes registrada.');
-    g.forEach((l,i)=>{ if(l.g2===''||l.g3===''||l.g2==null||l.g3==null) a.push(`Linha ${i+1} (${l.de||'?'}–${l.ate||'?'} m): falta golpe do 2º ou 3º trecho — N não calcula.`); if(!l.desc) a.push(`Linha ${i+1}: descrição do material em branco.`); });
+    g.forEach((l,i)=>{ if(!impenetravel(l) && (l.g2===''||l.g3===''||l.g2==null||l.g3==null)) a.push(`Linha ${i+1} (${l.de||'?'}–${l.ate||'?'} m): falta golpe do 2º ou 3º trecho — N não calcula.`); if(!l.desc) a.push(`Linha ${i+1}: descrição do material em branco.`); });
     if(!d.prof_final) a.push('Profundidade final em branco.');
     if(!d.parou) a.push('Motivo da parada em branco.');
     if(d.na_ini===''&&d.seco===''||(!d.na_ini&&!d.seco)) a.push('Nível d’água: nem "achou a" nem "seco até" preenchido.');
@@ -72,9 +72,9 @@ const DEF = {
      {k:'metodo', r:'Método contratado', tipo:'sel', op:['','Rotativa','Rotopneumático']}, {k:'diam', r:'Diâmetro', tipo:'sel', op:['','6"/4"','8"/6"','outro']}, {k:'prof_ref', r:'Prof. de referência do contrato (m)', tipo:'num', w:2},
      {k:'ini_data', r:'Início — data', tipo:'date', pre:'hoje'}, {k:'ini_hora', r:'Início — hora', tipo:'time', agora:true}, {k:'equipe', r:'Equipe', tipo:'text', w:2, pre:'quem'}
    ]},
-   { t:'Perfil — anote a cada manobra, na hora (o que viu, não o que acha)', tabela:{k:'perfil', seq:'livre', cols:[
+   { t:'Perfil — anote a cada manobra, na hora (o que viu, não o que acha)', tabela:{k:'perfil', seq:'livre', foto:'Foto da amostra (calha)', agua:'agua_a', cols:[
       {k:'de', r:'De (m)', tipo:'num', w:.7}, {k:'ate', r:'Até (m)', tipo:'num', w:.7},
-      {k:'mat', r:'O que saiu: areia, argila, cascalho, rocha… (cor, textura)', tipo:'area', w:3.4},
+      {k:'mat', r:'O que saiu: areia, argila, cascalho, rocha… (cor, textura)', tipo:'area', w:3.4, mat:'poco'},
       {k:'diam', r:'Ø perf.', tipo:'text', w:.7}, {k:'h', r:'Hora', tipo:'time', w:.7, agora:true}]}},
    { t:'Fim da perfuração', campos:[
      {k:'agua_a', r:'Água apareceu a (m)', tipo:'num'}, {k:'prof_final', r:'Profundidade final (m)', tipo:'num'}, {k:'fim_hora', r:'Hora de término', tipo:'time', agora:true}]},
@@ -240,6 +240,11 @@ function tabelaHTML(tb, d, ro){
       const id=`t_${tb.k}_${i}_${c.k}`; const tp=c.tipo==='num'?'inputmode="decimal"':c.tipo==='int'?'inputmode="numeric"':''; const span=`grid-column:span ${c.tipo==='area'?4:(c.w>=1.3?2:1)}`;
       let inp;
       if(c.tipo==='sel') inp=`<select id="${id}" data-t="${tb.k}.${i}.${c.k}" ${ro?'disabled':''}>${c.op.map(o=>`<option ${o===l[c.k]?'selected':''}>${esc(o)}</option>`).join('')}</select>`;
+      else if(c.tipo==='area' && c.mat && !ro){ const sel=l._sel||{tipos:[],cor:'',umid:''}; const lista=c.mat==='poco'?MAT_POCO:MAT.tipos;
+        inp=`<div class="chips mt" data-gmat="${tb.k}.${i}.${c.k}" data-grupo="tipos">${lista.map(t=>`<button class="${sel.tipos.includes(t[0])?'on':''}" data-v="${esc(t[0])}">${esc(t[0])}</button>`).join('')}</div>
+          <div class="sub2">Cor</div><div class="chips mt" data-gmat="${tb.k}.${i}.${c.k}" data-grupo="cor">${MAT.cores.map(x=>`<button class="${sel.cor===x[0]?'on':''}" data-v="${x[0]}">${flex(x[0],'m',!!x[1])}</button>`).join('')}</div>
+          <textarea id="${id}" data-t="${tb.k}.${i}.${c.k}" style="min-height:54px;margin-top:6px" placeholder="os botões escrevem aqui; pode corrigir">${esc(l[c.k]||'')}</textarea>
+          <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:6px">${i>0?`<button class="ghost" data-gidem="${tb.k}.${i}.${c.k}" style="flex:0 0 auto">Igual ao de cima</button>`:''}${tb.agua?`<button class="ghost" data-gagua="${tb.k}.${i}" style="flex:0 0 auto">💧 Água apareceu aqui</button>`:''}${tb.foto?`<button class="sec" data-gfoto="${tb.k}.${i}" style="flex:0 0 auto">📷 ${esc(tb.foto)}</button><span class="mini">${fotosDaLinha(ABERTA,tb.k,i).length||''}${fotosDaLinha(ABERTA,tb.k,i).length?' foto(s)':''}</span>`:''}</div>`; }
       else if(c.tipo==='area') inp=`<textarea id="${id}" data-t="${tb.k}.${i}.${c.k}" ${ro?'disabled':''} style="min-height:60px">${esc(l[c.k]||'')}</textarea>`;
       else inp=`<div class="row"><input id="${id}" type="${c.tipo==='time'?'time':c.tipo==='date'?'date':'text'}" ${tp} data-t="${tb.k}.${i}.${c.k}" value="${esc(l[c.k]==null?'':l[c.k])}" ${ro?'disabled':''}>${c.agora&&!ro?`<button class="sec" data-tagora="${tb.k}.${i}.${c.k}" style="flex:0 0 auto;padding:8px">agora</button>`:''}</div>`;
       h+=`<div style="${span}"><label for="${id}">${esc(c.r)}</label>${inp}</div>`; }
@@ -248,6 +253,31 @@ function tabelaHTML(tb, d, ro){
   if(tb.seq==='fixo') h+=`<button class="ghost" data-mostra="${tb.k}">mostrar/ocultar linhas vazias</button>`;
   return h+`</div>`;
 }
+function leituraDaVez(d){ // qual linha da tabela é a leitura de agora
+  if(!d.hini||!/^\d{1,2}:\d{2}$/.test(d.hini)) return null;
+  const [a,b]=d.hini.split(':').map(Number); const agora=new Date(); const ini=new Date(); ini.setHours(a,b,0,0); if(ini>agora) ini.setDate(ini.getDate()-1);
+  const min=(agora-ini)/60000;
+  if(min<=720+0.5){ const i=TEMPOS_B.findIndex(t=>t>=min-0.5); if(i>=0) return {tab:'bomb', i, t:TEMPOS_B[i], hora:somaHora(d.hini,TEMPOS_B[i]), min}; }
+  const i=TEMPOS_B.findIndex(t=>720+t>=min-0.5); if(i>=0) return {tab:'rec', i, t:TEMPOS_B[i], hora:somaHora(d.hini,720+TEMPOS_B[i]), min};
+  return {fim:true, min}; }
+function cartaoLeitura(d){
+  if(!d.hini) return `<div class="card spt" id="prox" style="border-left:5px solid var(--green)"><h2>Leitura da vez</h2><div class="nota">Quando a bomba ligar, toque aqui:</div><button class="big green" data-agora="hini">Bomba ligou agora</button></div>`;
+  const L=leituraDaVez(d); if(!L||L.fim) return `<div class="card" id="prox"><h2>Teste encerrado</h2><div class="nota">Passou de 720 + 720 min.</div></div>`;
+  const nome=L.tab==='bomb'?`Bombeamento · t = ${L.t} min`:`Recuperação · t' = ${L.t} min`; const v=(d[L.tab][L.i]||{}).nd||'';
+  return `<div class="card spt" id="prox" style="border-left:5px solid var(--green)"><h2>Leitura da vez</h2><div class="mini">${esc(nome)} · às <b>${esc(L.hora)}</b> · agora ${Math.floor(L.min)} min de teste</div>
+   <div class="gols" style="grid-template-columns:2fr 1fr;margin-top:8px"><div class="gol"><div class="t">N.D. (m)</div><input class="g" inputmode="decimal" id="ldv" value="${esc(v)}" placeholder="nível"></div>
+   <div class="gol"><div class="t">&nbsp;</div><button class="green" id="ldvOk" style="height:58px;width:100%">Anotar</button></div></div>
+   <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:6px"><button class="sec" data-marca="estab" style="flex:1 1 45%">Nível estabilizou agora</button><button class="sec" data-marca="volta" style="flex:1 1 45%">Voltou ao NE agora</button></div>
+   <div class="mini" style="margin-top:6px">A tabela completa continua lá embaixo, para corrigir qualquer leitura.</div></div>`; }
+function ligarProx(f){
+  const lo=$('#ldvOk'); if(lo) lo.onclick=()=>{ const L=leituraDaVez(f.dados); const v=$('#ldv').value.trim(); if(!L||L.fim||!v) return toast('Digite o nível');
+    f.dados[L.tab][L.i].nd=v; gravar(f); toast(`Anotado: ${L.tab==='bomb'?'t':'t\''} = ${L.t} min → ${v} m`); renderProx(f); atualizarTabelaTeste(f); };
+  document.querySelectorAll('[data-marca]').forEach(b=>b.onclick=()=>{ const L=leituraDaVez(f.dados); if(!L) return; const k=b.dataset.marca; f.dados[k]=String(Math.round(L.tab==='rec'&&k==='volta'?L.min-720:L.min)); gravar(f); const e=$('#f_'+k); if(e) e.value=f.dados[k]; renderProx(f); toast(k==='estab'?`Estabilizou no minuto ${f.dados[k]}`:`Voltou ao NE no minuto ${f.dados[k]} da recuperação`); });
+  const hb=document.querySelector('#prox [data-agora="hini"]'); if(hb) hb.onclick=()=>{ f.dados.hini=AGORA(); const e=$('#f_hini'); if(e) e.value=f.dados.hini; gravar(f); renderProx(f); desenharTabelasHora(f); };
+}
+function renderProx(f){ const p=$('#prox'); if(!p) return; const tmp=document.createElement('div'); tmp.innerHTML=cartaoLeitura(f.dados); p.replaceWith(tmp.firstElementChild); ligarProx(f); }
+function atualizarTabelaTeste(f){ for(const k of ['bomb','rec']) (f.dados[k]||[]).forEach((l,i)=>{ const el=$(`#t_${k}_${i}_nd`); if(el && document.activeElement!==el) el.value=l.nd==null?'':l.nd; }); }
+function desenharTabelasHora(f){ atualizarCalc(f); }
 function proximaLeitura(d){
   if(!d.hini||!/^\d{1,2}:\d{2}$/.test(d.hini)) return '';
   const [a,b]=d.hini.split(':').map(Number); const agora=new Date(); const ini=new Date(); ini.setHours(a,b,0,0); if(ini>agora) ini.setDate(ini.getDate()-1);
@@ -258,10 +288,13 @@ function proximaLeitura(d){
 }
 function desenharEditor(){
   const f=pegar(ABERTA); if(!f){ fechar(); return; }
+  if(f.tipo==='spt' && f.status!=='encerrada') return desenharSPT(f);
+  if(f.status!=='encerrada' && S.pos){ let mudou=false; for(const b of DEF[f.tipo].blocos) for(const c of (b.campos||[])) if(c.tipo==='gps' && !f.dados[c.k]){ f.dados[c.k]=textoCoordFicha(S.pos); mudou=true; } if(mudou) gravar(f); }
+  if(f.status!=='encerrada') injetarCssSPT();
   const def=DEF[f.tipo]; const d=f.dados; const ro=f.status==='encerrada';
   $('#hTit').textContent=def.codigo+' · '+def.ident(d); $('#hSub').textContent=f.obraNome; $('#hBtn').classList.remove('hide'); $('#hBtn').textContent='Fichas';
   let h=`<div class="card" style="border-left:5px solid var(--green)"><h2>${esc(def.titulo)}</h2><div class="muted">${esc(def.sop)}${def.norma?' · '+esc(def.norma):''} · salva sozinha a cada toque${f.versao>1?` · versão ${f.versao}`:''}</div>${ro?'<div class="banner" style="background:var(--ok-bg);color:var(--green-2);margin:10px 0 0">Ficha encerrada: o PDF e os dados estão na fila de envio. Para corrigir, reabra — sai uma versão nova.</div>':''}</div>`;
-  if(f.tipo==='poco_teste' && !ro) h+=`<div class="card geo" id="prox">${esc(proximaLeitura(d)||'Preencha a hora de início para o app mostrar a próxima leitura.')}</div>`;
+  if(f.tipo==='poco_teste' && !ro) h+=cartaoLeitura(d);
   def.blocos.forEach((b,bi)=>{
     h+=`<div class="card"><h2>${esc(b.t)}</h2>${b.nota?`<div class="nota">${esc(b.nota)}</div>`:''}`;
     if(b.campos) h+=`<div class="grid">`+b.campos.map(c=>campoHTML(c,d[c.k],ro)).join('')+`</div>`;
@@ -282,7 +315,7 @@ function ligarEditor(f){
   document.querySelectorAll('[data-t]').forEach(el=>{ el.oninput=el.onchange=()=>{ const [k,i,c]=el.dataset.t.split('.'); f.dados[k][+i][c]=el.value; salvar(); }; });
   document.querySelectorAll('[data-agora]').forEach(b=>b.onclick=()=>{ const k=b.dataset.agora; f.dados[k]=AGORA(); $('#f_'+k).value=f.dados[k]; salvar(); });
   document.querySelectorAll('[data-tagora]').forEach(b=>b.onclick=()=>{ const [k,i,c]=b.dataset.tagora.split('.'); f.dados[k][+i][c]=AGORA(); $(`#t_${k}_${i}_${c}`).value=f.dados[k][+i][c]; salvar(); });
-  document.querySelectorAll('[data-gps]').forEach(b=>b.onclick=()=>{ iniciarGPS(); if(!S.pos){ toast('Procurando GPS… tente de novo em alguns segundos (céu aberto ajuda).'); return; } const u=toUTM(S.pos.lat,S.pos.lon); const v=`UTM ${u.zone}${u.hemi} E ${u.e} N ${u.n} · Lat ${S.pos.lat.toFixed(5)} Lon ${S.pos.lon.toFixed(5)} · ±${Math.round(S.pos.acc)} m (GPS do celular)`; f.dados[b.dataset.gps]=v; $('#f_'+b.dataset.gps).value=v; salvar(); toast('Coordenada preenchida'); });
+  document.querySelectorAll('[data-gps]').forEach(b=>b.onclick=()=>{ iniciarGPS(); if(!S.pos){ toast('Procurando GPS… tente de novo em alguns segundos (céu aberto ajuda).'); return; } const v=textoCoordFicha(S.pos); f.dados[b.dataset.gps]=v; $('#f_'+b.dataset.gps).value=v; salvar(); toast('Coordenada preenchida'); });
   document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>{ const tb=def.blocos.find(x=>x.tabela&&x.tabela.k===b.dataset.add).tabela; const arr=f.dados[tb.k]; let extra={};
       if(tb.seq==='metro'){ const u=arr[arr.length-1]; const de=u&&u.ate!==''&&!isNaN(NUM(u.ate))?NUM(u.ate):0; extra={de:String(de).replace('.',','), ate:String(de+1).replace('.',',')}; }
       else if(arr.length && arr[arr.length-1].ate!==undefined){ extra={de:arr[arr.length-1].ate||''}; }
@@ -290,17 +323,25 @@ function ligarEditor(f){
   document.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{ const [k,i]=b.dataset.del.split('.'); if(b.dataset.c!=='1'){ b.dataset.c='1'; b.textContent='toque de novo para apagar'; return; } f.dados[k].splice(+i,1); gravar(f); desenharEditor(); });
   document.querySelectorAll('[data-mostra]').forEach(b=>b.onclick=()=>{ document.querySelectorAll('.linha.vz').forEach(x=>x.classList.toggle('oc')); });
   document.querySelectorAll('[data-ass]').forEach(el=>el.onclick=()=>{ if(f.status==='encerrada') return; assinar(el.dataset.ass, url=>{ f.dados[el.dataset.ass]=url; gravar(f); desenharEditor(); }); });
+  document.querySelectorAll('[data-gmat]').forEach(box=>box.querySelectorAll('button').forEach(b=>b.onclick=()=>{ const [k,i,c]=box.dataset.gmat.split('.'); const l=f.dados[k][+i]; const s=l._sel||(l._sel={tipos:[],cor:'',umid:''}); const gr=box.dataset.grupo, v=b.dataset.v;
+    if(gr==='tipos') s.tipos = s.tipos.includes(v)? s.tipos.filter(x=>x!==v) : [...s.tipos, v]; else s[gr] = s[gr]===v?'':v;
+    l[c]=montarDesc(s); if(l.h!==undefined && !l.h) l.h=AGORA(); gravar(f); desenharEditor(); }));
+  document.querySelectorAll('[data-gidem]').forEach(b=>b.onclick=()=>{ const [k,i,c]=b.dataset.gidem.split('.'); const a=f.dados[k][+i-1], l=f.dados[k][+i]; l[c]=a[c]||''; l._sel=a._sel?JSON.parse(JSON.stringify(a._sel)):undefined; gravar(f); desenharEditor(); toast('Copiado da linha de cima — só use se for igual'); });
+  document.querySelectorAll('[data-gagua]').forEach(b=>b.onclick=()=>{ const [k,i]=b.dataset.gagua.split('.'); const tb=def.blocos.find(x=>x.tabela&&x.tabela.k===k).tabela; const l=f.dados[k][+i]; f.dados[tb.agua]=l.de||l.ate||''; gravar(f); desenharEditor(); toast(`"Água apareceu a" = ${f.dados[tb.agua]||'?'} m. Confira lá embaixo.`); });
+  document.querySelectorAll('[data-gfoto]').forEach(b=>b.onclick=()=>{ const [k,i]=b.dataset.gfoto.split('.'); const tb=def.blocos.find(x=>x.tabela&&x.tabela.k===k).tabela; const l=f.dados[k][+i];
+    CAM.extra={ fichaId:f.id, ficha:def.ident(f.dados), tabela:k, linha:+i, trecho:`${l.de||'?'} a ${l.ate||'?'} m` }; abrirCamera('amostra', `${tb.foto.replace(/^Foto d[ao] /,'').replace(/^./,x=>x.toUpperCase())} · ${def.ident(f.dados)} · ${l.de||'?'} a ${l.ate||'?'} m`); });
   const enc=$('#encerrar'); if(enc) enc.onclick=()=>encerrar(f);
   const exc=$('#excluir'); if(exc) exc.onclick=()=>{ if(exc.dataset.c!=='1'){ exc.dataset.c='1'; exc.textContent='Toque de novo para excluir de vez'; return; } remover(f.id); fechar(); };
   const rea=$('#reabrir'); if(rea) rea.onclick=()=>{ f.status='rascunho'; f.versao=(f.versao||1)+1; gravar(f); desenharEditor(); toast('Reaberta: versão '+f.versao); };
   const pv=$('#pdfver'); if(pv) pv.onclick=async()=>{ const b=await gerarPDF(f); const u=URL.createObjectURL(b); window.open(u,'_blank'); };
-  if(f.tipo==='poco_teste' && f.status!=='encerrada'){ clearInterval(window.__proxT); window.__proxT=setInterval(()=>{ const p=$('#prox'); if(!p||!aberta()){ clearInterval(window.__proxT); return; } p.textContent=proximaLeitura(f.dados)||p.textContent; },20000); }
+  ligarProx(f);
+  if(f.tipo==='poco_teste' && f.status!=='encerrada'){ clearInterval(window.__proxT); window.__proxT=setInterval(()=>{ const p=$('#prox'); if(!p||!aberta()){ clearInterval(window.__proxT); return; } if(document.activeElement && document.activeElement.id==='ldv') return; renderProx(f); },20000); }
 }
 function atualizarCalc(f){
   const def=DEF[f.tipo]; const d=f.dados;
   def.blocos.filter(b=>b.tabela).forEach(b=>{ const tb=b.tabela; (d[tb.k]||[]).forEach((l,i)=>tb.cols.filter(c=>c.tipo==='calc').forEach(c=>{ const el=document.querySelector(`[data-calc="${tb.k}.${i}.${c.k}"]`); if(el) el.textContent=String(c.calc(l,d)); })); });
   const box=$('#avisosBox'); if(box){ const av=def.avisos(d); box.innerHTML=`<h2>O que ainda falta</h2>${av.length?av.map(x=>`<div class="erro">${esc(x)}</div>`).join(''):'<div class="muted">Nada pendente.</div>'}<div class="nota">Nenhum aviso impede encerrar. Não mediu? Deixe em branco e escreva o porquê. Nunca invente.</div>`; }
-  const p=$('#prox'); if(p && f.tipo==='poco_teste') p.textContent=proximaLeitura(d)||'Preencha a hora de início para o app mostrar a próxima leitura.';
+  if(f.tipo==='poco_teste' && $('#prox') && !(document.activeElement&&document.activeElement.id==='ldv')) renderProx(f);
 }
 
 /* ---------------- Assinatura com o dedo ---------------- */
@@ -403,6 +444,177 @@ function montarPDF(jpgs, W, H){
 }
 
 /* ---------------- Encerrar: PDF + dados na fila ---------------- */
+/* ============================================================
+   BOLETIM SPT — MODO CAMPO (feito para quem está com a mão suja)
+   Mesmos dados da FC-SPT v1.1 (o PDF e o leitor ficha_app.py não mudam).
+   Um cartão por metro, números grandes, material em botões,
+   hora e início automáticos, foto da amostra opcional.
+   ============================================================ */
+const MAT_POCO=[['Solo','m'],['Argila','f'],['Silte','m'],['Areia','f'],['Cascalho','m'],['Laterita','f'],['Rocha alterada','f'],['Granito','m'],['Gnaisse','m'],['Diabásio','m'],['Arenito','m'],['Quartzo','m']];
+const MAT={ tipos:[['Argila','f'],['Silte','m'],['Areia','f'],['Pedregulho','m'],['Aterro','m'],['Rocha alterada','f']],
+  adj:{ 'Argila':'argilos', 'Silte':'siltos', 'Areia':'arenos', 'Pedregulho':null, 'Aterro':null, 'Rocha alterada':null, 'Cascalho':'cascalhent', 'Laterita':'laterític' },
+  cores:[['vermelh',1],['amarel',1],['marrom',0],['cinza',0],['branc',1],['pret',1],['variegad',1]],
+  umid:[['sec',1],['úmid',1],['molhad',1]],
+  obs:['Achou água aqui','Perdeu água','Desbarrancou','Pedra / matacão'] };
+function flex(raiz, g, varia){ return varia ? raiz+(g==='f'?'a':'o') : raiz; }
+function montarDesc(sel){ // sel: {tipos:[], cor:'', umid:''}
+  if(!sel.tipos.length) return '';
+  const [p,...sec]=sel.tipos; const g=([...MAT.tipos,...MAT_POCO].find(t=>t[0]===p)||[p,'f'])[1];
+  let s=p; for(const x of sec){ const a=MAT.adj[x]; s+= a? ' '+flex(a,g,true) : ' com '+x.toLowerCase(); }
+  if(sel.cor){ const c=MAT.cores.find(x=>x[0]===sel.cor); s+=', '+(c?flex(c[0],g,!!c[1]):sel.cor); }
+  if(sel.umid){ const u=MAT.umid.find(x=>x[0]===sel.umid); s+=', '+(u?flex(u[0],g,!!u[1]):sel.umid); }
+  return s; }
+function fotosDaLinha(fid,tk,i){ return (S.fila||[]).filter(x=>x.tipo==='foto' && !x.meta?.original && x.meta?.extra?.fichaId===fid && x.meta?.extra?.tabela===tk && x.meta?.extra?.linha===i); }
+function fotosDoMetro(f,i){ return (S.fila||[]).filter(x=>x.tipo==='foto' && !x.meta?.original && x.meta?.extra?.fichaId===f.id && x.meta?.extra?.linha===i); }
+function trechoTxt(l){ const de=NUM(l.de); if(isNaN(de)) return `${l.de||'?'} a ${l.ate||'?'} m`; return `${String(de.toFixed(2)).replace('.',',')} a ${String((de+0.45).toFixed(2)).replace('.',',')} m`; }
+function impenetravel(l){ for(const [g,c] of [['g1','c1'],['g2','c2'],['g3','c3']]){ const G=NUM(l[g]), C=NUM(l[c]); if(!isNaN(G)&&!isNaN(C)&&G>=30&&C<15) return true; } return false; }
+function injetarCssSPT(){ if(document.getElementById('cssSPT')) return; const st=document.createElement('style'); st.id='cssSPT'; st.textContent=`
+.spt .mcard{border:2px solid var(--line);border-radius:14px;padding:12px;margin-bottom:12px;background:#fff}
+.spt .mcard.ok{border-color:var(--green)}
+.spt .mhead{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.spt .mhead b{font-size:19px;color:var(--navy)}
+.spt .mhead .prof{font-size:15px;color:var(--ink)}
+.spt .mhead .nbox{margin-left:auto;background:var(--navy);color:#fff;border-radius:10px;padding:4px 12px;font:700 20px system-ui}
+.spt .gols{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.spt .gol{min-width:0}
+.spt .gol input.g{width:100%;min-width:0}
+.spt .row input,.spt .grid input{min-width:0}
+.spt .grid>div{min-width:0}
+.spt .gol{border:1.5px solid var(--line);border-radius:12px;padding:8px;text-align:center;background:#FAFBFC}
+.spt .gol .t{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.spt .gol input.g{font:700 30px system-ui;text-align:center;height:58px;padding:0;margin:4px 0}
+.spt .gol .cm{display:flex;align-items:center;justify-content:center;gap:4px;font-size:12px;color:var(--muted)}
+.spt .gol .cm input{width:44px;height:34px;padding:2px;text-align:center;font-size:15px}
+.spt .sub{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:12px 0 6px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips button{min-height:40px;padding:6px 12px;border-radius:20px;border:1.5px solid var(--line);background:#fff;color:var(--ink);font-size:15px;font-weight:500;flex:0 0 auto}
+.chips button.on{background:var(--navy);border-color:var(--navy);color:#fff}
+.linha .row input,.linha input,.linha select{min-width:0}
+.linha .grid>div{min-width:0}
+.mini{font-size:13px;color:var(--muted)}
+.sub2{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:8px 0 4px}
+.spt .chips{display:flex;flex-wrap:wrap;gap:6px}
+.spt .chips button{min-height:40px;padding:6px 12px;border-radius:20px;border:1.5px solid var(--line);background:#fff;color:var(--ink);font-size:15px;font-weight:500}
+.spt .chips button.on{background:var(--navy);border-color:var(--navy);color:#fff}
+.spt .av button{flex:1;min-height:46px;font-size:16px}
+.spt .foto{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap}
+.spt .foto img{width:54px;height:54px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
+.spt .alerta{background:#FFF4E5;border:1.5px solid #F0A030;color:#7A4A00;border-radius:10px;padding:8px 10px;margin-top:8px;font-size:14px}
+.spt .big1 input{font-size:22px;font-weight:700;height:54px}
+.spt .agua button.opt{flex:1;min-height:52px;font-size:15px}
+.spt details summary{cursor:pointer;font-weight:600;color:var(--navy);padding:6px 0}
+.spt .mini{font-size:13px;color:var(--muted)}
+`; document.head.appendChild(st); }
+
+function desenharSPT(f){
+  injetarCssSPT(); const y=window.scrollY;
+  const def=DEF.spt; const d=f.dados; const tb=def.blocos[1].tabela; const g=d.golpes||(d.golpes=[]);
+  d.folha=`1 de ${Math.max(1,Math.ceil(g.length/12))}`;
+  g.forEach((l,i)=>{ if(l.am===''||l.am==null) l.am=String(i+1); }); // amostra nº = nº do metro (pode trocar)
+  if(!d.coord && S.pos){ d.coord=textoCoordFicha(S.pos); gravar(f); }
+  $('#hTit').textContent=def.codigo+' · '+def.ident(d); $('#hSub').textContent=f.obraNome; $('#hBtn').classList.remove('hide'); $('#hBtn').textContent='Fichas';
+  const inp=(k,ph,modo)=>`<input id="f_${k}" data-f="${k}" value="${esc(d[k]==null?'':d[k])}" placeholder="${esc(ph||'')}" ${modo==='num'?'inputmode="decimal"':''}>`;
+  let h=`<div class="spt">`;
+  h+=`<div class="card" style="border-left:5px solid var(--green)"><h2>Boletim SPT · furo SP-${esc(d.furo||'__')}</h2><div class="mini">SOP-017 · NBR 6484 · salva sozinho a cada toque · pode fechar o app que não perde</div></div>`;
+
+  // 1 · Antes de começar
+  h+=`<div class="card"><h2>1 · Antes do primeiro golpe</h2>
+   <div class="grid"><div class="big1"><label for="f_furo">Furo nº SP-</label>${inp('furo','01','num')}</div>
+   <div style="grid-column:span 3"><label for="f_local">Onde é o furo</label>${inp('local','ex.: cabeceira da pista, lado norte')}</div></div>
+   <label>Coordenada do furo</label><div class="row"><input id="f_coord" data-f="coord" value="${esc(d.coord||'')}" placeholder="procurando GPS…"><button class="sec" data-gps="coord" style="flex:0 0 auto">GPS de novo</button></div>
+   <div class="grid"><div style="grid-column:span 2"><label for="f_equipe">Sondador e ajudantes</label>${inp('equipe','nomes')}</div>
+   <div style="grid-column:span 2"><label for="f_acomp">Quem do cliente acompanhou</label>${inp('acomp','nome (se tiver)')}</div></div>
+   <details><summary>Mais dados do furo (cota, revestimento, trado, lavagem, data)</summary><div class="grid">
+    <div><label for="f_cota">Cota (m)</label>${inp('cota','','num')}</div><div><label for="f_revest">Revestimento até (m)</label>${inp('revest','','num')}</div>
+    <div><label for="f_trado">Trado até (m)</label>${inp('trado','','num')}</div><div><label for="f_lavagem">Lavagem de/até (m)</label>${inp('lavagem','')}</div>
+    <div><label for="f_data">Data</label><input id="f_data" type="date" data-f="data" value="${esc(d.data||'')}"></div>
+    <div><label for="f_inicio">Início</label><div class="row"><input id="f_inicio" type="time" data-f="inicio" value="${esc(d.inicio||'')}"><button class="sec" data-agora="inicio" style="flex:0 0 auto;padding:10px">agora</button></div></div>
+    <div style="grid-column:span 2"><label for="f_cliente">Cliente / obra</label>${inp('cliente','')}</div></div>
+    <div class="mini">A hora de início entra sozinha no primeiro golpe anotado.</div></details></div>`;
+
+  // 2 · Metro a metro
+  h+=`<div class="card"><h2>2 · Metro a metro</h2><div class="mini">Anote na hora. Golpes de cada 15 cm · N = 2º + 3º (o app soma) · se não entrou os 15 cm, corrija o "entrou".</div></div>`;
+  g.forEach((l,i)=>{
+    const nOk = l.g2!==''&&l.g2!=null&&l.g3!==''&&l.g3!=null; const N=nOk?NUM(l.g2)+NUM(l.g3):'';
+    const sel=l._sel||{tipos:[],cor:'',umid:''}; const fotos=fotosDoMetro(f,i);
+    h+=`<div class="mcard ${nOk&&l.desc?'ok':''}" data-li="${i}">
+     <div class="mhead"><b>Metro ${i+1}</b><span class="prof">${esc(trechoTxt(l))}</span><span class="nbox">N = <span data-calc="golpes.${i}.n">${esc(String(N))}</span></span></div>
+     <div class="gols">${[1,2,3].map(k=>`<div class="gol"><div class="t">${k}º 15 cm</div><input class="g" inputmode="numeric" data-t="golpes.${i}.g${k}" id="t_golpes_${i}_g${k}" value="${esc(l['g'+k]==null?'':l['g'+k])}" placeholder="golpes" aria-label="golpes do ${k}º trecho"><div class="cm">entrou <input inputmode="numeric" data-t="golpes.${i}.c${k}" id="t_golpes_${i}_c${k}" value="${esc(l['c'+k]==null?'':l['c'+k])}"> cm</div></div>`).join('')}</div>
+     ${impenetravel(l)?`<div class="alerta">Pode ser <b>impenetrável</b> (30 golpes sem entrar 15 cm). Confirme e, se for, vá em "Fim do furo".</div>`:''}
+     <div class="sub">O que saiu no amostrador</div>
+     <div class="chips" data-mat="${i}" data-grupo="tipos">${MAT.tipos.map(t=>`<button class="${sel.tipos.includes(t[0])?'on':''}" data-v="${esc(t[0])}">${esc(t[0])}</button>`).join('')}</div>
+     <div class="sub">Cor</div><div class="chips" data-mat="${i}" data-grupo="cor">${MAT.cores.map(c=>`<button class="${sel.cor===c[0]?'on':''}" data-v="${c[0]}">${flex(c[0],'m',!!c[1])}</button>`).join('')}</div>
+     <div class="sub">Umidade</div><div class="chips" data-mat="${i}" data-grupo="umid">${MAT.umid.map(u=>`<button class="${sel.umid===u[0]?'on':''}" data-v="${u[0]}">${flex(u[0],'m',true)}</button>`).join('')}</div>
+     <label for="t_golpes_${i}_desc" style="margin-top:10px">Descrição (os botões escrevem aqui; pode corrigir)</label>
+     <textarea id="t_golpes_${i}_desc" data-t="golpes.${i}.desc" style="min-height:54px" placeholder="ex.: Argila siltosa, vermelha, úmida">${esc(l.desc||'')}</textarea>
+     ${i>0?`<button class="ghost" data-idem="${i}" style="padding:4px 0">Igual ao metro de cima</button>`:''}
+     <div class="sub">Avanço até o próximo ensaio</div><div class="row av">${[['T','Trado'],['L','Lavagem']].map(a=>`<button class="${l.av===a[0]?'green':'sec'}" data-av="${i}" data-v="${a[0]}">${a[1]}</button>`).join('')}</div>
+     <div class="sub">Aconteceu algo?</div><div class="chips" data-obs="${i}">${MAT.obs.map(o=>`<button class="${(l.obs||'').includes(o)?'on':''}" data-v="${esc(o)}">${esc(o)}</button>`).join('')}</div>
+     <input id="t_golpes_${i}_obs" data-t="golpes.${i}.obs" value="${esc(l.obs||'')}" placeholder="outra observação (se tiver)" style="margin-top:6px">
+     <div class="foto"><button class="sec" data-fotoam="${i}">📷 Foto da amostra (se quiser)</button>${fotos.slice(-4).map(x=>x.thumb?`<img src="${x.thumb}" alt="">`:'').join('')}${fotos.length?`<span class="mini">${fotos.length} foto(s)</span>`:''}</div>
+     <details style="margin-top:8px"><summary>Ajustar profundidade, amostra, hora ou apagar</summary><div class="grid">
+       <div><label>De (m)</label><input inputmode="decimal" data-t="golpes.${i}.de" id="t_golpes_${i}_de" value="${esc(l.de==null?'':l.de)}"></div>
+       <div><label>Até (m)</label><input inputmode="decimal" data-t="golpes.${i}.ate" id="t_golpes_${i}_ate" value="${esc(l.ate==null?'':l.ate)}"></div>
+       <div><label>Amostra nº</label><input data-t="golpes.${i}.am" id="t_golpes_${i}_am" value="${esc(l.am==null?'':l.am)}"></div>
+       <div><label>Hora</label><input type="time" data-t="golpes.${i}.h" id="t_golpes_${i}_h" value="${esc(l.h||'')}"></div></div>
+       <button class="ghost" data-del="golpes.${i}" style="color:var(--err)">apagar este metro</button></details>
+    </div>`; });
+  h+=`<button class="big green" data-add="golpes" style="margin-bottom:12px">+ Próximo metro${g.length?` (${g.length+1}º)`:''}</button>`;
+
+  // 3 · Água
+  const temNA=d.na_ini!==''&&d.na_ini!=null, seco=d.seco!==''&&d.seco!=null;
+  h+=`<div class="card agua"><h2>3 · Água no furo</h2><div class="mini">Sonde quando achar água e de novo no fim do furo.</div>
+   <div class="grid" style="margin-top:6px"><div style="grid-column:span 2"><label for="f_na_ini">Achou água a (m)</label><div class="row">${inp('na_ini','profundidade','num')}<input id="f_na_ini_h" type="time" data-f="na_ini_h" value="${esc(d.na_ini_h||'')}" style="max-width:120px"><button class="sec" data-agora="na_ini_h" style="flex:0 0 auto;padding:10px">agora</button></div></div>
+   <div style="grid-column:span 2"><label for="f_na_fim">No fim, sondou de novo: (m)</label><div class="row">${inp('na_fim','profundidade','num')}<input id="f_na_fim_h" type="time" data-f="na_fim_h" value="${esc(d.na_fim_h||'')}" style="max-width:120px"><button class="sec" data-agora="na_fim_h" style="flex:0 0 auto;padding:10px">agora</button></div></div>
+   <div style="grid-column:span 2"><label for="f_seco">Não achou água: seco até (m)</label>${inp('seco','profundidade','num')}</div></div>
+   ${temNA&&seco?'<div class="alerta">Marcou que achou água e também "seco até". Confira qual vale.</div>':''}</div>`;
+
+  // 4 · Fim
+  const ult=g.length?g[g.length-1]:null; let penet=0; if(ult) for(const k of [1,2,3]){ if(ult['g'+k]!==''&&ult['g'+k]!=null){ const c=NUM(ult['c'+k]); penet+= isNaN(c)?15:c; } }
+  const sugFim = ult&&!isNaN(NUM(ult.de))&&penet ? String((NUM(ult.de)+penet/100).toFixed(2)).replace('.',',') : ''; // de + o que o amostrador entrou
+  h+=`<div class="card"><h2>4 · Fim do furo</h2>
+   <div class="grid"><div class="big1" style="grid-column:span 2"><label for="f_prof_final">Profundidade final (m)</label><div class="row">${inp('prof_final','','num')}${sugFim&&!d.prof_final?`<button class="sec" data-usarfim="${sugFim}" style="flex:0 0 auto">${sugFim} m</button>`:''}</div></div>
+   <div style="grid-column:span 2"><label for="f_fim">Hora que terminou</label><div class="row"><input id="f_fim" type="time" data-f="fim" value="${esc(d.fim||'')}"><button class="sec" data-agora="fim" style="flex:0 0 auto;padding:10px">agora</button></div></div></div>
+   <label>Parou porque</label><div class="chips" data-parou="1">${def.blocos[2].campos.find(c=>c.k==='parou').op.filter(Boolean).map(o=>`<button class="${d.parou===o?'on':''}" data-v="${esc(o)}">${esc(o)}</button>`).join('')}</div>
+   ${d.parou==='outro'?`<label for="f_parou_outro">Qual motivo</label>${inp('parou_outro','')}`:''}
+   ${(NUM(d.prof_final)>12)?`<label for="f_autorizou12">Passou de 12 m: quem autorizou?</label>${inp('autorizou12','nome')}`:''}
+   <div class="mini" style="margin-top:8px">${esc(def.nota)}</div></div>`;
+  const chk=def.blocos[2].campos.find(c=>c.k==='chk');
+  h+=`<div class="card"><h2>5 · Antes de ir embora</h2><div class="grid">${campoHTML(chk,d.chk,false)}${campoHTML({k:'sacos',r:'Amostras: nº de sacos',tipo:'int'},d.sacos,false)}</div>
+   <div class="grid">${campoHTML({k:'ass_sond',r:'Assinatura do sondador',tipo:'ass',w:2},d.ass_sond,false)}${campoHTML({k:'ass_acomp',r:'Assinatura de quem acompanhou (cliente)',tipo:'ass',w:2},d.ass_acomp,false)}</div></div>`;
+
+  const av=def.avisos(d);
+  h+=`<div class="card" id="avisosBox"><h2>O que ainda falta</h2>${av.length?av.map(x=>`<div class="erro">${esc(x)}</div>`).join(''):'<div class="muted">Nada pendente.</div>'}<div class="nota">Nenhum aviso impede encerrar. Não mediu? Deixe em branco. Nunca invente.</div></div>`;
+  h+=`<button class="big green" id="encerrar">Encerrar boletim e enviar</button><button class="big ghost" id="excluir" style="margin-top:8px;color:var(--err)">Excluir este boletim</button></div>`;
+  $('#main').innerHTML=h; ligarEditor(f); ligarSPT(f); window.scrollTo(0,y);
+}
+function ligarSPT(f){
+  const d=f.dados; const g=d.golpes;
+  const refazer=()=>{ gravar(f); desenharSPT(f); };
+  // hora de início e hora do metro entram sozinhas
+  document.querySelectorAll('.spt input.g').forEach(el=>el.addEventListener('input',()=>{ const [,i,c]=el.dataset.t.split('.'); const l=g[+i];
+    if(!d.inicio && el.value!==''){ d.inicio=AGORA(); const x=$('#f_inicio'); if(x) x.value=d.inicio; }
+    if(c==='g3' && el.value!=='' && !l.h){ l.h=AGORA(); const x=$(`#t_golpes_${i}_h`); if(x) x.value=l.h; }
+    gravar(f); const card=el.closest('.mcard'); if(card) card.classList.toggle('ok', l.g2!==''&&l.g3!==''&&!!l.desc); }));
+  // material em botões -> descrição
+  document.querySelectorAll('[data-mat]').forEach(box=>box.querySelectorAll('button').forEach(b=>b.onclick=()=>{ const i=+box.dataset.mat, gr=box.dataset.grupo, v=b.dataset.v; const l=g[i]; const s=l._sel||(l._sel={tipos:[],cor:'',umid:''});
+    if(gr==='tipos'){ s.tipos = s.tipos.includes(v) ? s.tipos.filter(x=>x!==v) : [...s.tipos, v]; } else s[gr] = s[gr]===v ? '' : v;
+    l.desc=montarDesc(s); refazer(); }));
+  document.querySelectorAll('[data-idem]').forEach(b=>b.onclick=()=>{ const i=+b.dataset.idem; const a=g[i-1]; g[i].desc=a.desc||''; g[i]._sel=a._sel?JSON.parse(JSON.stringify(a._sel)):undefined; refazer(); toast('Copiado do metro de cima — só use se for igual'); });
+  document.querySelectorAll('[data-av]').forEach(b=>b.onclick=()=>{ const l=g[+b.dataset.av]; l.av = l.av===b.dataset.v ? '' : b.dataset.v; refazer(); });
+  document.querySelectorAll('[data-obs]').forEach(box=>box.querySelectorAll('button').forEach(b=>b.onclick=()=>{ const l=g[+box.dataset.obs]; const v=b.dataset.v; let partes=(l.obs||'').split(/\s*·\s*/).filter(Boolean);
+    partes = partes.includes(v) ? partes.filter(x=>x!==v) : [...partes, v]; l.obs=partes.join(' · ');
+    if(v==='Achou água aqui' && partes.includes(v) && (d.na_ini===''||d.na_ini==null)){ d.na_ini=l.de||''; d.na_ini_h=AGORA(); toast('Anotado em "Água no furo". Confira a profundidade.'); }
+    refazer(); }));
+  document.querySelectorAll('[data-parou] button').forEach(b=>b.onclick=()=>{ d.parou = d.parou===b.dataset.v ? '' : b.dataset.v; refazer(); });
+  document.querySelectorAll('[data-usarfim]').forEach(b=>b.onclick=()=>{ d.prof_final=b.dataset.usarfim; refazer(); });
+  document.querySelectorAll('[data-fotoam]').forEach(b=>b.onclick=()=>{ const i=+b.dataset.fotoam; const l=g[i];
+    CAM.extra={ fichaId:f.id, ficha:'SP-'+(d.furo||''), linha:i, metro:trechoTxt(l), amostra:l.am||String(i+1) };
+    abrirCamera('amostra', `Amostra SP-${d.furo||''} · ${trechoTxt(l)}`); });
+  // recalcular folha e avisos depois de qualquer mudança
+  const box=$('#main'); box.addEventListener('input',()=>{ d.folha=`1 de ${Math.max(1,Math.ceil(g.length/12))}`; },{passive:true});
+}
+
 async function encerrar(f){
   const def=DEF[f.tipo]; const av=def.avisos(f.dados);
   if(av.length && $('#encerrar').dataset.c!=='1'){ $('#encerrar').dataset.c='1'; $('#encerrar').textContent=`Encerrar mesmo assim (${av.length} aviso${av.length>1?'s':''})`; $('#avisosBox').scrollIntoView({block:'center'}); toast('Confira o que falta. Encerrar não é bloqueado.'); return; }
@@ -411,6 +623,7 @@ async function encerrar(f){
     const ob=(S.pacote?.obras||[]).find(o=>o.id===f.obraId) || {id:f.obraId,nome:f.obraNome};
     const prevObra=S.obraId; S.obraId=ob.id;
     const base=`${HOJE()}_${def.codigo.replace(/\s+/g,'-')}_${slug(def.ident(f.dados))}${f.versao>1?'_v'+f.versao:''}`;
+    if(f.tipo==='spt'){ (f.dados.golpes||[]).forEach((l,i)=>{ l.fotos=fotosDoMetro(f,i).map(x=>x.nome); }); gravar(f); }
     const pdf=await gerarPDF(f);
     await enfileirarArquivo(pdf,'ficha',base+'.pdf',{fichaId:f.id,tipo:f.tipo,versao:f.versao,avisos:av});
     const dados=new Blob([JSON.stringify({app:'campo',fichaId:f.id,tipo:f.tipo,codigo:def.codigo,sop:def.sop,versao:f.versao,obraId:f.obraId,obra:f.obraNome,por:f.por,criadoEm:f.criadoEm,encerradoEm:new Date().toISOString(),avisos:av,dados:Object.fromEntries(Object.entries(f.dados).map(([k,v])=>[k, (typeof v==='string'&&v.startsWith('data:image'))?'[assinatura no PDF]':v]))},null,1)],{type:'application/json'});
