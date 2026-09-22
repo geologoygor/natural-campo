@@ -179,7 +179,7 @@ details[open] summary::after{content:"–"}
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.1.1';
+const APP_VERSAO = '1.1.2';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -687,6 +687,8 @@ function ligarOcorr(ob){
   // cada toque renova a trava do voltar (o navegador só respeita trava criada com toque do usuário)
   document.addEventListener('pointerdown',()=>{ if(!history.state || history.state.t==='base'){ try{ history.pushState({t:'app'},''); }catch(e){} } },true);
   if('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js').catch(()=>{}); }
+  // pede ao celular para NÃO apagar os dados do app quando faltar espaço (fila, fichas, rascunhos)
+  try{ if(navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(()=>{}); }catch(e){}
   if(navigator.onLine){ baixarPacote(true); enviarFila(); }
   // pacote de demonstração local (quando abre pelo repositório sem robô configurado)
   if(!S.pacote){ try{ const r=await fetch('campo.json'); if(r.ok){ S.pacote=await r.json(); LS.set('pacote',S.pacote); render(); } }catch(e){} }
