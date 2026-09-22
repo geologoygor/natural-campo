@@ -117,6 +117,17 @@ details[open] summary::after{content:"–"}
 #cam .top{position:absolute;top:0;left:0;right:0;padding:calc(10px + var(--sat)) 12px 10px;display:flex;gap:8px;align-items:center;background:linear-gradient(rgba(0,0,0,.6),transparent);color:#fff;font-size:13px}
 #cam .top select{width:auto;flex:1;background:rgba(255,255,255,.15);color:#fff;border:0;padding:8px}
 #cam .top select option{color:#000}
+#cam #camLogo{position:absolute;left:12px;top:calc(62px + var(--sat));width:52px;height:52px;border-radius:10px;opacity:.92;box-shadow:0 2px 8px rgba(0,0,0,.45);z-index:2}
+#cam.semmarca #camLogo{display:none}
+#cam .tiras{position:absolute;left:0;right:0;bottom:calc(210px + var(--sab));display:flex;gap:8px;align-items:center;padding:0 12px;overflow-x:auto;z-index:3}
+#cam .tiras .tt{flex:0 0 auto;width:62px;height:62px;border-radius:10px;overflow:hidden;border:2px solid rgba(255,255,255,.85);background:#222}
+#cam .tiras .tt img{width:100%;height:100%;object-fit:cover;display:block}
+#cam .tiras .cnt{flex:0 0 auto;color:#fff;font-size:12px;background:rgba(0,0,0,.55);padding:5px 9px;border-radius:999px}
+#camVer{position:absolute;inset:0;background:#000;z-index:8;display:flex;flex-direction:column}
+#camVer.hide{display:none}
+#camVer img{flex:1 1 0;min-height:0;width:100%;object-fit:contain;background:#000}
+#camVer .cvbot{display:flex;gap:10px;padding:12px 14px calc(14px + var(--sab));background:#111}
+#camVer .cvbot button{flex:1;min-height:50px}
 #cam .geo2{position:absolute;left:12px;right:12px;bottom:calc(170px + var(--sab));pointer-events:none;color:#fff;font-family:ui-monospace,Menlo,monospace;font-size:12px;background:rgba(17,62,107,.7);padding:6px 10px;border-radius:8px}
 #cam .bot{padding:14px 20px calc(18px + var(--sab));display:flex;align-items:center;justify-content:space-between;background:#000;color:#fff}
 #cam .shutter{width:74px;height:74px;border-radius:50%;background:#fff;border:5px solid var(--green);padding:0}
@@ -185,7 +196,10 @@ details[open] summary::after{content:"–"}
     <select id="camSlot"></select>
     <button class="ghost" id="camTrocar">⟲</button>
   </div>
+  <img id="camLogo" src="icon-192.png" alt="">
+  <div class="tiras" id="camTiras"></div>
   <div class="geo2" id="camGeo">Procurando GPS…</div>
+  <div id="camVer" class="hide"><img id="camVerImg" alt=""><div class="cvbot"><button class="sec" id="cvFechar">Voltar</button><button class="danger" id="cvApagar">Apagar esta foto</button></div></div>
   <div class="bot">
     <div class="tg"><button class="sw" id="tgMarca"></button><span>logo Natural</span></div>
     <div class="mid"><div class="modo"><button id="mFoto" class="on">Foto</button><button id="mVideo">Vídeo</button></div>
@@ -197,14 +211,14 @@ details[open] summary::after{content:"–"}
 <div class="toast" id="toast"></div>
 <canvas id="cv" class="hide"></canvas>
 
-<script src="fichas.js?v=1.6.4"></script>
+<script src="fichas.js?v=1.7.0"></script>
 <script>
 /* ============================================================
    CAMPO · Natural Engenharia — app de campo (PWA)
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.6.4';
+const APP_VERSAO = '1.7.0';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -293,6 +307,7 @@ const DB = {
   put(o){ return new Promise((ok,er)=>{ const q=DB.tx('readwrite').put(o); q.onsuccess=()=>ok(); q.onerror=()=>er(q.error); }); },
   del(id){ return new Promise((ok,er)=>{ const q=DB.tx('readwrite').delete(id); q.onsuccess=()=>ok(); q.onerror=()=>er(q.error); }); },
   all(){ return new Promise((ok,er)=>{ const q=DB.tx('readonly').getAll(); q.onsuccess=()=>ok(q.result||[]); q.onerror=()=>er(q.error); }); },
+  get(id){ return new Promise((ok,er)=>{ const q=DB.tx('readonly').get(id); q.onsuccess=()=>ok(q.result||null); q.onerror=()=>er(q.error); }); },
 };
 async function recarregarFila(){ S.fila = (await DB.all()).sort((a,b)=>a.criadoEm<b.criadoEm?-1:1); pintarFila(); }
 function pintarFila(){
@@ -539,7 +554,7 @@ async function baixarPacote(silencioso){
 const CAM={ stream:null, facing:'environment', slot:null };
 async function abrirCamera(slot, titulo){
   CAM.slot=slot; CAM.slotTitulo=titulo||null; const sel=$('#camSlot'); const lista=slotsDaObra(); if(titulo){ const ex=lista.find(s=>s.k===slot); if(ex) ex.t=titulo; else lista.unshift({k:slot,t:titulo}); } sel.innerHTML=lista.map(s=>`<option value="${esc(s.k)}" ${s.k===slot?'selected':''}>${esc(s.t)}</option>`).join('');
-  $('#cam').classList.add('on'); abrirCamHist(); pintarToggles(); iniciarGPS(); atualizarGeo();
+  $('#cam').classList.add('on'); abrirCamHist(); pintarToggles(); pintarTiras(); iniciarGPS(); atualizarGeo();
   try{ await ligarStream(); }catch(e){ $('#cam').classList.remove('on'); toast('Câmera indisponível: '+e.message+'. Use "Da galeria".',4000); }
 }
 async function ligarStream(){
@@ -557,7 +572,7 @@ async function fotografar(){
   if(!blob){ const v=$('#video'); const oc=document.createElement('canvas'); oc.width=v.videoWidth; oc.height=v.videoHeight; oc.getContext('2d').drawImage(v,0,0); blob=await new Promise(ok=>oc.toBlob(ok,'image/jpeg',0.95)); }
   const slot=$('#camSlot').value; const st=(slot===CAM.slot&&CAM.slotTitulo)?{t:CAM.slotTitulo}:(slotsDaObra().find(s=>s.k===slot)||{t:slot});
   await enfileirarFoto(blob,{slot, slotTitulo:st.t, fonte:'camera', extra:(slot===CAM.slot?CAM.extra:null)||null});
-  toast('Foto '+st.t+' guardada');
+  toast('Foto '+st.t+' guardada'); pintarTiras();
 }
 /* ---------------- Vídeo (câmera do app e galeria) ----------------
    Gravado pelo app: 720p, carimbo de coordenada/data/obra na própria imagem, até 90 s (~15 MB).
@@ -638,7 +653,23 @@ function recomprimir(f, slotTitulo){ return new Promise(async (ok,er)=>{
   v.onended=()=>{ setTimeout(()=>{ try{ rec.stop(); }catch(e){} },300); };
   rec.start(1000); desenha(); v.play().catch(e=>{ clearInterval(prog); try{ rec.stop(); }catch(_){} er(e); });
 }); }
-function pintarToggles(){ $('#tgMarca').classList.toggle('on',!!S.marca); $('#tgFmt').classList.toggle('on',S.fmt==='utm'); $('#tgFmtTxt').textContent = S.fmt==='utm'?'UTM':'Lat/Lon'; }
+function fotosDoSlot(slot){ const ob=obraAtual(); if(!ob) return []; return (S.fila||[]).filter(x=>x.obraId===ob.id && x.slot===slot && (x.tipo==='foto'||x.tipo==='video') && !x.meta?.original); }
+function pintarTiras(){ // o que já foi fotografado NESTE item, para conferir na hora
+  const el=$('#camTiras'); if(!el) return; const slot=$('#camSlot').value; const fs=fotosDoSlot(slot);
+  el.innerHTML = fs.slice(-6).map(f=>`<button class="tt" data-ver="${esc(f.id)}">${f.thumb?`<img src="${f.thumb}" alt="">`:''}</button>`).join('') + (fs.length?`<span class="cnt">${fs.length} neste item — toque para ver</span>`:`<span class="cnt">nenhuma foto neste item ainda</span>`);
+  el.querySelectorAll('[data-ver]').forEach(b=>b.onclick=()=>verFotoDaCamera(b.dataset.ver)); }
+async function verFotoDaCamera(id){
+  const it=(S.fila||[]).find(x=>x.id===id); if(!it) return;
+  const box=$('#camVer'), img=$('#camVerImg'); let url=null;
+  try{ const reg=it.blob?it:await DB.get(id); url=reg&&reg.blob?URL.createObjectURL(reg.blob):it.thumb; }catch(e){ url=it.thumb; }
+  img.src=url||''; box.classList.remove('hide');
+  const fechar=()=>{ box.classList.add('hide'); if(url&&url.startsWith('blob:')) setTimeout(()=>URL.revokeObjectURL(url),500); };
+  $('#cvFechar').onclick=fechar;
+  $('#cvApagar').onclick=async()=>{ const guardados=S.fila.filter(x=>x.id===id||x.id===id+'o').map(x=>Object.assign({},x));
+    await DB.del(id); await DB.del(id+'o').catch(()=>{}); await recarregarFila(); fechar(); pintarTiras(); toast('Foto apagada');
+    barraDesfazer('Foto apagada.', async()=>{ for(const g of guardados) await DB.put(g); await recarregarFila(); pintarTiras(); }); };
+}
+function pintarToggles(){ const c=$('#cam'); if(c) c.classList.toggle('semmarca', !S.marca); $('#tgMarca').classList.toggle('on',!!S.marca); $('#tgFmt').classList.toggle('on',S.fmt==='utm'); $('#tgFmtTxt').textContent = S.fmt==='utm'?'UTM':'Lat/Lon'; }
 async function daGaleria(files, slot, slotTitulo, extra){
   for(const f of files){ if(/^video\//.test(f.type)){ await videoDaGaleria(f, slot, slotTitulo, extra); continue; }
     let info={}; try{ info=lerExif(await f.slice(0,262144).arrayBuffer()); }catch(e){}
@@ -649,6 +680,7 @@ async function daGaleria(files, slot, slotTitulo, extra){
 const REC={ mr:null, chunks:[], t0:0, timer:null, blob:null, obraId:null, ultimoId:null }; // obraId: o áudio gravado é só da obra em que foi gravado
 async function gravar(){
   if(REC.mr){ REC.mr.stop(); return; }
+  const ob=obraAtual(); if(ob && audiosDeHoje(ob)>=2){ toast('Já são 2 áudios desta obra hoje. Apague um na aba Fotos se precisar gravar outro.',5000); return; }
   try{ const st=await navigator.mediaDevices.getUserMedia({audio:true}); const mime=['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/aac',''].find(m=>!m||MediaRecorder.isTypeSupported(m));
     REC.mr=new MediaRecorder(st, mime?{mimeType:mime}:undefined); REC.chunks=[]; REC.blob=null; REC.obraId=S.obraId;
     REC.mr.ondataavailable=e=>REC.chunks.push(e.data);
@@ -810,11 +842,12 @@ function ligarFotos(ob){
     await DB.del(id); await DB.del(id+'o').catch(()=>{}); await recarregarFila(); render();
     barraDesfazer('Apagado da fila.', async()=>{ for(const g of guardados) await DB.put(g); await recarregarFila(); render(); toast('De volta na fila'); }); });
 }
+function audiosDeHoje(ob){ return (S.fila||[]).filter(x=>x.tipo==='audio' && x.obraId===ob.id && hojeISO(x.criadoEm)).length; }
 function telaDiario(ob){
-  const P=S.pacote; const gravando=!!REC.mr; const meuAudio = REC.blob && REC.obraId===ob.id; // áudio de outra obra não aparece aqui
+  const P=S.pacote; const gravando=!!REC.mr; const nAud=audiosDeHoje(ob); const cheio=nAud>=2; const meuAudio = REC.blob && REC.obraId===ob.id; // áudio de outra obra não aparece aqui
   let h=`<div class="card"><h2>Diário de obra — 40 segundos</h2><div class="nota">Cinco frases, nesta ordem. O escritório transcreve e vira o registro do dia.</div>`;
   h+=(P.roteiroDiario||[]).map((f,i)=>`<div class="frase"><span>${i+1}</span><div>${esc(f)}</div></div>`).join('');
-  h+=`<div class="timer" id="timer">${gravando?'00:00 / 00:40':'00:40'}</div><button class="rec ${gravando?'on':''}" id="rec">${gravando?'■':'●'}</button><div class="nota" style="text-align:center">${gravando?'Gravando… toque para parar':'Toque para gravar'}</div><div class="nota" style="text-align:center">Precisa falar mais? Grave outro: cada áudio vai separado, quantos quiser.</div>`;
+  h+=`<div class="timer" id="timer">${gravando?'00:00 / 00:40':'00:40'}</div><button class="rec ${gravando?'on':''}" id="rec" ${cheio&&!gravando?'disabled':''}>${gravando?'■':'●'}</button><div class="nota" style="text-align:center">${gravando?'Gravando… toque para parar':(cheio?'Os 2 áudios do dia já foram gravados':'Toque para gravar')}</div><div class="nota" style="text-align:center">${cheio?'Precisa falar mais? Apague um dos áudios na aba Fotos e grave de novo, ou escreva no campo de observação do Roteiro.':`Cabem 2 áudios por dia nesta obra (${nAud} de 2 gravados).`}</div>`;
   if(meuAudio) h+=`<audio controls src="${URL.createObjectURL(REC.blob)}" style="width:100%;margin-top:8px"></audio><div class="row" style="margin-top:10px"><div class="nota">Já está guardado na fila. Não gostou? Apague e grave de novo.</div><div class="row" style="margin-top:10px"><button class="sec" id="descartar">Apagar e regravar</button></div>`;
   h+=`</div>`; return h;
 }
@@ -907,6 +940,7 @@ function ligarOcorr(ob){
   $('#hBtn').onclick=()=>{ if(window.FICHAS && FICHAS.aberta()){ history.back(); return; } S.obraId=null; LS.set('obraId',null); render(); };
   $('#filaBtn').onclick=()=>enviarFila();
   $('#camFechar').onclick=()=>{ if(history.state&&history.state.t==='cam') history.back(); else fecharCamera(); }; $('#shutter').onclick=()=> CAM.modo==='video'? gravarOuParar() : fotografar(); $('#mFoto').onclick=()=>{ if(!CAM.rec) modoCamera('foto'); }; $('#mVideo').onclick=()=>{ if(!CAM.rec) modoCamera('video'); };
+  $('#camSlot').onchange=()=>pintarTiras();
   $('#camTrocar').onclick=async()=>{ if(CAM.rec) return toast('Pare a gravação antes de trocar a câmera'); CAM.facing=CAM.facing==='environment'?'user':'environment'; try{ await ligarStream(); }catch(e){ toast(e.message); } };
   $('#tgMarca').onclick=()=>{ S.marca=!S.marca; LS.set('marca',S.marca); pintarToggles(); };
   $('#tgFmt').onclick=()=>{ S.fmt=S.fmt==='utm'?'geo':'utm'; LS.set('fmt',S.fmt); pintarToggles(); atualizarGeo(); };

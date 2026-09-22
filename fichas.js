@@ -205,7 +205,7 @@ function secaoLista(ob){
   if(!tipos.length) h+=`<div class="muted">Esta linha de serviço ainda não tem ficha digital. Use o diário, as fotos e o registro do dia.</div>`;
   else h+=`<div class="nota">O app é a ficha oficial. A folha de papel fica no carro de reserva (celular sem bateria ou quebrado) — se usar o papel, fotografe pelo app.</div><div class="row" style="flex-wrap:wrap;gap:8px;margin-top:8px">`+tipos.map(t=>`<button class="green" data-nova="${t}" style="flex:1 1 45%">+ ${esc(DEF[t].titulo.replace('Ficha de campo — ',''))}</button>`).join('')+`</div>`;
   if(minhas.length){ h+=`<h3>Fichas desta obra</h3>`+minhas.map(f=>{ const def=DEF[f.tipo]; const av=def.avisos(f.dados).length;
-      return `<button class="obra" data-abrir="${f.id}"><b>${esc(def.codigo)} · ${esc(def.ident(f.dados))}${f.versao>1?` · v${f.versao}`:''}</b><small>${esc(fmtData(f.atualizadoEm))} · ${esc(f.por||'')}</small><div style="margin-top:6px">${f.status==='encerrada'?'<span class="chip g">encerrada e na fila</span>':'<span class="chip w">em preenchimento</span>'}${f.status!=='encerrada'&&av?`<span class="chip">${av} aviso(s)</span>`:''}</div></button>`; }).join(''); }
+      return `<button class="obra" data-abrir="${f.id}"><b>${esc(def.codigo)} · ${esc(def.ident(f.dados))}${f.versao>1?` · v${f.versao}`:''}</b><small>${esc(fmtData(f.atualizadoEm))} · ${esc(f.por||'')}</small><div style="margin-top:6px">${f.status==='encerrada'?(f.foraDoPadrao?'<span class="chip w">encerrada FORA DO PADRÃO</span>':'<span class="chip g">encerrada e na fila</span>'):'<span class="chip w">em preenchimento</span>'}${f.status!=='encerrada'&&av?`<span class="chip">${av} aviso(s)</span>`:''}</div></button>`; }).join(''); }
   return h+`</div>`;
 }
 function ligarLista(ob){
@@ -423,7 +423,7 @@ async function gerarPDF(f){
       y+=16; }
   }
   if(def.nota){ const ls=quebra(def.nota,W-2*M-20,15); garante(ls.length*20+24); c.fillStyle='#E7F6ED'; c.fillRect(M,y,W-2*M,ls.length*20+18); c.fillStyle='#137F5B'; c.font=fonte(15); ls.forEach((l,i)=>c.fillText(l,M+10,y+22+i*20)); y+=ls.length*20+30; }
-  const av=def.avisos(d); if(av.length){ titulo('Avisos no encerramento (campo em branco é permitido)'); av.forEach(a=>{ const ls=quebra('• '+a,W-2*M,15); garante(ls.length*20); c.fillStyle='#B45309'; c.font=fonte(15); ls.forEach(l=>{ c.fillText(l,M,y+14); y+=20; }); }); }
+  const av=def.avisos(d); if(av.length){ titulo(f.foraDoPadrao?'ENCERRADA FORA DO PADRÃO — o que faltou':'Avisos no encerramento (campo em branco é permitido)'); av.forEach(a=>{ const ls=quebra('• '+a,W-2*M,15); garante(ls.length*20); c.fillStyle='#B45309'; c.font=fonte(15); ls.forEach(l=>{ c.fillText(l,M,y+14); y+=20; }); }); }
   rodape();
   const jpgs=[], imgs=[]; for(const p of paginas){ const b=await new Promise(ok=>p.toBlob(ok,'image/jpeg',0.85)); imgs.push(b); jpgs.push(new Uint8Array(await b.arrayBuffer())); }
   const pdf=montarPDF(jpgs, W, H); pdf._paginas=imgs; return pdf;
@@ -625,9 +625,22 @@ function ligarSPT(f){
   const box=$('#main'); box.addEventListener('input',()=>{ d.folha=`1 de ${Math.max(1,Math.ceil(g.length/12))}`; },{passive:true});
 }
 
+function confirmarForaDoPadrao(av){ // duas confirmacoes, deixando claro que vai fora do padrão
+  return new Promise(ok=>{
+    const ov=document.createElement('div'); ov.className='assov'; let passo=1;
+    const pinta=()=>{ ov.innerHTML = passo===1
+      ? `<div class="assbox"><h2 style="margin:0 0 6px;color:var(--err)">Faltam ${av.length} item(ns)</h2>
+         <div class="nota">Dá para encerrar assim, mas vai <b>fora do padrão</b>. O que faltou vai anotado no PDF e nos dados, e o escritório vê que ficou incompleto.</div>
+         <div style="max-height:34vh;overflow:auto;margin:8px 0">${av.map(x=>`<div class="erro">${esc(x)}</div>`).join('')}</div>
+         <div class="row"><button class="sec" data-x="nao">Voltar e preencher</button><button class="danger" data-x="sim">Encerrar assim mesmo</button></div></div>`
+      : `<div class="assbox"><h2 style="margin:0 0 6px;color:var(--err)">Confirma enviar fora do padrão?</h2>
+         <div class="nota">Seu nome fica no registro como quem encerrou incompleto. Se foi por um motivo de campo (não deu para medir, não tinha como), escreva o motivo no diário hoje.</div>
+         <div class="row" style="margin-top:10px"><button class="sec" data-x="nao">Não, vou preencher</button><button class="danger" data-x="sim">Sim, encerrar fora do padrão</button></div></div>`;
+      ov.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>{ if(b.dataset.x==='nao'){ ov.remove(); ok(false); return; } if(passo===1){ passo=2; pinta(); return; } ov.remove(); ok(true); }); };
+    pinta(); document.body.appendChild(ov); }); }
 async function encerrar(f){
   const def=DEF[f.tipo]; const av=def.avisos(f.dados);
-  if(av.length && $('#encerrar').dataset.c!=='1'){ $('#encerrar').dataset.c='1'; $('#encerrar').textContent=`Encerrar mesmo assim (${av.length} aviso${av.length>1?'s':''})`; $('#avisosBox').scrollIntoView({block:'center'}); toast('Confira o que falta. Encerrar não é bloqueado.'); return; }
+  if(av.length){ const vai=await confirmarForaDoPadrao(av); if(!vai){ const bx=$('#avisosBox'); if(bx) bx.scrollIntoView({block:'center'}); return; } f.foraDoPadrao=true; gravar(f); }
   $('#encerrar').disabled=true; $('#encerrar').textContent='Gerando PDF…';
   try{
     const ob=(S.pacote?.obras||[]).find(o=>o.id===f.obraId) || {id:f.obraId,nome:f.obraNome};
@@ -636,7 +649,7 @@ async function encerrar(f){
     if(f.tipo==='spt'){ (f.dados.golpes||[]).forEach((l,i)=>{ l.fotos=fotosDoMetro(f,i).map(x=>x.nome); }); gravar(f); }
     const pdf=await gerarPDF(f);
     await enfileirarArquivo(pdf,'ficha',base+'.pdf',{fichaId:f.id,tipo:f.tipo,versao:f.versao,avisos:av});
-    const dados=new Blob([JSON.stringify({app:'campo',fichaId:f.id,tipo:f.tipo,codigo:def.codigo,sop:def.sop,versao:f.versao,obraId:f.obraId,obra:f.obraNome,por:f.por,criadoEm:f.criadoEm,encerradoEm:new Date().toISOString(),avisos:av,dados:Object.fromEntries(Object.entries(f.dados).map(([k,v])=>[k, (typeof v==='string'&&v.startsWith('data:image'))?'[assinatura no PDF]':v]))},null,1)],{type:'application/json'});
+    const dados=new Blob([JSON.stringify({app:'campo',fichaId:f.id,tipo:f.tipo,codigo:def.codigo,sop:def.sop,versao:f.versao,obraId:f.obraId,obra:f.obraNome,por:f.por,criadoEm:f.criadoEm,encerradoEm:new Date().toISOString(),avisos:av,foraDoPadrao:!!f.foraDoPadrao,dados:Object.fromEntries(Object.entries(f.dados).map(([k,v])=>[k, (typeof v==='string'&&v.startsWith('data:image'))?'[assinatura no PDF]':v]))},null,1)],{type:'application/json'});
     await enfileirarArquivo(dados,'ficha',base+'.json',{fichaId:f.id,tipo:f.tipo,versao:f.versao});
     S.obraId=prevObra;
     f.status='encerrada'; f.encerradaEm=new Date().toISOString(); gravar(f);
