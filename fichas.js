@@ -7,7 +7,7 @@
    só avisa o que falta. Campo em branco é permitido; inventado, não.
    ============================================================ */
 (function(){
-const HOJE = () => new Date().toISOString().slice(0,10);
+const HOJE = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }; // data local, não UTC
 const AGORA = () => { const d=new Date(); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); };
 const NUM = v => { if(v===''||v==null) return NaN; return Number(String(v).replace(/\s/g,'').replace(',','.')); };
 const TEMPOS_B = [1,2,3,4,5,6,7,8,9,10,12,14,16,18,20,25,30,35,40,45,50,55,60,70,80,90,100,110,120,150,210,300,420,510,600,720];

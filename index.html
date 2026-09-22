@@ -105,9 +105,18 @@ details[open] summary::after{content:"–"}
 #cam .top{position:absolute;top:0;left:0;right:0;padding:calc(10px + var(--sat)) 12px 10px;display:flex;gap:8px;align-items:center;background:linear-gradient(rgba(0,0,0,.6),transparent);color:#fff;font-size:13px}
 #cam .top select{width:auto;flex:1;background:rgba(255,255,255,.15);color:#fff;border:0;padding:8px}
 #cam .top select option{color:#000}
-#cam .geo2{position:absolute;left:12px;right:12px;bottom:calc(120px + var(--sab));color:#fff;font-family:ui-monospace,Menlo,monospace;font-size:12px;background:rgba(17,62,107,.7);padding:6px 10px;border-radius:8px}
+#cam .geo2{position:absolute;left:12px;right:12px;bottom:calc(170px + var(--sab));pointer-events:none;color:#fff;font-family:ui-monospace,Menlo,monospace;font-size:12px;background:rgba(17,62,107,.7);padding:6px 10px;border-radius:8px}
 #cam .bot{padding:14px 20px calc(18px + var(--sab));display:flex;align-items:center;justify-content:space-between;background:#000;color:#fff}
 #cam .shutter{width:74px;height:74px;border-radius:50%;background:#fff;border:5px solid var(--green);padding:0}
+#cam .mid{display:flex;flex-direction:column;align-items:center;gap:8px}
+#cam .modo{display:flex;background:rgba(255,255,255,.12);border-radius:20px;padding:3px}
+#cam .modo button{background:none;border:0;color:#fff;font-size:13px;padding:5px 14px;border-radius:16px;min-height:0}
+#cam .modo button.on{background:#fff;color:#000;font-weight:700}
+#cam.video .shutter{background:#d93025;border-color:#fff}
+#cam.gravando .shutter{border-radius:18px;background:#d93025;animation:pisca 1s infinite}
+@keyframes pisca{50%{opacity:.6}}
+#cam .recT{font:600 13px ui-monospace,Menlo,monospace;color:#fff;min-height:16px}
+#cam.gravando .recT{color:#ff6b5e}
 #cam .bot button.ghost{color:#fff;font-size:13px}
 #cam .tg{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11px;color:#fff}
 #cam .tg .sw{width:44px;height:24px;border-radius:999px;background:#555;position:relative;padding:0}
@@ -164,7 +173,8 @@ details[open] summary::after{content:"–"}
   <div class="geo2" id="camGeo">Procurando GPS…</div>
   <div class="bot">
     <div class="tg"><button class="sw" id="tgMarca"></button><span>marca d'água</span></div>
-    <button class="shutter" id="shutter" aria-label="Fotografar"></button>
+    <div class="mid"><div class="modo"><button id="mFoto" class="on">Foto</button><button id="mVideo">Vídeo</button></div>
+    <button class="shutter" id="shutter" aria-label="Fotografar"></button><div id="recT" class="recT"></div></div>
     <div class="tg"><button class="sw" id="tgFmt"></button><span id="tgFmtTxt">UTM</span></div>
   </div>
 </div>
@@ -179,7 +189,7 @@ details[open] summary::after{content:"–"}
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.1.2';
+const APP_VERSAO = '1.2.0';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -206,7 +216,8 @@ const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<'
 function EH_APP(){ try{ return matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches || navigator.standalone===true; }catch(e){ return false; } }
 window.addEventListener('beforeinstallprompt',e=>{ e.preventDefault(); S.promptInstalar=e; if(!S.obraId) try{ render(); }catch(_){} });
 function toast(m, ms=2200){ const t=$('#toast'); t.textContent=m; t.classList.add('on'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('on'), ms); }
-function hoje(){ const d=new Date(); return d.toISOString().slice(0,10); }
+function hoje(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; } // data LOCAL (Boa Vista), não UTC
+function agoraArq(){ const d=new Date(); return hoje()+'_'+[d.getHours(),d.getMinutes(),d.getSeconds()].map(n=>String(n).padStart(2,'0')).join(''); } // nome único: 2º áudio/registro do dia não some
 function fmtData(d){ d = d instanceof Date ? d : new Date(d); const p=n=>String(n).padStart(2,'0'); return `${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`; }
 function exifData(d){ d = d instanceof Date ? d : new Date(d); const p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}:${p(d.getMonth()+1)}:${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; }
 function slug(s){ return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^A-Za-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,60); }
@@ -365,7 +376,11 @@ async function carimbar(bitmap, info){
   // info: {obra, quem, slot, pos:{lat,lon,acc}|null, fonte:'aparelho'|'foto'|null, data:Date, fmt, marca}
   const W=bitmap.width, H=bitmap.height; const cv=$('#cv'); cv.width=W; cv.height=H; const c=cv.getContext('2d');
   c.drawImage(bitmap,0,0);
-  const base=Math.max(W,H); const fs=Math.round(base*0.0175); const pad=Math.round(fs*0.7); const lh=Math.round(fs*1.35);
+  if(info.marca && !IMG.logo) IMG.logo=await carregarImg('logo-white.png');
+  desenharCarimbo(c,W,H,info);
+  return new Promise(ok=> cv.toBlob(ok,'image/jpeg',S.cfg.qualidade));
+}
+function desenharCarimbo(c,W,H,info){  const base=Math.max(W,H); const fs=Math.round(base*0.0175); const pad=Math.round(fs*0.7); const lh=Math.round(fs*1.35);
   const linhas=[];
   linhas.push({t: (info.obra||'').toUpperCase(), b:true});
   if(info.pos){ linhas.push({t: fmtCoord(info.pos, info.fmt) + (info.pos.acc? `  ±${Math.round(info.pos.acc)} m`:'') , mono:true});
@@ -380,10 +395,9 @@ async function carimbar(bitmap, info){
   for(const l of linhas){ const f=l.small?fs*0.85:fs; c.font=`${l.b?'700':'500'} ${f}px ${l.mono?'ui-monospace,Menlo,Consolas,monospace':'system-ui,Roboto,Arial,sans-serif'}`; c.fillStyle='#fff';
     let t=l.t; while(c.measureText(t).width>W-x-pad && t.length>8) t=t.slice(0,-4)+'…'; c.fillText(t,x,y); y+= l.small? lh*0.85: lh; }
   c.shadowBlur=0;
-  if(info.marca){ if(!IMG.logo) IMG.logo=await carregarImg('logo-white.png'); const lw=Math.round(W*0.26), lhh=Math.round(lw*IMG.logo.height/IMG.logo.width); const m=Math.round(base*0.018);
+  if(info.marca && IMG.logo){ const lw=Math.round(W*0.26), lhh=Math.round(lw*IMG.logo.height/IMG.logo.width); const m=Math.round(base*0.018);
     c.fillStyle='rgba(17,62,107,0.55)'; roundRect(c, W-lw-m*2, m, lw+m*1.4, lhh+m*1.2, Math.round(base*0.01)); c.fill();
     c.globalAlpha=0.95; c.drawImage(IMG.logo, W-lw-m*1.3, m*1.6, lw, lhh); c.globalAlpha=1; }
-  return new Promise(ok=> cv.toBlob(ok,'image/jpeg',S.cfg.qualidade));
 }
 function roundRect(c,x,y,w,h,r){ c.beginPath(); c.moveTo(x+r,y); c.arcTo(x+w,y,x+w,y+h,r); c.arcTo(x+w,y+h,x,y+h,r); c.arcTo(x,y+h,x,y,r); c.arcTo(x,y,x+w,y,r); c.closePath(); }
 async function bitmapDe(blob){
@@ -410,7 +424,7 @@ async function enfileirarFoto(blobOriginal, opts){
   const carimbo=await carimbar(bmp,{obra:ob.nome, quem:S.quem, slot:opts.slotTitulo, pos, fonte, data, fmt:S.fmt, marca:S.marca});
   const comExif=await inserirExif(carimbo,{data, gps:pos?{lat:pos.lat,lon:pos.lon,alt:pos.alt}:null, desc:`${ob.nome} · ${opts.slotTitulo||''} · ${S.quem||''}`});
   const id='F'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-  const stamp=new Date(); const nomeBase=`${stamp.toISOString().slice(0,10)}_${String(stamp.getHours()).padStart(2,'0')}${String(stamp.getMinutes()).padStart(2,'0')}${String(stamp.getSeconds()).padStart(2,'0')}_${slug(opts.slotTitulo||'foto')}`;
+  const stamp=new Date(); const nomeBase=`${hoje()}_${String(stamp.getHours()).padStart(2,'0')}${String(stamp.getMinutes()).padStart(2,'0')}${String(stamp.getSeconds()).padStart(2,'0')}_${slug(opts.slotTitulo||'foto')}`;
   const thumb=await miniatura(bmp);
   const meta={ lat:pos?.lat??null, lon:pos?.lon??null, acc:pos?.acc??null, alt:pos?.alt??null, fmt:S.fmt, utm:pos?toUTM(pos.lat,pos.lon):null, fonte, marca:S.marca, quando:data.toISOString(), origem:opts.fonte, app:APP_VERSAO, extra:opts.extra||null };
   await DB.put({ id, tipo:'foto', obraId:ob.id, obraNome:ob.nome, pastaId:ob.pastaId||null, quem:S.quem, slot:opts.slot, slotTitulo:opts.slotTitulo, nome:nomeBase+'.jpg', mime:'image/jpeg', blob:comExif, thumb, meta, status:'pendente', criadoEm:new Date().toISOString() });
@@ -471,11 +485,11 @@ async function abrirCamera(slot){
 }
 async function ligarStream(){
   if(CAM.stream) CAM.stream.getTracks().forEach(t=>t.stop());
-  CAM.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:CAM.facing}, width:{ideal:4096}, height:{ideal:3072}}, audio:false});
+  CAM.stream=await navigator.mediaDevices.getUserMedia({video: CAM.modo==='video' ? {facingMode:{ideal:CAM.facing}, width:{ideal:1280}, height:{ideal:720}} : {facingMode:{ideal:CAM.facing}, width:{ideal:4096}, height:{ideal:3072}}, audio:false});
   $('#video').srcObject=CAM.stream;
 }
 function abrirCamHist(){ try{ history.pushState({t:'cam'},''); }catch(e){} }
-function fecharCamera(){ $('#cam').classList.remove('on'); if(CAM.stream){ CAM.stream.getTracks().forEach(t=>t.stop()); CAM.stream=null; } }
+function fecharCamera(){ if(CAM.rec) pararGravacao(); modoCamera('foto'); $('#cam').classList.remove('on'); if(CAM.stream){ CAM.stream.getTracks().forEach(t=>t.stop()); CAM.stream=null; } }
 async function fotografar(){
   const track=CAM.stream?.getVideoTracks()[0]; if(!track) return;
   const fl=$('#flash'); fl.style.opacity=.8; setTimeout(()=>fl.style.opacity=0,120);
@@ -486,9 +500,89 @@ async function fotografar(){
   await enfileirarFoto(blob,{slot, slotTitulo:st.t, fonte:'camera', extra:CAM.extra||null});
   toast('Foto '+st.t+' guardada');
 }
+/* ---------------- Vídeo (câmera do app e galeria) ----------------
+   Gravado pelo app: 720p, carimbo de coordenada/data/obra na própria imagem, até 90 s (~15 MB).
+   Da galeria: até 24 MB sobe como está; maior é recomprimido no celular (leva o tempo do vídeo). */
+const VID={ MAX_S:90, BPS:1200000, LADO:1280, LIMITE:24*1024*1024 };
+function tipoVideo(){ const c=['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm','video/mp4']; // H.264 primeiro (abre em qualquer PC); senão WebM
+  for(const t of c){ try{ if(window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t; }catch(e){} } return ''; }
+function extVideo(m){ return /mp4/.test(m)?'mp4':(/quicktime/.test(m)?'mov':'webm'); }
+function modoCamera(v){ const mudou=(CAM.modo||'foto')!==v; CAM.modo=v; if(mudou && CAM.stream) ligarStream().catch(e=>toast(e.message)); $('#cam').classList.toggle('video',v==='video'); $('#mFoto').classList.toggle('on',v!=='video'); $('#mVideo').classList.toggle('on',v==='video'); $('#shutter').setAttribute('aria-label',v==='video'?'Gravar vídeo':'Fotografar'); }
+async function gravarOuParar(){ if(CAM.rec) return pararGravacao(); return iniciarGravacao(); }
+async function iniciarGravacao(){
+  const ob=obraAtual(); const v=$('#video'); if(!ob||!CAM.stream||!v.videoWidth) return toast('Câmera ainda não está pronta');
+  if(!window.MediaRecorder||!window.HTMLCanvasElement.prototype.captureStream) return toast('Este celular não grava vídeo pelo app. Grave pela câmera do celular e mande "Da galeria".',5000);
+  let audio=null; try{ audio=await navigator.mediaDevices.getUserMedia({audio:true}); }catch(e){ toast('Sem microfone: o vídeo sai sem som'); }
+  if(S.marca && !IMG.logo) IMG.logo=await carregarImg('logo-white.png');
+  const k=Math.min(1, VID.LADO/Math.max(v.videoWidth,v.videoHeight)); const W=Math.round(v.videoWidth*k/2)*2, H=Math.round(v.videoHeight*k/2)*2;
+  const cv=document.createElement('canvas'); cv.width=W; cv.height=H; const c=cv.getContext('2d');
+  const slot=$('#camSlot').value; const st=slotsDaObra().find(x=>x.k===slot)||{t:slot};
+  const inicio=new Date(); const pos0=S.pos;
+  const desenha=()=>{ if(!CAM.rec) return; c.drawImage(v,0,0,W,H); desenharCarimbo(c,W,H,{obra:ob.nome, quem:S.quem, slot:'VÍDEO · '+st.t, pos:S.pos, fonte:S.pos?'aparelho':null, data:new Date(), fmt:S.fmt, marca:S.marca}); CAM.raf=requestAnimationFrame(desenha); };
+  const tipo=tipoVideo(); const cs=cv.captureStream(24); const tracks=[...cs.getVideoTracks(), ...(audio?audio.getAudioTracks():[])];
+  let rec; try{ rec=new MediaRecorder(new MediaStream(tracks), Object.assign({videoBitsPerSecond:VID.BPS, audioBitsPerSecond:64000}, tipo?{mimeType:tipo}:{})); }catch(e){ audio&&audio.getTracks().forEach(t=>t.stop()); return toast('Não consegui gravar: '+e.message,4000); }
+  const partes=[]; rec.ondataavailable=e=>{ if(e.data&&e.data.size) partes.push(e.data); };
+  CAM.rec={ rec, audio, cv, inicio, pos0, slot, st, partes, tipo:rec.mimeType||tipo||'video/webm' };
+  rec.onstop=()=>salvarGravacao();
+  CAM.rec.thumb=null; desenha(); setTimeout(()=>{ try{ const oc=document.createElement('canvas'); const kk=220/Math.max(W,H); oc.width=W*kk; oc.height=H*kk; oc.getContext('2d').drawImage(cv,0,0,oc.width,oc.height); if(CAM.rec) CAM.rec.thumb=oc.toDataURL('image/jpeg',0.6); }catch(e){} },400);
+  rec.start(1000); $('#cam').classList.add('gravando');
+  CAM.relogio=setInterval(()=>{ const s=Math.round((Date.now()-inicio)/1000); $('#recT').textContent=`● ${String(Math.floor(s/60)).padStart(1,'0')}:${String(s%60).padStart(2,'0')} / 1:30`; if(s>=VID.MAX_S) pararGravacao(); },250);
+}
+function pararGravacao(){ const R=CAM.rec; if(!R) return; clearInterval(CAM.relogio); cancelAnimationFrame(CAM.raf); try{ if(R.rec.state!=='inactive') R.rec.stop(); }catch(e){ salvarGravacao(); } }
+async function salvarGravacao(){
+  const R=CAM.rec; if(!R) return; CAM.rec=null; $('#cam').classList.remove('gravando'); $('#recT').textContent='';
+  R.audio && R.audio.getTracks().forEach(t=>t.stop());
+  const mime=(R.tipo||'video/webm').split(';')[0]; const blob=new Blob(R.partes,{type:mime});
+  if(!blob.size) return toast('Vídeo vazio, tente de novo');
+  const seg=Math.round((Date.now()-R.inicio)/1000);
+  await enfileirarVideo(blob,{slot:R.slot, slotTitulo:R.st.t, origem:'camera', data:R.inicio, pos:R.pos0||S.pos, fonte:(R.pos0||S.pos)?'aparelho':null, thumb:R.thumb, seg, carimbado:true});
+}
+async function enfileirarVideo(blob, o){
+  const ob=obraAtual(); if(!ob) return toast('Escolha a obra primeiro');
+  const id='V'+Date.now().toString(36)+Math.random().toString(36).slice(2,6); const d=new Date();
+  const nomeBase=`${hoje()}_${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}${String(d.getSeconds()).padStart(2,'0')}_VIDEO_${slug(o.slotTitulo||'video')}`;
+  const pos=o.pos||null;
+  const meta={ lat:pos?.lat??null, lon:pos?.lon??null, acc:pos?.acc??null, alt:pos?.alt??null, fmt:S.fmt, utm:pos?toUTM(pos.lat,pos.lon):null, fonte:o.fonte||null, marca:S.marca, quando:(o.data||d).toISOString(), origem:o.origem, segundos:o.seg||null, carimbado:!!o.carimbado, tamanhoMB:+(blob.size/1048576).toFixed(1), app:APP_VERSAO, extra:o.extra||null };
+  await DB.put({ id, tipo:'video', obraId:ob.id, obraNome:ob.nome, pastaId:ob.pastaId||null, quem:S.quem, slot:o.slot, slotTitulo:o.slotTitulo, nome:nomeBase+'.'+extVideo(blob.type), mime:blob.type||'video/webm', blob, thumb:o.thumb||null, meta, status:'pendente', criadoEm:d.toISOString() });
+  await recarregarFila(); render(); toast(`Vídeo guardado na fila (${meta.tamanhoMB} MB)`+(pos?'':' — sem coordenada'));
+  if(navigator.onLine) enviarFila();
+}
+async function videoDaGaleria(f, slot, slotTitulo, extra){
+  const pos=S.pos, fonte=pos?'aparelho-tardio':null;
+  if(f.size<=VID.LIMITE){ let thumb=null; try{ thumb=await quadroDoVideo(f); }catch(e){}
+    return enfileirarVideo(f,{slot, slotTitulo, origem:'galeria', data:new Date(f.lastModified||Date.now()), pos, fonte, thumb, extra, carimbado:false}); }
+  const mb=(f.size/1048576).toFixed(0);
+  if(!confirm(`Este vídeo tem ${mb} MB e o limite de envio é 24 MB.\n\nO app pode recomprimir agora (leva o mesmo tempo do vídeo; deixe a tela ligada). Recomprimir?`)) return;
+  try{ const r=await recomprimir(f, slotTitulo); await enfileirarVideo(r.blob,{slot, slotTitulo, origem:'galeria-recomprimido', data:new Date(f.lastModified||Date.now()), pos, fonte, thumb:r.thumb, seg:r.seg, extra, carimbado:true}); }
+  catch(e){ toast('Não deu para recomprimir: '+(e.message||e)+'. Grave de novo pelo app (vídeo do app já sai pequeno).',6000); }
+}
+function quadroDoVideo(f){ return new Promise((ok,er)=>{ const v=document.createElement('video'); v.muted=true; v.playsInline=true; v.preload='metadata'; const u=URL.createObjectURL(f); v.src=u;
+  v.onloadeddata=()=>{ v.currentTime=Math.min(1,(v.duration||2)/2); }; v.onseeked=()=>{ try{ const oc=document.createElement('canvas'); const k=220/Math.max(v.videoWidth,v.videoHeight); oc.width=v.videoWidth*k; oc.height=v.videoHeight*k; oc.getContext('2d').drawImage(v,0,0,oc.width,oc.height); ok(oc.toDataURL('image/jpeg',0.6)); }catch(e){ er(e); } URL.revokeObjectURL(u); }; v.onerror=()=>er(new Error('vídeo ilegível')); setTimeout(()=>er(new Error('tempo')),8000); }); }
+function recomprimir(f, slotTitulo){ return new Promise(async (ok,er)=>{
+  const ob=obraAtual(); if(!window.MediaRecorder) return er(new Error('sem gravador neste celular'));
+  if(S.marca && !IMG.logo) IMG.logo=await carregarImg('logo-white.png');
+  const v=document.createElement('video'); v.playsInline=true; const u=URL.createObjectURL(f); v.src=u;
+  await new Promise((a,b)=>{ v.onloadedmetadata=a; v.onerror=()=>b(new Error('vídeo ilegível')); }).catch(er);
+  const dur=v.duration||0; const bps=Math.max(400000, Math.min(VID.BPS, Math.floor(VID.LIMITE*8*0.9/Math.max(dur,1))-64000));
+  const k=Math.min(1, VID.LADO/Math.max(v.videoWidth,v.videoHeight)); const W=Math.round(v.videoWidth*k/2)*2, H=Math.round(v.videoHeight*k/2)*2;
+  const cv=document.createElement('canvas'); cv.width=W; cv.height=H; const c=cv.getContext('2d');
+  let audioTracks=[]; try{ const ac=new (window.AudioContext||window.webkitAudioContext)(); const src=ac.createMediaElementSource(v); const dst=ac.createMediaStreamDestination(); src.connect(dst); audioTracks=dst.stream.getAudioTracks(); }catch(e){}
+  const tipo=tipoVideo(); const rec=new MediaRecorder(new MediaStream([...cv.captureStream(24).getVideoTracks(), ...audioTracks]), Object.assign({videoBitsPerSecond:bps, audioBitsPerSecond:64000}, tipo?{mimeType:tipo}:{}));
+  const partes=[]; rec.ondataavailable=e=>{ if(e.data&&e.data.size) partes.push(e.data); };
+  const data=new Date(f.lastModified||Date.now()); let thumb=null, raf=0;
+  const desenha=()=>{ c.drawImage(v,0,0,W,H); desenharCarimbo(c,W,H,{obra:ob.nome, quem:S.quem, slot:'VÍDEO · '+slotTitulo, pos:S.pos, fonte:S.pos?'aparelho-tardio':null, data, fmt:S.fmt, marca:S.marca});
+    if(!thumb && v.currentTime>0.3){ const oc=document.createElement('canvas'); const kk=220/Math.max(W,H); oc.width=W*kk; oc.height=H*kk; oc.getContext('2d').drawImage(cv,0,0,oc.width,oc.height); thumb=oc.toDataURL('image/jpeg',0.6); }
+    if(!v.ended) raf=requestAnimationFrame(desenha); };
+  const prog=setInterval(()=>toast(`Recomprimindo vídeo… ${Math.round(100*v.currentTime/Math.max(dur,1))}% — deixe a tela ligada`,1500),1500);
+  rec.onstop=()=>{ clearInterval(prog); cancelAnimationFrame(raf); URL.revokeObjectURL(u); const b=new Blob(partes,{type:(rec.mimeType||tipo||'video/webm').split(';')[0]});
+    if(b.size>VID.LIMITE*1.04) return er(new Error(`ficou com ${(b.size/1048576).toFixed(0)} MB`)); ok({blob:b, thumb, seg:Math.round(dur)}); };
+  v.onended=()=>{ setTimeout(()=>{ try{ rec.stop(); }catch(e){} },300); };
+  rec.start(1000); desenha(); v.play().catch(e=>{ clearInterval(prog); try{ rec.stop(); }catch(_){} er(e); });
+}); }
 function pintarToggles(){ $('#tgMarca').classList.toggle('on',!!S.marca); $('#tgFmt').classList.toggle('on',S.fmt==='utm'); $('#tgFmtTxt').textContent = S.fmt==='utm'?'UTM':'Lat/Lon'; }
 async function daGaleria(files, slot, slotTitulo, extra){
-  for(const f of files){ let info={}; try{ info=lerExif(await f.slice(0,262144).arrayBuffer()); }catch(e){}
+  for(const f of files){ if(/^video\//.test(f.type)){ await videoDaGaleria(f, slot, slotTitulo, extra); continue; }
+    let info={}; try{ info=lerExif(await f.slice(0,262144).arrayBuffer()); }catch(e){}
     await enfileirarFoto(f,{slot, slotTitulo, fonte:'galeria', dataOrig:info.data, gpsOrig:info.gps, extra}); }
 }
 
@@ -499,7 +593,7 @@ async function gravar(){
   try{ const st=await navigator.mediaDevices.getUserMedia({audio:true}); const mime=['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/aac',''].find(m=>!m||MediaRecorder.isTypeSupported(m));
     REC.mr=new MediaRecorder(st, mime?{mimeType:mime}:undefined); REC.chunks=[]; REC.blob=null;
     REC.mr.ondataavailable=e=>REC.chunks.push(e.data);
-    REC.mr.onstop=async()=>{ st.getTracks().forEach(t=>t.stop()); REC.blob=new Blob(REC.chunks,{type:REC.mr.mimeType||'audio/webm'}); REC.mr=null; clearInterval(REC.timer); const ext=(REC.blob.type.includes('mp4')||REC.blob.type.includes('aac'))?'m4a':'webm'; REC.ultimoId=await enfileirarArquivo(REC.blob,'audio',`${hoje()}_diario_${slug(S.quem)}.${ext}`); toast('Áudio guardado na fila'); render(); };
+    REC.mr.onstop=async()=>{ st.getTracks().forEach(t=>t.stop()); REC.blob=new Blob(REC.chunks,{type:REC.mr.mimeType||'audio/webm'}); REC.mr=null; clearInterval(REC.timer); const ext=(REC.blob.type.includes('mp4')||REC.blob.type.includes('aac'))?'m4a':'webm'; REC.ultimoId=await enfileirarArquivo(REC.blob,'audio',`${agoraArq()}_diario_${slug(S.quem)}.${ext}`); toast('Áudio guardado na fila'); render(); };
     REC.mr.start(); REC.t0=Date.now(); REC.timer=setInterval(()=>{ const s=Math.floor((Date.now()-REC.t0)/1000); const el=$('#timer'); if(el) el.textContent=`${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')} / 00:40`; if(s>=40 && REC.mr) REC.mr.stop(); },250);
     render();
   }catch(e){ toast('Microfone indisponível: '+e.message); }
@@ -510,7 +604,7 @@ function sopsDaObra(ob){ const P=S.pacote; if(!P||!ob) return []; return (ob.sop
 function slotsDaObra(){ const P=S.pacote; const base=(P?.roteiroFotos||[]).map(s=>({k:s.k,t:s.t,d:s.d})); base.push({k:'ficha',t:'Ficha preenchida',d:'Foto da ficha de campo preenchida, legível, folha inteira.'}); base.push({k:'extra',t:'Foto extra',d:'Qualquer outra foto que ajude o escritório.'}); base.push({k:'ocorrencia',t:'Ocorrência',d:'Local, equipamento e causa, antes de mexer.'}); return base; }
 function checklistDaObra(ob){ const out=[]; for(const s of sopsDaObra(ob)) for(const p of (s.pronto||[])) out.push({sop:s.codigo,t:p}); return out; }
 function estadoChk(ob){ return LS.get('chk_'+ob.id+'_'+hoje(),{}); }
-function fotosDaObra(ob){ return S.fila.filter(x=>x.obraId===ob.id && x.tipo==='foto' && !x.meta?.original); }
+function fotosDaObra(ob){ return S.fila.filter(x=>x.obraId===ob.id && (x.tipo==='foto'||x.tipo==='video') && !x.meta?.original); }
 
 /* ---------------- Telas ---------------- */
 function render(){
@@ -572,9 +666,9 @@ function telaAjustes(){
 function telaRoteiro(ob){
   const P=S.pacote; const fotos=fotosDaObra(ob); const chk=checklistDaObra(ob); const est=estadoChk(ob);
   let h=`<div class="card"><h2>Coordenada agora</h2><div class="geo" id="geoLive">Procurando GPS…</div><div class="nota">Formato: ${S.fmt==='utm'?'UTM':'geográficas'} (muda em Ajustes ou na câmera).</div></div>`;
-  h+=`<div class="card"><h2>As 5 fotos + o que mais precisar</h2><div class="nota">Operação acontecendo, não posada. Horizontal. Toque na foto que falta.</div><div class="slots">`;
-  for(const s of slotsDaObra()){ const fs=fotos.filter(f=>f.slot===s.k); const n=P.roteiroFotos.findIndex(r=>r.k===s.k); h+=`<button class="slot ${fs.length?'done':''}" data-slot="${esc(s.k)}"><span class="n">${n>=0?n+1:'+'}</span><b>${esc(s.t)}</b><small>${esc(s.d)}</small>${fs.length?`<img src="${fs[fs.length-1].thumb}" alt=""><span class="cnt">${fs.length}</span>`:''}</button>`; }
-  h+=`</div><div class="row" style="margin-top:10px"><select id="galSlot">${slotsDaObra().map(s=>`<option value="${esc(s.k)}">${esc(s.t)}</option>`).join('')}</select><button class="sec" id="galRot">Da galeria</button><input type="file" id="galRotIn" accept="image/*" multiple class="hide"></div><div class="nota">Foto já tirada com a câmera do celular: escolha qual é e toque em "Da galeria".</div></div>`;
+  h+=`<div class="card"><h2>As 5 fotos + o que mais precisar</h2><div class="nota">Operação acontecendo, não posada. Horizontal. Toque no item: a câmera fica aberta e você tira <b>quantas fotos quiser</b> em cada um. Para <b>vídeo</b>, toque em "Vídeo" na câmera (até 1min30, com coordenada na imagem).</div><div class="slots">`;
+  for(const s of slotsDaObra()){ const fs=fotos.filter(f=>f.slot===s.k); const n=P.roteiroFotos.findIndex(r=>r.k===s.k); h+=`<button class="slot ${fs.length?'done':''}" data-slot="${esc(s.k)}"><span class="n">${n>=0?n+1:'+'}</span><b>${esc(s.t)}</b><small>${esc(s.d)}</small>${fs.length?`${fs[fs.length-1].thumb?`<img src="${fs[fs.length-1].thumb}" alt="">`:""}<span class="cnt">${fs.length}</span>`:''}</button>`; }
+  h+=`</div><div class="row" style="margin-top:10px"><select id="galSlot">${slotsDaObra().map(s=>`<option value="${esc(s.k)}">${esc(s.t)}</option>`).join('')}</select><button class="sec" id="galRot">Da galeria</button><input type="file" id="galRotIn" accept="image/*,video/*" multiple class="hide"></div><div class="nota">Foto ou vídeo já feito com a câmera do celular: escolha o item e toque em "Da galeria" (pode marcar vários de uma vez).</div></div>`;
   h+=`<div class="card"><h2>Antes de sair do ponto</h2><div class="nota">Critério de pronto dos procedimentos desta obra. O que não der para cumprir, deixe desmarcado e diga no diário por quê.</div>`;
   h+=chk.map((c,i)=>`<label class="chk" style="text-transform:none;letter-spacing:0;font-size:15px;color:var(--ink);margin:0;font-weight:400"><input type="checkbox" data-i="${i}" ${est[i]?'checked':''}><span>${esc(c.t)} <span class="chip" style="font-size:10px">${esc(c.sop)}</span></span></label>`).join('');
   h+=`<label>O que ficou faltando ou deu errado hoje</label><textarea id="obsDia" placeholder="Pode deixar em branco.">${esc(LS.get('obs_'+ob.id+'_'+hoje(),''))}</textarea><button class="big" id="fecharDia" style="margin-top:12px">Registrar o dia (${Object.values(est).filter(Boolean).length}/${chk.length} feitos)</button><div class="nota">Manda para o escritório o que foi feito, o que ficou faltando e a coordenada. Junto com as fotos e o áudio, isso é o registro do dia.</div></div>`;
@@ -588,15 +682,15 @@ function ligarRoteiro(ob){
   document.querySelectorAll('input[data-i]').forEach(c=>c.onchange=()=>{ const est=estadoChk(ob); est[c.dataset.i]=c.checked; LS.set('chk_'+ob.id+'_'+hoje(),est); $('#fecharDia').textContent=`Registrar o dia (${Object.values(est).filter(Boolean).length}/${checklistDaObra(ob).length} feitos)`; });
   $('#obsDia').oninput=e=>LS.set('obs_'+ob.id+'_'+hoje(),e.target.value);
   $('#fecharDia').onclick=async()=>{ const chk=checklistDaObra(ob); const est=estadoChk(ob); const obs=$('#obsDia').value.trim();
-    await enfileirarRegistro({ tipo:'dia', obraId:ob.id, obra:ob.nome, quem:S.quem, data:new Date().toISOString(), coordenada:S.pos, feitos:chk.filter((c,i)=>est[i]).map(c=>c.t), pendentes:chk.filter((c,i)=>!est[i]).map(c=>c.t), fotos:fotosDaObra(ob).length, obs, app:APP_VERSAO }, `${hoje()}_registro_do_dia_${slug(S.quem)}.json`);
+    await enfileirarRegistro({ tipo:'dia', obraId:ob.id, obra:ob.nome, quem:S.quem, data:new Date().toISOString(), coordenada:S.pos, feitos:chk.filter((c,i)=>est[i]).map(c=>c.t), pendentes:chk.filter((c,i)=>!est[i]).map(c=>c.t), fotos:fotosDaObra(ob).length, obs, app:APP_VERSAO }, `${agoraArq()}_registro_do_dia_${slug(S.quem)}.json`);
     toast('Registro do dia na fila'); };
 }
 function telaFotos(ob){
   const fotos=S.fila.filter(x=>x.obraId===ob.id && (x.tipo==='foto'||x.tipo==='audio'));
-  let h=`<div class="card"><div class="row"><button class="big green" id="abrirCam">📷 Câmera</button><button class="big sec" id="gal">Da galeria</button></div><input type="file" id="galIn" accept="image/*" multiple class="hide"><div class="nota">Câmera do app: carimba coordenada, data, obra e quem tirou na própria foto e grava o GPS no arquivo. Da galeria: lê a coordenada que a foto já tem; se não tiver, usa a do aparelho agora e avisa no carimbo.</div></div>`;
+  let h=`<div class="card"><div class="row"><button class="big green" id="abrirCam">📷 Câmera</button><button class="big sec" id="gal">Da galeria</button></div><input type="file" id="galIn" accept="image/*,video/*" multiple class="hide"><div class="nota">Câmera do app: carimba coordenada, data, obra e quem tirou na própria foto e grava o GPS no arquivo. Da galeria: lê a coordenada que a foto já tem; se não tiver, usa a do aparelho agora e avisa no carimbo.</div></div>`;
   h+=`<div class="card"><h2>Fotos e áudios desta obra (${fotos.length})</h2>`;
   if(!fotos.length) h+=`<div class="muted">Nada ainda.</div>`;
-  else h+=`<div class="thumbs">`+fotos.slice().reverse().map(f=>`<div class="th ${f.status==='enviado'?'sent':(f.status==='erro'?'err':'')}" data-id="${esc(f.id)}">${f.thumb?`<img src="${f.thumb}" alt="">`:`<div class="au">${f.tipo==='audio'?'🎙️':'📄'}</div>`}<div class="st">${esc(f.slotTitulo||f.tipo)} · ${f.status==='enviado'?'enviado':(f.status==='erro'?'erro':'na fila')}</div>${f.status!=='enviado'?`<button class="x" data-del="${esc(f.id)}">×</button>`:''}</div>`).join('')+`</div>`;
+  else h+=`<div class="thumbs">`+fotos.slice().reverse().map(f=>`<div class="th ${f.status==='enviado'?'sent':(f.status==='erro'?'err':'')}" data-id="${esc(f.id)}">${f.thumb?`<img src="${f.thumb}" alt="">`:`<div class="au">${f.tipo==='audio'?'🎙️':(f.tipo==='video'?'🎬':'📄')}</div>`}<div class="st">${f.tipo==='video'?'🎬 ':''}${esc(f.slotTitulo||f.tipo)} · ${f.status==='enviado'?'enviado':(f.status==='erro'?'erro':'na fila')}</div>${f.status!=='enviado'?`<button class="x" data-del="${esc(f.id)}">×</button>`:''}</div>`).join('')+`</div>`;
   h+=`</div>`; return h;
 }
 function ligarFotos(ob){
@@ -608,7 +702,7 @@ function telaDiario(ob){
   const P=S.pacote; const gravando=!!REC.mr;
   let h=`<div class="card"><h2>Diário de obra — 40 segundos</h2><div class="nota">Cinco frases, nesta ordem. O escritório transcreve e vira o registro do dia.</div>`;
   h+=(P.roteiroDiario||[]).map((f,i)=>`<div class="frase"><span>${i+1}</span><div>${esc(f)}</div></div>`).join('');
-  h+=`<div class="timer" id="timer">${gravando?'00:00 / 00:40':'00:40'}</div><button class="rec ${gravando?'on':''}" id="rec">${gravando?'■':'●'}</button><div class="nota" style="text-align:center">${gravando?'Gravando… toque para parar':'Toque para gravar'}</div>`;
+  h+=`<div class="timer" id="timer">${gravando?'00:00 / 00:40':'00:40'}</div><button class="rec ${gravando?'on':''}" id="rec">${gravando?'■':'●'}</button><div class="nota" style="text-align:center">${gravando?'Gravando… toque para parar':'Toque para gravar'}</div><div class="nota" style="text-align:center">Precisa falar mais? Grave outro: cada áudio vai separado, quantos quiser.</div>`;
   if(REC.blob) h+=`<audio controls src="${URL.createObjectURL(REC.blob)}" style="width:100%;margin-top:8px"></audio><div class="row" style="margin-top:10px"><div class="nota">Já está guardado na fila. Não gostou? Apague e grave de novo.</div><div class="row" style="margin-top:10px"><button class="sec" id="descartar">Apagar e regravar</button></div>`;
   h+=`</div>`; return h;
 }
@@ -636,7 +730,7 @@ function telaFichas(ob){
   let h=(window.FICHAS?FICHAS.secaoLista(ob):'')+`<h3 style="margin:18px 0 6px">Folha de papel (reserva)</h3><div class="nota">Leve uma impressa no carro. Se precisar usar o papel, fotografe a folha inteira pelo app.</div>`;
   if(!sops.length) h+=`<div class="card"><div class="muted">Esta linha de serviço não tem ficha de campo cadastrada. Use o diário e as fotos.</div></div>`;
   for(const s of sops){ const f=s.ficha; h+=`<div class="card"><h2>${esc(f.codigo||'Ficha')}</h2><div class="muted" style="margin-bottom:10px">${esc(f.nome||'')}<br><small>${esc(s.codigo)} · ${esc(s.titulo)}</small></div><div class="row">${f.pdf?`<a href="${esc(f.pdf)}" target="_blank" rel="noopener"><button class="big">Abrir PDF / imprimir</button></a>`:''}${f.docx?`<a href="${esc(f.docx)}" target="_blank" rel="noopener"><button class="big sec">Word</button></a>`:''}</div></div>`; }
-  h+=`<div class="card"><h2>Ficha preenchida</h2><div class="nota">Uma foto por folha. Diga o furo/ponto/página quando houver mais de uma.</div><label>Identificação (furo, ponto, folha)</label><input id="fichaId" placeholder="ex.: SP-03 folha 1"><div class="row" style="margin-top:10px"><button class="big green" id="fichaCam">📷 Fotografar ficha</button><button class="big sec" id="fichaGal">Da galeria</button></div><input type="file" id="fichaIn" accept="image/*" multiple class="hide"></div>`;
+  h+=`<div class="card"><h2>Ficha preenchida</h2><div class="nota">Uma foto por folha. Diga o furo/ponto/página quando houver mais de uma.</div><label>Identificação (furo, ponto, folha)</label><input id="fichaId" placeholder="ex.: SP-03 folha 1"><div class="row" style="margin-top:10px"><button class="big green" id="fichaCam">📷 Fotografar ficha</button><button class="big sec" id="fichaGal">Da galeria</button></div><input type="file" id="fichaIn" accept="image/*,video/*" multiple class="hide"></div>`;
   return h;
 }
 function ligarFichas(ob){
@@ -660,7 +754,7 @@ function ligarOcorr(ob){
   let grav='leve'; document.querySelectorAll('[data-g]').forEach(b=>b.onclick=()=>{ grav=b.dataset.g; document.querySelectorAll('[data-g]').forEach(x=>x.classList.toggle('on',x===b)); });
   $('#ocFoto').onclick=()=>abrirCamera('ocorrencia');
   $('#ocEnviar').onclick=async()=>{ const txt=$('#ocTxt').value.trim(); if(!txt) return toast('Escreva o que aconteceu');
-    await enfileirarRegistro({ tipo:'ocorrencia', obraId:ob.id, obra:ob.nome, quem:S.quem, data:new Date().toISOString(), coordenada:S.pos, categoria:$('#ocTipo').value, gravidade:grav, relato:txt, fotos:S.fila.filter(x=>x.obraId===ob.id&&x.slot==='ocorrencia').length, app:APP_VERSAO }, `${hoje()}_OCORRENCIA_${grav}_${slug(S.quem)}.json`);
+    await enfileirarRegistro({ tipo:'ocorrencia', obraId:ob.id, obra:ob.nome, quem:S.quem, data:new Date().toISOString(), coordenada:S.pos, categoria:$('#ocTipo').value, gravidade:grav, relato:txt, fotos:S.fila.filter(x=>x.obraId===ob.id&&x.slot==='ocorrencia').length, app:APP_VERSAO }, `${agoraArq()}_OCORRENCIA_${grav}_${slug(S.quem)}.json`);
     $('#ocTxt').value=''; LS.set('oc_'+ob.id,''); toast('Ocorrência registrada na fila. Agora ligue para o Ygor.',4000); };
 }
 
@@ -669,8 +763,8 @@ function ligarOcorr(ob){
   await DB.open(); await recarregarFila();
   $('#hBtn').onclick=()=>{ if(window.FICHAS && FICHAS.aberta()){ history.back(); return; } S.obraId=null; LS.set('obraId',null); render(); };
   $('#filaBtn').onclick=()=>enviarFila();
-  $('#camFechar').onclick=()=>{ if(history.state&&history.state.t==='cam') history.back(); else fecharCamera(); }; $('#shutter').onclick=fotografar;
-  $('#camTrocar').onclick=async()=>{ CAM.facing=CAM.facing==='environment'?'user':'environment'; try{ await ligarStream(); }catch(e){ toast(e.message); } };
+  $('#camFechar').onclick=()=>{ if(history.state&&history.state.t==='cam') history.back(); else fecharCamera(); }; $('#shutter').onclick=()=> CAM.modo==='video'? gravarOuParar() : fotografar(); $('#mFoto').onclick=()=>{ if(!CAM.rec) modoCamera('foto'); }; $('#mVideo').onclick=()=>{ if(!CAM.rec) modoCamera('video'); };
+  $('#camTrocar').onclick=async()=>{ if(CAM.rec) return toast('Pare a gravação antes de trocar a câmera'); CAM.facing=CAM.facing==='environment'?'user':'environment'; try{ await ligarStream(); }catch(e){ toast(e.message); } };
   $('#tgMarca').onclick=()=>{ S.marca=!S.marca; LS.set('marca',S.marca); pintarToggles(); };
   $('#tgFmt').onclick=()=>{ S.fmt=S.fmt==='utm'?'geo':'utm'; LS.set('fmt',S.fmt); pintarToggles(); atualizarGeo(); };
   window.addEventListener('online',()=>{ pintarFila(); enviarFila(); }); window.addEventListener('offline',pintarFila);
