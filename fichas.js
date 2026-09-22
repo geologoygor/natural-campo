@@ -304,7 +304,7 @@ function desenharEditor(){
   const av=def.avisos(d);
   h+=`<div class="card" id="avisosBox"><h2>O que ainda falta</h2>${av.length?av.map(x=>`<div class="erro">${esc(x)}</div>`).join(''):'<div class="muted">Nada pendente.</div>'}<div class="nota">Nenhum aviso impede encerrar. Não mediu? Deixe em branco e escreva o porquê. Nunca invente.</div></div>`;
   if(!ro) h+=`<button class="big green" id="encerrar">Encerrar ficha e enviar</button><button class="big ghost" id="excluir" style="margin-top:8px;color:var(--err)">Excluir esta ficha</button>`;
-  else h+=`<button class="big sec" id="reabrir">Reabrir para corrigir (gera versão ${f.versao+1})</button><button class="big ghost" id="pdfver" style="margin-top:8px">Ver o PDF</button>`;
+  else h+=`<button class="big sec" id="reabrir">Reabrir para corrigir (gera versão ${f.versao+1})</button><button class="big ghost" id="pdfver" style="margin-top:8px">Baixar o PDF</button>`;
   $('#main').innerHTML=h; ligarEditor(f);
 }
 function ligarEditor(f){
@@ -333,7 +333,7 @@ function ligarEditor(f){
   const enc=$('#encerrar'); if(enc) enc.onclick=()=>encerrar(f);
   const exc=$('#excluir'); if(exc) exc.onclick=()=>{ if(exc.dataset.c!=='1'){ exc.dataset.c='1'; exc.textContent='Toque de novo para excluir de vez'; return; } remover(f.id); fechar(); };
   const rea=$('#reabrir'); if(rea) rea.onclick=()=>{ f.status='rascunho'; f.versao=(f.versao||1)+1; gravar(f); desenharEditor(); toast('Reaberta: versão '+f.versao); };
-  const pv=$('#pdfver'); if(pv) pv.onclick=async()=>{ const b=await gerarPDF(f); const u=URL.createObjectURL(b); window.open(u,'_blank'); };
+  const pv=$('#pdfver'); if(pv) pv.onclick=async()=>{ const b=await gerarPDF(f); baixarBlob(b, `${def.codigo.replace(/\s+/g,'-')}_${slug(def.ident(f.dados))}_v${f.versao||1}.pdf`); }; // baixa, não navega: o app não sai da tela
   ligarProx(f);
   if(f.tipo==='poco_teste' && f.status!=='encerrada'){ clearInterval(window.__proxT); window.__proxT=setInterval(()=>{ const p=$('#prox'); if(!p||!aberta()){ clearInterval(window.__proxT); return; } if(document.activeElement && document.activeElement.id==='ldv') return; renderProx(f); },20000); }
 }

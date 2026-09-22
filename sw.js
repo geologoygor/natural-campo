@@ -1,11 +1,20 @@
 /* Campo · Natural Engenharia — service worker
    Rede primeiro (pega sempre a versão nova e os SOPs atualizados);
    sem internet, usa a cópia guardada no celular. */
-const V = 'campo-v1.4.1';
+const V = 'campo-v1.4.2';
 const FONTES = 'campo-fontes'; // não muda de versão: a fonte baixada uma vez fica
 const SHELL = ['./', 'index.html', 'fichas.js', 'manifest.webmanifest', 'logo-white.png', 'logo-color.png', 'icon-192.png', 'icon-512.png', 'campo.json'];
-self.addEventListener('install', e => { e.waitUntil(caches.open(V).then(c => c.addAll(SHELL).catch(() => {})).then(() => self.skipWaiting())); });
-self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== V && k !== FONTES).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
+const PAPEL = ['papel_FC-SPT.pdf', 'papel_FC-POCO-teste-entrega.pdf', 'papel_FC-POCO-completa.pdf']; // fichas de papel para imprimir sem internet
+const FONTE_CSS = 'https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@400;700&display=swap';
+// Na primeira abertura com internet guarda TUDO para trabalhar sem sinal, sem perguntar nada ao usuário.
+async function guardarFontes() {
+  try { const c = await caches.open(FONTES); if (await c.match(FONTE_CSS)) return;
+    const r = await fetch(FONTE_CSS); if (!r.ok) return; const css = await r.clone().text(); await c.put(FONTE_CSS, r);
+    const urls = [...css.matchAll(/url\((https:[^)]+)\)/g)].map(m => m[1]);
+    await Promise.all(urls.map(u => fetch(u).then(x => x.ok && c.put(u, x)).catch(() => {}))); } catch (e) {} }
+self.addEventListener('install', e => { e.waitUntil(caches.open(V).then(c => c.addAll(SHELL).catch(() => {})
+  .then(() => Promise.all(PAPEL.map(p => c.add(p).catch(() => {}))))).then(guardarFontes).then(() => self.skipWaiting())); });
+self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== V && k !== FONTES).map(k => caches.delete(k)))).then(guardarFontes).then(() => self.clients.claim())); });
 self.addEventListener('fetch', e => {
   const u = new URL(e.request.url);
   if (e.request.method !== 'GET') return;

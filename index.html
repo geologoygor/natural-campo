@@ -184,14 +184,14 @@ details[open] summary::after{content:"–"}
 <div class="toast" id="toast"></div>
 <canvas id="cv" class="hide"></canvas>
 
-<script src="fichas.js?v=1.4.1"></script>
+<script src="fichas.js?v=1.4.2"></script>
 <script>
 /* ============================================================
    CAMPO · Natural Engenharia — app de campo (PWA)
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.4.1';
+const APP_VERSAO = '1.4.2';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -746,30 +746,38 @@ function ligarDiario(ob){
   $('#rec').onclick=gravar;
   const d=$('#descartar'); if(d) d.onclick=async()=>{ const it=S.fila.find(x=>x.id===REC.ultimoId); if(it && it.status!=='enviado'){ await DB.del(it.id); await recarregarFila(); toast('Áudio apagado'); } else if(it) toast('Esse já tinha sido enviado; o novo vai junto'); REC.blob=null; REC.ultimoId=null; render(); };
 }
-function telaProc(ob){
-  const sops=sopsDaObra(ob); const P=S.pacote;
-  let h=`<div class="nota">Procedimentos que regem esta obra, lidos do painel. O critério de pronto de cada um está na aba Roteiro.</div>`;
-  for(const s of sops){ h+=`<div class="card"><details><summary><span>${esc(s.codigo)} · ${esc(s.titulo)}</span></summary>`;
+function sopHTML(s){ let h=`<details><summary><span>${esc(s.codigo)} · ${esc(s.titulo)}</span></summary>`;
     if(s.objetivo) h+=`<p><b>Objetivo.</b> ${esc(s.objetivo)}</p>`; if(s.quando) h+=`<p class="muted"><b>Quando.</b> ${esc(s.quando)}</p>`; if(s.executa) h+=`<p class="muted"><b>Quem.</b> ${esc(s.executa)}</p>`;
     for(const f of (s.fases||[])){ h+=`<h3>${esc(f.nome||f.titulo||'')}</h3>`+ (f.etapas||[]).map(e=>`<div class="etapa">${esc(e.t)}${e.pq?`<div class="pq">${esc(e.pq)}</div>`:''}</div>`).join(''); }
     if(s.regras?.length) h+=`<h3>Regras</h3>`+s.regras.map(r=>`<div class="regra">${esc(r)}</div>`).join('');
     if(s.erros?.length) h+=`<h3>Se der errado</h3>`+s.erros.map(e=>`<div class="erro"><b>${esc(e.s)}</b> — ${esc(e.f)}</div>`).join('');
     const a=s.autonomia||{}; if(a.sozinho||a.avisa||a.para) h+=`<h3>Autonomia</h3><div class="auto">${a.sozinho?`<div class="s"><b>Faz sozinho:</b> ${esc(a.sozinho)}</div>`:''}${a.avisa?`<div class="a"><b>Faz e avisa:</b> ${esc(a.avisa)}</div>`:''}${a.para?`<div class="p"><b>Para e pergunta:</b> ${esc(a.para)}</div>`:''}</div>`;
     if(s.versao) h+=`<div class="nota">versão ${esc(s.versao)}</div>`;
-    h+=`</details></div>`; }
+    h+=`</details>`; return h; }
+function telaProc(ob){
+  const sops=sopsDaObra(ob); const P=S.pacote;
+  let h=`<div class="nota">Procedimentos que regem esta obra, lidos do painel. O critério de pronto de cada um está na aba Roteiro.</div>`;
+  for(const s of sops) h+=`<div class="card">${sopHTML(s)}</div>`;
   const refs=(P.referencia||[]).map(c=>P.sops[c]).filter(Boolean);
-  if(refs.length) h+=`<div class="card"><h2>Leitura de apoio</h2>`+refs.map(s=>`<div class="regra">${esc(s.codigo)} · ${esc(s.titulo)}${s.drive?` — <a href="${esc(s.drive)}" target="_blank" rel="noopener">abrir</a>`:''}</div>`).join('')+`</div>`;
+  if(refs.length) h+=`<div class="card"><h2>Leitura de apoio</h2>`+refs.map(s=>sopHTML(s)).join('')+`</div>`; // abre aqui dentro, sem internet
   return h;
 }
+// PDFs oficiais das fichas de papel, hospedados junto do app (id do arquivo no Drive -> arquivo local)
+const PAPEL={ '1B3N762GGR5AGVMk4NsMDRDnI0oTwjTzx':'papel_FC-SPT.pdf', '1dUzlRls578ddzWKOJbdijV88rQI6kp3x':'papel_FC-POCO-teste-entrega.pdf', '1DRZdCA0EAnGR35D3Fm80o-LICy0_Tqhk':'papel_FC-POCO-completa.pdf' };
+function papelLocal(url){ const m=/\/d\/([\w-]{20,})/.exec(url||''); return m&&PAPEL[m[1]]||null; }
+function baixarBlob(blob, nome){ const u=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=u; a.download=nome; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(u),60000); }
 function telaFichas(ob){
   const sops=sopsDaObra(ob).filter(s=>s.ficha);
   let h=(window.FICHAS?FICHAS.secaoLista(ob):'')+`<h3 style="margin:18px 0 6px">Folha de papel (reserva)</h3><div class="nota">Leve uma impressa no carro. Se precisar usar o papel, fotografe a folha inteira pelo app.</div>`;
   if(!sops.length) h+=`<div class="card"><div class="muted">Esta linha de serviço não tem ficha de campo cadastrada. Use o diário e as fotos.</div></div>`;
-  for(const s of sops){ const f=s.ficha; h+=`<div class="card"><h2>${esc(f.codigo||'Ficha')}</h2><div class="muted" style="margin-bottom:10px">${esc(f.nome||'')}<br><small>${esc(s.codigo)} · ${esc(s.titulo)}</small></div><div class="row">${f.pdf?`<a href="${esc(f.pdf)}" target="_blank" rel="noopener"><button class="big">Abrir PDF / imprimir</button></a>`:''}${f.docx?`<a href="${esc(f.docx)}" target="_blank" rel="noopener"><button class="big sec">Word</button></a>`:''}</div></div>`; }
+  const vistos=new Set();
+  for(const s of sops){ const f=s.ficha; const loc=papelLocal(f.pdf); if(loc&&vistos.has(loc)) continue; if(loc) vistos.add(loc);
+    h+=`<div class="card"><h2>${esc(f.codigo||'Ficha')}</h2><div class="muted" style="margin-bottom:10px">${esc(f.nome||'')}<br><small>${esc(s.codigo)} · ${esc(s.titulo)}</small></div>${loc?`<button class="big" data-papel="${esc(loc)}">Baixar PDF para imprimir</button><div class="nota">Guardado no celular: funciona sem internet.</div>`:`<div class="nota">Peça a folha impressa ao escritório.</div>`}</div>`; }
   h+=`<div class="card"><h2>Ficha preenchida</h2><div class="nota">Uma foto por folha. Diga o furo/ponto/página quando houver mais de uma.</div><label>Identificação (furo, ponto, folha)</label><input id="fichaId" placeholder="ex.: SP-03 folha 1"><div class="row" style="margin-top:10px"><button class="big green" id="fichaCam">📷 Fotografar ficha</button><button class="big sec" id="fichaGal">Da galeria</button></div><input type="file" id="fichaIn" accept="image/*,video/*" multiple class="hide"></div>`;
   return h;
 }
 function ligarFichas(ob){
+  document.querySelectorAll('[data-papel]').forEach(b=>b.onclick=async()=>{ try{ const r=await fetch(b.dataset.papel); if(!r.ok) throw new Error('HTTP '+r.status); baixarBlob(await r.blob(), b.dataset.papel); }catch(e){ toast('PDF ainda não guardado neste celular. Abra o app uma vez com internet.',4000); } });
   if(window.FICHAS) FICHAS.ligarLista(ob);
   $('#fichaCam').onclick=()=>{ CAM.extra={ficha:$('#fichaId').value.trim()}; abrirCamera('ficha'); };
   $('#fichaGal').onclick=()=>$('#fichaIn').click();
