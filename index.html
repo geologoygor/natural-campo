@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#113E6B">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Campo Natural">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
+<title>Campo · Natural Engenharia</title>
+<style>
+:root{
+  --navy:#113E6B; --navy-2:#0C2F52; --green:#19A878; --green-2:#137F5B;
+  --ink:#1B2430; --muted:#5B6570; --line:#D9DEE5; --bg:#F3F5F8; --card:#FFFFFF;
+  --warn:#B45309; --warn-bg:#FEF3C7; --err:#B91C1C; --err-bg:#FEE2E2; --ok-bg:#DCFCE7;
+  --r:14px; --sat:env(safe-area-inset-top,0px); --sab:env(safe-area-inset-bottom,0px);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body{display:flex;flex-direction:column;min-height:100%}
+button{font:inherit;cursor:pointer;border:0;border-radius:12px;padding:12px 16px;background:var(--navy);color:#fff;font-weight:600}
+button.sec{background:#fff;color:var(--navy);border:1.5px solid var(--navy)}
+button.green{background:var(--green)}
+button.ghost{background:transparent;color:var(--navy);padding:8px 10px}
+button.danger{background:var(--err)}
+button:disabled{opacity:.45;cursor:default}
+button.big{width:100%;padding:16px;font-size:17px}
+input,select,textarea{font:inherit;width:100%;padding:12px;border:1.5px solid var(--line);border-radius:10px;background:#fff;color:var(--ink)}
+textarea{min-height:90px}
+label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px;font-weight:600;text-transform:uppercase;letter-spacing:.03em}
+header{background:var(--navy);color:#fff;padding:calc(10px + var(--sat)) 16px 10px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:20}
+header img{height:26px}
+header .t{flex:1;min-width:0}
+header .t b{display:block;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+header .t small{display:block;font-size:12px;opacity:.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+header button{background:rgba(255,255,255,.14);padding:8px 12px;font-size:13px}
+main{flex:1;padding:14px 16px calc(90px + var(--sab));max-width:720px;width:100%;margin:0 auto}
+.card{background:var(--card);border-radius:var(--r);padding:14px;margin-bottom:12px;box-shadow:0 1px 2px rgba(17,62,107,.06)}
+.card h2{margin:0 0 8px;font-size:17px;color:var(--navy)}
+.card h3{margin:14px 0 6px;font-size:14px;color:var(--green-2);text-transform:uppercase;letter-spacing:.04em}
+.muted{color:var(--muted);font-size:14px}
+.chip{display:inline-block;background:#E8F1FA;color:var(--navy);border-radius:999px;padding:3px 10px;font-size:12px;font-weight:600;margin:2px 4px 2px 0}
+.chip.g{background:var(--ok-bg);color:var(--green-2)}
+.chip.w{background:var(--warn-bg);color:var(--warn)}
+.chip.e{background:var(--err-bg);color:var(--err)}
+.row{display:flex;gap:10px;align-items:center}
+.row>*{flex:1}
+.obra{display:block;width:100%;text-align:left;background:#fff;color:var(--ink);border:1.5px solid var(--line);padding:14px;margin-bottom:10px;border-radius:var(--r);font-weight:500}
+.obra b{display:block;color:var(--navy);font-size:16px;margin-bottom:3px}
+.obra small{color:var(--muted);font-size:13px}
+.tabs{display:flex;gap:6px;overflow-x:auto;padding:4px 0 10px;scrollbar-width:none;position:sticky;top:calc(56px + var(--sat));background:var(--bg);z-index:10}
+.tabs::-webkit-scrollbar{display:none}
+.tabs button{flex:0 0 auto;background:#fff;color:var(--navy);border:1.5px solid var(--line);padding:9px 14px;font-size:14px;border-radius:999px}
+.tabs button.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+.slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.slot{background:#fff;border:1.5px dashed var(--line);border-radius:12px;padding:10px;text-align:left;color:var(--ink);font-weight:500;min-height:150px;display:flex;flex-direction:column;gap:6px;position:relative}
+.slot.done{border-style:solid;border-color:var(--green)}
+.slot .n{display:inline-flex;width:24px;height:24px;border-radius:50%;background:var(--navy);color:#fff;align-items:center;justify-content:center;font-size:13px;font-weight:700}
+.slot.done .n{background:var(--green)}
+.slot b{font-size:14px}
+.slot small{color:var(--muted);font-size:12px;line-height:1.3}
+.slot img{width:100%;height:80px;object-fit:cover;border-radius:8px;margin-top:auto}
+.slot .cnt{position:absolute;top:8px;right:8px;background:var(--green);color:#fff;border-radius:999px;font-size:12px;padding:2px 8px;font-weight:700}
+.chk{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line);font-size:15px}
+.chk:last-child{border-bottom:0}
+.chk input{width:24px;height:24px;flex:0 0 auto;margin:0;accent-color:var(--green)}
+details{border-top:1px solid var(--line);padding:8px 0}
+details summary{cursor:pointer;font-weight:600;color:var(--navy);list-style:none;display:flex;justify-content:space-between;align-items:center;gap:8px}
+details summary::after{content:"+";font-size:20px;color:var(--green)}
+details[open] summary::after{content:"–"}
+.etapa{padding:8px 0 8px 14px;border-left:3px solid var(--green);margin:8px 0;font-size:15px}
+.etapa .pq{color:var(--muted);font-size:13px;margin-top:4px}
+.regra{padding:6px 0 6px 12px;border-left:3px solid var(--navy);margin:6px 0;font-size:14px}
+.erro{background:#FFF7ED;border-radius:10px;padding:10px;margin:6px 0;font-size:14px}
+.erro b{color:var(--warn)}
+.auto{display:grid;grid-template-columns:1fr;gap:8px}
+.auto div{border-radius:10px;padding:10px;font-size:14px}
+.auto .s{background:var(--ok-bg)} .auto .a{background:var(--warn-bg)} .auto .p{background:var(--err-bg)}
+.fila{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1.5px solid var(--line);padding:10px 16px calc(10px + var(--sab));display:flex;align-items:center;gap:10px;z-index:20}
+.fila .s{flex:1;font-size:14px}
+.fila .s b{color:var(--navy)}
+.fila button{padding:10px 14px;font-size:14px}
+.thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px}
+.th{position:relative;border-radius:10px;overflow:hidden;background:#E8ECF1;aspect-ratio:1}
+.th img{width:100%;height:100%;object-fit:cover;display:block}
+.th .st{position:absolute;left:0;right:0;bottom:0;font-size:11px;padding:3px 6px;background:rgba(17,62,107,.85);color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.th.sent .st{background:rgba(25,168,120,.9)}
+.th.err .st{background:rgba(185,28,28,.9)}
+.th .x{position:absolute;top:4px;right:4px;background:rgba(0,0,0,.55);color:#fff;border-radius:50%;width:26px;height:26px;padding:0;font-size:16px;line-height:26px;text-align:center}
+.th .au{display:flex;align-items:center;justify-content:center;height:100%;font-size:34px}
+.banner{background:var(--err-bg);color:var(--err);border-radius:10px;padding:10px 12px;font-size:14px;margin-bottom:12px}
+.nota{color:var(--muted);font-size:13px;margin:6px 0}
+.geo{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;background:#E8F1FA;border-radius:8px;padding:8px 10px;color:var(--navy)}
+.seg{display:flex;border:1.5px solid var(--navy);border-radius:10px;overflow:hidden}
+.seg button{flex:1;border-radius:0;background:#fff;color:var(--navy);padding:10px}
+.seg button.on{background:var(--navy);color:#fff}
+/* câmera */
+#cam{position:fixed;inset:0;background:#000;z-index:50;display:none;flex-direction:column}
+#cam.on{display:flex}
+#cam video{flex:1;width:100%;object-fit:cover;background:#000}
+#cam .top{position:absolute;top:0;left:0;right:0;padding:calc(10px + var(--sat)) 12px 10px;display:flex;gap:8px;align-items:center;background:linear-gradient(rgba(0,0,0,.6),transparent);color:#fff;font-size:13px}
+#cam .top select{width:auto;flex:1;background:rgba(255,255,255,.15);color:#fff;border:0;padding:8px}
+#cam .top select option{color:#000}
+#cam .geo2{position:absolute;left:12px;right:12px;bottom:calc(120px + var(--sab));color:#fff;font-family:ui-monospace,Menlo,monospace;font-size:12px;background:rgba(17,62,107,.7);padding:6px 10px;border-radius:8px}
+#cam .bot{padding:14px 20px calc(18px + var(--sab));display:flex;align-items:center;justify-content:space-between;background:#000;color:#fff}
+#cam .shutter{width:74px;height:74px;border-radius:50%;background:#fff;border:5px solid var(--green);padding:0}
+#cam .bot button.ghost{color:#fff;font-size:13px}
+#cam .tg{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11px;color:#fff}
+#cam .tg .sw{width:44px;height:24px;border-radius:999px;background:#555;position:relative;padding:0}
+#cam .tg .sw.on{background:var(--green)}
+#cam .tg .sw::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:left .15s}
+#cam .tg .sw.on::after{left:23px}
+#flash{position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:60;transition:opacity .15s}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(80px + var(--sab));background:var(--ink);color:#fff;padding:10px 16px;border-radius:999px;font-size:14px;z-index:70;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw;text-align:center}
+.toast.on{opacity:1}
+.rec{width:88px;height:88px;border-radius:50%;background:var(--err);color:#fff;font-size:30px;margin:10px auto;display:flex;align-items:center;justify-content:center;padding:0}
+.rec.on{animation:pulse 1s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(185,28,28,.5)}100%{box-shadow:0 0 0 18px rgba(185,28,28,0)}}
+.timer{text-align:center;font-family:ui-monospace,Menlo,monospace;font-size:28px;color:var(--navy)}
+.frase{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);font-size:15px}
+.frase span{color:var(--green);font-weight:700}
+.hide{display:none!important}
+@media(min-width:600px){.auto{grid-template-columns:repeat(3,1fr)}}
+</style>
+</head>
+<body>
+<header>
+  <img src="logo-white.png" alt="Natural Engenharia" id="hLogo">
+  <div class="t"><b id="hTit">Campo</b><small id="hSub">Natural Engenharia</small></div>
+  <button id="hBtn" class="hide">Voltar</button>
+</header>
+<main id="main"></main>
+
+<div class="fila" id="fila">
+  <div class="s" id="filaTxt">Carregando…</div>
+  <button id="filaBtn">Enviar agora</button>
+</div>
+
+<div id="cam">
+  <video id="video" autoplay playsinline muted></video>
+  <div class="top">
+    <button class="ghost" id="camFechar">✕ Fechar</button>
+    <select id="camSlot"></select>
+    <button class="ghost" id="camTrocar">⟲</button>
+  </div>
+  <div class="geo2" id="camGeo">Procurando GPS…</div>
+  <div class="bot">
+    <div class="tg"><button class="sw" id="tgMarca"></button><span>marca d'água</span></div>
+    <button class="shutter" id="shutter" aria-label="Fotografar"></button>
+    <div class="tg"><button class="sw" id="tgFmt"></button><span id="tgFmtTxt">UTM</span></div>
+  </div>
+</div>
+<div id="flash"></div>
+<div class="toast" id="toast"></div>
+<canvas id="cv" class="hide"></canvas>
+
+<script>
+/* ============================================================
+   CAMPO · Natural Engenharia — app de campo (PWA)
+   Fonte da verdade: painel (via campo.json exportado). O app só lê.
+   Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
+   ============================================================ */
+const APP_VERSAO = '1.0.0';
+const CFG_PADRAO = {
+  script: '',                 // URL /exec do Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
+  token: 'natural-campo-2026',
+  maxLado: 2560,              // maior lado da foto enviada (px)
+  qualidade: 0.9,
+};
+const LS = {
+  get(k, d){ try{ const v = localStorage.getItem('nc_'+k); return v==null? d : JSON.parse(v);}catch(e){return d;} },
+  set(k, v){ try{ localStorage.setItem('nc_'+k, JSON.stringify(v)); }catch(e){} },
+};
+const S = {
+  cfg: Object.assign({}, CFG_PADRAO, LS.get('cfg', {})),
+  pacote: LS.get('pacote', null),
+  quem: LS.get('quem', ''),
+  fmt: LS.get('fmt', 'utm'),          // 'geo' | 'utm'
+  marca: LS.get('marca', true),       // marca d'água da empresa nas fotos
+  original: LS.get('original', true), // envia também o arquivo original sem carimbo
+  obraId: null, tab: 'roteiro',
+  pos: null, posEm: 0, watch: null,
+  fila: [], enviando: false,
+};
+const $ = (s, el=document) => el.querySelector(s);
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function toast(m, ms=2200){ const t=$('#toast'); t.textContent=m; t.classList.add('on'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('on'), ms); }
+function hoje(){ const d=new Date(); return d.toISOString().slice(0,10); }
+function fmtData(d){ d = d instanceof Date ? d : new Date(d); const p=n=>String(n).padStart(2,'0'); return `${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`; }
+function exifData(d){ d = d instanceof Date ? d : new Date(d); const p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}:${p(d.getMonth()+1)}:${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; }
+function slug(s){ return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^A-Za-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,60); }
+
+/* ---------------- Geodesia: WGS84 -> UTM ---------------- */
+function toUTM(lat, lon){
+  const a=6378137, f=1/298.257223563, k0=0.9996;
+  const zone = Math.floor((lon+180)/6)+1, hemi = lat>=0?'N':'S';
+  const lon0 = ((zone-1)*6-180+3)*Math.PI/180;
+  const e2=f*(2-f), n=f/(2-f), A=a/(1+n)*(1+n*n/4+n*n*n*n/64);
+  const al=[n/2-2*n*n/3+5*n*n*n/16, 13*n*n/48-3*n*n*n/5, 61*n*n*n/240];
+  const phi=lat*Math.PI/180, lam=lon*Math.PI/180;
+  const t=Math.sinh(Math.atanh(Math.sin(phi))-2*Math.sqrt(n)/(1+n)*Math.atanh(2*Math.sqrt(n)/(1+n)*Math.sin(phi)));
+  const xi=Math.atan(t/Math.cos(lam-lon0)), eta=Math.atanh(Math.sin(lam-lon0)/Math.sqrt(1+t*t));
+  let E=eta, N=xi;
+  for(let j=1;j<=3;j++){ E+=al[j-1]*Math.cos(2*j*xi)*Math.sinh(2*j*eta); N+=al[j-1]*Math.sin(2*j*xi)*Math.cosh(2*j*eta); }
+  E=500000+k0*A*E; N=k0*A*N; if(hemi==='S') N+=10000000;
+  return {zone, hemi, e:Math.round(E), n:Math.round(N)};
+}
+function fmtCoord(p, fmt){
+  if(!p) return 'sem coordenada';
+  if(fmt==='utm'){ const u=toUTM(p.lat,p.lon); return `UTM ${u.zone}${u.hemi}  E ${u.e}  N ${u.n}  (WGS84)`; }
+  return `Lat ${p.lat.toFixed(5)}°  Lon ${p.lon.toFixed(5)}°  (WGS84)`;
+}
+function fmtCoordCurta(p, fmt){
+  if(!p) return '—';
+  if(fmt==='utm'){ const u=toUTM(p.lat,p.lon); return `${u.zone}${u.hemi} ${u.e} E ${u.n} N`; }
+  return `${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}`;
+}
+
+/* ---------------- GPS ---------------- */
+function iniciarGPS(){
+  if(!navigator.geolocation || S.watch) return;
+  S.watch = navigator.geolocation.watchPosition(g=>{
+    S.pos = {lat:g.coords.latitude, lon:g.coords.longitude, acc:g.coords.accuracy, alt:g.coords.altitude};
+    S.posEm = Date.now(); atualizarGeo();
+  }, e=>{ atualizarGeo(e.message); }, {enableHighAccuracy:true, maximumAge:5000, timeout:30000});
+}
+function atualizarGeo(err){
+  const el=$('#camGeo'); if(!el) return;
+  if(S.pos){ el.textContent = fmtCoord(S.pos, S.fmt) + `  ±${Math.round(S.pos.acc)} m`; }
+  else el.textContent = err ? 'GPS: '+err : 'Procurando GPS…';
+  const g=$('#geoLive'); if(g) g.textContent = S.pos ? fmtCoord(S.pos,S.fmt)+`  ±${Math.round(S.pos.acc)} m` : 'Procurando GPS… (funciona sem internet; a céu aberto fixa mais rápido)';
+}
+
+/* ---------------- IndexedDB (fila de envio) ---------------- */
+const DB = {
+  db:null,
+  open(){ return new Promise((ok,er)=>{ const r=indexedDB.open('natural_campo',1);
+    r.onupgradeneeded=()=>{ const d=r.result; const st=d.createObjectStore('fila',{keyPath:'id'}); st.createIndex('status','status'); };
+    r.onsuccess=()=>{DB.db=r.result; ok();}; r.onerror=()=>er(r.error); }); },
+  tx(mode){ return DB.db.transaction('fila',mode).objectStore('fila'); },
+  put(o){ return new Promise((ok,er)=>{ const q=DB.tx('readwrite').put(o); q.onsuccess=()=>ok(); q.onerror=()=>er(q.error); }); },
+  del(id){ return new Promise((ok,er)=>{ const q=DB.tx('readwrite').delete(id); q.onsuccess=()=>ok(); q.onerror=()=>er(q.error); }); },
+  all(){ return new Promise((ok,er)=>{ const q=DB.tx('readonly').getAll(); q.onsuccess=()=>ok(q.result||[]); q.onerror=()=>er(q.error); }); },
+};
+async function recarregarFila(){ S.fila = (await DB.all()).sort((a,b)=>a.criadoEm<b.criadoEm?-1:1); pintarFila(); }
+function pintarFila(){
+  const pend=S.fila.filter(x=>x.status!=='enviado'), err=S.fila.filter(x=>x.status==='erro');
+  const hojeEnv=S.fila.filter(x=>x.status==='enviado' && (x.enviadoEm||'').slice(0,10)===hoje()).length;
+  const t=$('#filaTxt'), b=$('#filaBtn');
+  if(S.enviando){ t.innerHTML=`<b>Enviando…</b> ${pend.length} na fila`; b.disabled=true; return; }
+  b.disabled = pend.length===0;
+  if(pend.length===0) t.innerHTML = `<b>Tudo enviado.</b> ${hojeEnv? hojeEnv+' arquivo(s) hoje.':''} ${navigator.onLine?'':'Sem internet.'}`;
+  else t.innerHTML = `<b>${pend.length} na fila</b>${err.length?` · <span style="color:var(--err)">${err.length} com erro</span>`:''} · ${navigator.onLine?'com internet':'sem internet — sobe sozinho depois'}`;
+}
+
+/* ---------------- EXIF: leitura (GPS, data, orientação) ---------------- */
+function lerExif(buf){
+  const v=new DataView(buf); if(v.getUint16(0)!==0xFFD8) return {};
+  let off=2; while(off<v.byteLength){
+    const m=v.getUint16(off); if(m===0xFFDA) break; const len=v.getUint16(off+2);
+    if(m===0xFFE1 && v.getUint32(off+4)===0x45786966){ try{ return parseTiff(buf, off+10, len-8); }catch(e){ return {}; } }
+    off+=2+len;
+  } return {};
+}
+function parseTiff(buf, base, size){
+  const v=new DataView(buf, base, size); const le=v.getUint16(0)===0x4949;
+  const u16=o=>v.getUint16(o,le), u32=o=>v.getUint32(o,le);
+  const out={};
+  function readIFD(off, tags){
+    const n=u16(off); const r={};
+    for(let i=0;i<n;i++){ const e=off+2+i*12; const tag=u16(e), type=u16(e+2), cnt=u32(e+4); let val;
+      const sz={1:1,2:1,3:2,4:4,5:8,7:1,10:8}[type]||1; const tot=sz*cnt; const p= tot<=4 ? e+8 : u32(e+8);
+      if(tags && !tags.includes(tag)) continue;
+      if(type===2){ let s=''; for(let k=0;k<cnt-1;k++) s+=String.fromCharCode(v.getUint8(p+k)); val=s; }
+      else if(type===3){ val=cnt===1?u16(p):Array.from({length:cnt},(_,k)=>u16(p+2*k)); }
+      else if(type===4){ val=cnt===1?u32(p):Array.from({length:cnt},(_,k)=>u32(p+4*k)); }
+      else if(type===5){ val=Array.from({length:cnt},(_,k)=>u32(p+8*k)/(u32(p+8*k+4)||1)); if(cnt===1) val=val[0]; }
+      else if(type===1){ val=cnt===1?v.getUint8(p):Array.from({length:cnt},(_,k)=>v.getUint8(p+k)); }
+      r[tag]=val; }
+    return r;
+  }
+  const ifd0=readIFD(u32(4),[0x0112,0x8769,0x8825]);
+  out.orient=ifd0[0x0112]||1;
+  if(ifd0[0x8769]){ const ex=readIFD(ifd0[0x8769],[0x9003]); out.data=ex[0x9003]; }
+  if(ifd0[0x8825]){ const g=readIFD(ifd0[0x8825],[1,2,3,4,5,6]);
+    if(g[2]&&g[4]){ const dms=a=>a[0]+a[1]/60+a[2]/3600; let lat=dms(g[2]), lon=dms(g[4]);
+      if((g[1]||'N')==='S') lat=-lat; if((g[3]||'E')==='W') lon=-lon;
+      if(isFinite(lat)&&isFinite(lon)&&(lat||lon)) out.gps={lat,lon,alt:g[6]!=null?(g[5]?-g[6]:g[6]):null}; } }
+  return out;
+}
+/* ---------------- EXIF: escrita (GPS + data + descrição) ---------------- */
+function montarExif(meta){
+  // meta: {data:Date, gps:{lat,lon,alt}, desc}
+  const enc=s=>{ const t=String(s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^\x20-\x7E]/g,'-'); return new TextEncoder().encode(t+'\0'); };
+  const rat=(x,den=1000000)=>[Math.round(x*den),den];
+  const dms=deg=>{ deg=Math.abs(deg); const d=Math.floor(deg), m=Math.floor((deg-d)*60), s=((deg-d)*60-m)*60; return [[d,1],[m,1],[Math.round(s*10000),10000]]; };
+  function ifd(entries){ // entries: [{tag,type,val}] val: Uint8Array(ASCII/BYTE) | number[] (LONG/SHORT) | [[n,d],...] (RATIONAL)
+    const n=entries.length; const head=2+12*n+4; let data=[]; let dsize=0;
+    const recs=entries.map(e=>{ let bytes; let cnt;
+      if(e.type===2||e.type===1){ bytes=e.val; cnt=bytes.length; }
+      else if(e.type===4||e.type===3){ cnt=e.val.length; bytes=new Uint8Array(cnt*(e.type===4?4:2)); const dv=new DataView(bytes.buffer); e.val.forEach((x,i)=> e.type===4? dv.setUint32(i*4,x,true): dv.setUint16(i*2,x,true)); }
+      else if(e.type===5){ cnt=e.val.length; bytes=new Uint8Array(cnt*8); const dv=new DataView(bytes.buffer); e.val.forEach((r,i)=>{dv.setUint32(i*8,r[0],true);dv.setUint32(i*8+4,r[1],true);}); }
+      return {tag:e.tag,type:e.type,cnt,bytes}; });
+    return { size: head + recs.reduce((s,r)=>s+(r.bytes.length>4?r.bytes.length+(r.bytes.length%2):0),0),
+      write(dv, off, base){ dv.setUint16(off,n,true); let dp=off+head; recs.forEach((r,i)=>{ const e=off+2+i*12; dv.setUint16(e,r.tag,true); dv.setUint16(e+2,r.type,true); dv.setUint32(e+4,r.cnt,true);
+        if(r.bytes.length<=4){ r.bytes.forEach((b,k)=>dv.setUint8(e+8+k,b)); } else { dv.setUint32(e+8,dp-base,true); r.bytes.forEach((b,k)=>dv.setUint8(dp+k,b)); dp+=r.bytes.length+(r.bytes.length%2); } });
+        dv.setUint32(off+2+12*n,0,true); } };
+  }
+  const dstr=exifData(meta.data);
+  const exifIFD=ifd([{tag:0x9003,type:2,val:enc(dstr)},{tag:0x9004,type:2,val:enc(dstr)}]);
+  let gpsIFD=null;
+  if(meta.gps){ const g=meta.gps; const ut=new Date(meta.data); const ents=[
+      {tag:0,type:1,val:new Uint8Array([2,3,0,0])},
+      {tag:1,type:2,val:enc(g.lat>=0?'N':'S')},{tag:2,type:5,val:dms(g.lat)},
+      {tag:3,type:2,val:enc(g.lon>=0?'E':'W')},{tag:4,type:5,val:dms(g.lon)}];
+    if(g.alt!=null&&isFinite(g.alt)){ ents.push({tag:5,type:1,val:new Uint8Array([g.alt<0?1:0])}); ents.push({tag:6,type:5,val:[rat(Math.abs(g.alt),100)]}); }
+    ents.push({tag:7,type:5,val:[[ut.getUTCHours(),1],[ut.getUTCMinutes(),1],[ut.getUTCSeconds(),1]]});
+    ents.push({tag:29,type:2,val:enc(`${ut.getUTCFullYear()}:${String(ut.getUTCMonth()+1).padStart(2,'0')}:${String(ut.getUTCDate()).padStart(2,'0')}`)});
+    gpsIFD=ifd(ents); }
+  const ents0=[{tag:0x010E,type:2,val:enc(meta.desc||'Natural Engenharia')},{tag:0x0131,type:2,val:enc('Campo Natural '+APP_VERSAO)},{tag:0x0132,type:2,val:enc(dstr)},{tag:0x8769,type:4,val:[0]}];
+  if(gpsIFD) ents0.push({tag:0x8825,type:4,val:[0]});
+  const ifd0=ifd(ents0);
+  const exifOff=8+ifd0.size, gpsOff=exifOff+exifIFD.size;
+  ents0.find(e=>e.tag===0x8769).val=[exifOff]; if(gpsIFD) ents0.find(e=>e.tag===0x8825).val=[gpsOff];
+  const ifd0b=ifd(ents0);
+  const total=8+ifd0b.size+exifIFD.size+(gpsIFD?gpsIFD.size:0);
+  const buf=new ArrayBuffer(total), dv=new DataView(buf);
+  dv.setUint16(0,0x4949); dv.setUint16(2,0x2A,true); dv.setUint32(4,8,true);
+  ifd0b.write(dv,8,0); exifIFD.write(dv,exifOff,0); if(gpsIFD) gpsIFD.write(dv,gpsOff,0);
+  const tiff=new Uint8Array(buf); const seg=new Uint8Array(2+2+6+tiff.length);
+  seg[0]=0xFF; seg[1]=0xE1; const L=seg.length-2; seg[2]=L>>8; seg[3]=L&255; seg.set([0x45,0x78,0x69,0x66,0,0],4); seg.set(tiff,10);
+  return seg;
+}
+async function inserirExif(blob, meta){
+  const buf=new Uint8Array(await blob.arrayBuffer()); const seg=montarExif(meta);
+  const out=new Uint8Array(buf.length+seg.length); out.set(buf.subarray(0,2),0); out.set(seg,2); out.set(buf.subarray(2),2+seg.length);
+  return new Blob([out],{type:'image/jpeg'});
+}
+
+/* ---------------- Carimbo e marca d'água ---------------- */
+const IMG={ logo:null };
+function carregarImg(src){ return new Promise((ok,er)=>{ const i=new Image(); i.onload=()=>ok(i); i.onerror=er; i.src=src; }); }
+async function carimbar(bitmap, info){
+  // info: {obra, quem, slot, pos:{lat,lon,acc}|null, fonte:'aparelho'|'foto'|null, data:Date, fmt, marca}
+  const W=bitmap.width, H=bitmap.height; const cv=$('#cv'); cv.width=W; cv.height=H; const c=cv.getContext('2d');
+  c.drawImage(bitmap,0,0);
+  const base=Math.max(W,H); const fs=Math.round(base*0.0175); const pad=Math.round(fs*0.7); const lh=Math.round(fs*1.35);
+  const linhas=[];
+  linhas.push({t: (info.obra||'').toUpperCase(), b:true});
+  if(info.pos){ linhas.push({t: fmtCoord(info.pos, info.fmt) + (info.pos.acc? `  ±${Math.round(info.pos.acc)} m`:'') , mono:true});
+    if(info.fmt==='utm') linhas.push({t: `Lat ${info.pos.lat.toFixed(5)}°  Lon ${info.pos.lon.toFixed(5)}°`, mono:true, small:true}); }
+  else linhas.push({t:'SEM COORDENADA (GPS indisponível)', mono:true});
+  linhas.push({t: `${fmtData(info.data)}  ·  ${info.quem||'—'}  ·  ${info.slot||''}` + (info.fonte==='foto'?'  ·  GPS da foto':(info.fonte==='aparelho-tardio'?'  ·  GPS do aparelho no envio (foto sem coordenada)':'')), small:true});
+  const bh=pad*2+linhas.reduce((s,l)=>s+(l.small?lh*0.85:lh),0);
+  c.fillStyle='rgba(17,62,107,0.80)'; c.fillRect(0,H-bh,W,bh);
+  c.fillStyle='#19A878'; c.fillRect(0,H-bh,Math.round(base*0.006),bh);
+  let y=H-bh+pad+fs; const x=pad+Math.round(base*0.012);
+  c.textBaseline='alphabetic'; c.shadowColor='rgba(0,0,0,.35)'; c.shadowBlur=2;
+  for(const l of linhas){ const f=l.small?fs*0.85:fs; c.font=`${l.b?'700':'500'} ${f}px ${l.mono?'ui-monospace,Menlo,Consolas,monospace':'system-ui,Roboto,Arial,sans-serif'}`; c.fillStyle='#fff';
+    let t=l.t; while(c.measureText(t).width>W-x-pad && t.length>8) t=t.slice(0,-4)+'…'; c.fillText(t,x,y); y+= l.small? lh*0.85: lh; }
+  c.shadowBlur=0;
+  if(info.marca){ if(!IMG.logo) IMG.logo=await carregarImg('logo-white.png'); const lw=Math.round(W*0.26), lhh=Math.round(lw*IMG.logo.height/IMG.logo.width); const m=Math.round(base*0.018);
+    c.fillStyle='rgba(17,62,107,0.55)'; roundRect(c, W-lw-m*2, m, lw+m*1.4, lhh+m*1.2, Math.round(base*0.01)); c.fill();
+    c.globalAlpha=0.95; c.drawImage(IMG.logo, W-lw-m*1.3, m*1.6, lw, lhh); c.globalAlpha=1; }
+  return new Promise(ok=> cv.toBlob(ok,'image/jpeg',S.cfg.qualidade));
+}
+function roundRect(c,x,y,w,h,r){ c.beginPath(); c.moveTo(x+r,y); c.arcTo(x+w,y,x+w,y+h,r); c.arcTo(x+w,y+h,x,y+h,r); c.arcTo(x,y+h,x,y,r); c.arcTo(x,y,x+w,y,r); c.closePath(); }
+async function bitmapDe(blob){
+  try{ return await createImageBitmap(blob,{imageOrientation:'from-image'}); }catch(e){ return await createImageBitmap(blob); }
+}
+async function redimensionar(bmp, max){
+  if(Math.max(bmp.width,bmp.height)<=max) return bmp;
+  const k=max/Math.max(bmp.width,bmp.height); const w=Math.round(bmp.width*k), h=Math.round(bmp.height*k);
+  const oc=document.createElement('canvas'); oc.width=w; oc.height=h; oc.getContext('2d').drawImage(bmp,0,0,w,h);
+  return await createImageBitmap(oc);
+}
+
+/* ---------------- Fila: criar item ---------------- */
+function obraAtual(){ return (S.pacote?.obras||[]).find(o=>o.id===S.obraId); }
+async function enfileirarFoto(blobOriginal, opts){
+  // opts: {slot, slotTitulo, fonte:'camera'|'galeria', dataOrig, gpsOrig, extra}
+  const ob=obraAtual(); if(!ob) return toast('Escolha a obra primeiro');
+  let pos=null, fonte=null, data=new Date();
+  if(opts.fonte==='camera'){ pos=S.pos; fonte=pos?'aparelho':null; }
+  else { if(opts.gpsOrig){ pos={lat:opts.gpsOrig.lat,lon:opts.gpsOrig.lon,alt:opts.gpsOrig.alt,acc:null}; fonte='foto'; }
+         else if(S.pos){ pos=S.pos; fonte='aparelho-tardio'; }
+         if(opts.dataOrig){ const m=/^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/.exec(opts.dataOrig); if(m) data=new Date(+m[1],m[2]-1,+m[3],+m[4],+m[5],+m[6]); } }
+  let bmp=await bitmapDe(blobOriginal); bmp=await redimensionar(bmp,S.cfg.maxLado);
+  const carimbo=await carimbar(bmp,{obra:ob.nome, quem:S.quem, slot:opts.slotTitulo, pos, fonte, data, fmt:S.fmt, marca:S.marca});
+  const comExif=await inserirExif(carimbo,{data, gps:pos?{lat:pos.lat,lon:pos.lon,alt:pos.alt}:null, desc:`${ob.nome} · ${opts.slotTitulo||''} · ${S.quem||''}`});
+  const id='F'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+  const stamp=new Date(); const nomeBase=`${stamp.toISOString().slice(0,10)}_${String(stamp.getHours()).padStart(2,'0')}${String(stamp.getMinutes()).padStart(2,'0')}${String(stamp.getSeconds()).padStart(2,'0')}_${slug(opts.slotTitulo||'foto')}`;
+  const thumb=await miniatura(bmp);
+  const meta={ lat:pos?.lat??null, lon:pos?.lon??null, acc:pos?.acc??null, alt:pos?.alt??null, fmt:S.fmt, utm:pos?toUTM(pos.lat,pos.lon):null, fonte, marca:S.marca, quando:data.toISOString(), origem:opts.fonte, app:APP_VERSAO, extra:opts.extra||null };
+  await DB.put({ id, tipo:'foto', obraId:ob.id, obraNome:ob.nome, pastaId:ob.pastaId||null, quem:S.quem, slot:opts.slot, slotTitulo:opts.slotTitulo, nome:nomeBase+'.jpg', mime:'image/jpeg', blob:comExif, thumb, meta, status:'pendente', criadoEm:new Date().toISOString() });
+  if(S.original && opts.fonte==='camera'){ // original limpo (sem carimbo) para o marketing
+    await DB.put({ id:id+'o', tipo:'foto', obraId:ob.id, obraNome:ob.nome, pastaId:ob.pastaId||null, quem:S.quem, slot:opts.slot, slotTitulo:opts.slotTitulo, nome:nomeBase+'_original.jpg', mime:'image/jpeg', blob:await inserirExif(blobOriginal.type==='image/jpeg'?blobOriginal:carimbo,{data,gps:pos?{lat:pos.lat,lon:pos.lon,alt:pos.alt}:null,desc:ob.nome}), thumb:null, meta:Object.assign({},meta,{original:true}), status:'pendente', criadoEm:new Date().toISOString() }); }
+  else if(S.original && opts.fonte==='galeria'){
+    await DB.put({ id:id+'o', tipo:'foto', obraId:ob.id, obraNome:ob.nome, pastaId:ob.pastaId||null, quem:S.quem, slot:opts.slot, slotTitulo:opts.slotTitulo, nome:nomeBase+'_original.'+(blobOriginal.type.split('/')[1]||'jpg').replace('jpeg','jpg'), mime:blobOriginal.type||'image/jpeg', blob:blobOriginal, thumb:null, meta:Object.assign({},meta,{original:true}), status:'pendente', criadoEm:new Date().toISOString() }); }
+  await recarregarFila(); render(); toast('Foto guardada na fila'+(pos?'':' — sem coordenada'));
+  if(navigator.onLine) enviarFila();
+}
+async function miniatura(bmp){ const oc=document.createElement('canvas'); const k=220/Math.max(bmp.width,bmp.height); oc.width=Math.round(bmp.width*k); oc.height=Math.round(bmp.height*k); oc.getContext('2d').drawImage(bmp,0,0,oc.width,oc.height); return oc.toDataURL('image/jpeg',0.6); }
+async function enfileirarArquivo(blob, tipo, nome, extra){
+  const ob=obraAtual(); if(!ob) return toast('Escolha a obra primeiro');
+  const id=tipo[0].toUpperCase()+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+  await DB.put({ id, tipo, obraId:ob.id, obraNome:ob.nome, pastaId:ob.pastaId||null, quem:S.quem, slot:tipo, slotTitulo:tipo, nome, mime:blob.type||'application/octet-stream', blob, thumb:null, meta:{quando:new Date().toISOString(), lat:S.pos?.lat??null, lon:S.pos?.lon??null, acc:S.pos?.acc??null, app:APP_VERSAO, extra:extra||null}, status:'pendente', criadoEm:new Date().toISOString() });
+  await recarregarFila(); render(); if(navigator.onLine) enviarFila();
+}
+async function enfileirarRegistro(obj, nome){
+  const blob=new Blob([JSON.stringify(obj,null,1)],{type:'application/json'});
+  await enfileirarArquivo(blob,'registro',nome,obj.tipo||null);
+}
+
+/* ---------------- Envio (Apps Script) ---------------- */
+function b64(blob){ return new Promise((ok,er)=>{ const r=new FileReader(); r.onload=()=>ok(String(r.result).split(',')[1]); r.onerror=er; r.readAsDataURL(blob); }); }
+async function enviarFila(){
+  if(S.enviando || !navigator.onLine) return; if(!S.cfg.script){ pintarFila(); return; }
+  S.enviando=true; pintarFila();
+  try{
+    for(const it of S.fila.filter(x=>x.status!=='enviado')){
+      try{
+        const corpo={ token:S.cfg.token, acao:'enviar', id:it.id, obraId:it.obraId, obraNome:it.obraNome, pastaId:it.pastaId, quem:it.quem, tipo:it.tipo, slot:it.slot, slotTitulo:it.slotTitulo, nome:it.nome, mime:it.mime, meta:it.meta, criadoEm:it.criadoEm, b64: await b64(it.blob) };
+        const r=await fetch(S.cfg.script,{method:'POST',body:JSON.stringify(corpo)});
+        const j=await r.json().catch(()=>({ok:false,erro:'resposta inválida'}));
+        if(j.ok){ it.status='enviado'; it.enviadoEm=new Date().toISOString(); it.url=j.url||null; it.pasta=j.pasta||null; it.blob=null; it.erro=null; }
+        else { it.status='erro'; it.erro=j.erro||('HTTP '+r.status); }
+      }catch(e){ it.status='erro'; it.erro=String(e.message||e); }
+      await DB.put(it); pintarFila();
+      if(it.status==='erro' && !navigator.onLine) break;
+    }
+  } finally { S.enviando=false; await recarregarFila(); render(); }
+}
+async function baixarPacote(silencioso){
+  if(!S.cfg.script){ if(!silencioso) toast('Configure a URL do robô em Ajustes'); return false; }
+  try{ const r=await fetch(S.cfg.script+'?acao=config&token='+encodeURIComponent(S.cfg.token)+'&_='+Date.now()); const j=await r.json();
+    if(j && j.obras){ S.pacote=j; LS.set('pacote',j); if(!silencioso) toast(`Lista atualizada: ${j.obras.length} obras abertas`); render(); return true; }
+    if(!silencioso) toast('Robô respondeu sem dados: '+(j.erro||'?'));
+  }catch(e){ if(!silencioso) toast('Não consegui atualizar: '+e.message); }
+  return false;
+}
+
+/* ---------------- Câmera ---------------- */
+const CAM={ stream:null, facing:'environment', slot:null };
+async function abrirCamera(slot){
+  CAM.slot=slot; const sel=$('#camSlot'); sel.innerHTML=slotsDaObra().map(s=>`<option value="${esc(s.k)}" ${s.k===slot?'selected':''}>${esc(s.t)}</option>`).join('');
+  $('#cam').classList.add('on'); pintarToggles(); iniciarGPS(); atualizarGeo();
+  try{ await ligarStream(); }catch(e){ $('#cam').classList.remove('on'); toast('Câmera indisponível: '+e.message+'. Use "Da galeria".',4000); }
+}
+async function ligarStream(){
+  if(CAM.stream) CAM.stream.getTracks().forEach(t=>t.stop());
+  CAM.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:CAM.facing}, width:{ideal:4096}, height:{ideal:3072}}, audio:false});
+  $('#video').srcObject=CAM.stream;
+}
+function fecharCamera(){ $('#cam').classList.remove('on'); if(CAM.stream){ CAM.stream.getTracks().forEach(t=>t.stop()); CAM.stream=null; } }
+async function fotografar(){
+  const track=CAM.stream?.getVideoTracks()[0]; if(!track) return;
+  const fl=$('#flash'); fl.style.opacity=.8; setTimeout(()=>fl.style.opacity=0,120);
+  let blob=null;
+  if(window.ImageCapture){ try{ blob=await new ImageCapture(track).takePhoto(); }catch(e){ blob=null; } }
+  if(!blob){ const v=$('#video'); const oc=document.createElement('canvas'); oc.width=v.videoWidth; oc.height=v.videoHeight; oc.getContext('2d').drawImage(v,0,0); blob=await new Promise(ok=>oc.toBlob(ok,'image/jpeg',0.95)); }
+  const slot=$('#camSlot').value; const st=slotsDaObra().find(s=>s.k===slot)||{t:slot};
+  await enfileirarFoto(blob,{slot, slotTitulo:st.t, fonte:'camera', extra:CAM.extra||null});
+  toast('Foto '+st.t+' guardada');
+}
+function pintarToggles(){ $('#tgMarca').classList.toggle('on',!!S.marca); $('#tgFmt').classList.toggle('on',S.fmt==='utm'); $('#tgFmtTxt').textContent = S.fmt==='utm'?'UTM':'Lat/Lon'; }
+async function daGaleria(files, slot, slotTitulo, extra){
+  for(const f of files){ let info={}; try{ info=lerExif(await f.slice(0,262144).arrayBuffer()); }catch(e){}
+    await enfileirarFoto(f,{slot, slotTitulo, fonte:'galeria', dataOrig:info.data, gpsOrig:info.gps, extra}); }
+}
+
+/* ---------------- Áudio do diário ---------------- */
+const REC={ mr:null, chunks:[], t0:0, timer:null, blob:null };
+async function gravar(){
+  if(REC.mr){ REC.mr.stop(); return; }
+  try{ const st=await navigator.mediaDevices.getUserMedia({audio:true}); const mime=['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/aac',''].find(m=>!m||MediaRecorder.isTypeSupported(m));
+    REC.mr=new MediaRecorder(st, mime?{mimeType:mime}:undefined); REC.chunks=[]; REC.blob=null;
+    REC.mr.ondataavailable=e=>REC.chunks.push(e.data);
+    REC.mr.onstop=()=>{ st.getTracks().forEach(t=>t.stop()); REC.blob=new Blob(REC.chunks,{type:REC.mr.mimeType||'audio/webm'}); REC.mr=null; clearInterval(REC.timer); render(); };
+    REC.mr.start(); REC.t0=Date.now(); REC.timer=setInterval(()=>{ const s=Math.floor((Date.now()-REC.t0)/1000); const el=$('#timer'); if(el) el.textContent=`${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')} / 00:40`; if(s>=40 && REC.mr) REC.mr.stop(); },250);
+    render();
+  }catch(e){ toast('Microfone indisponível: '+e.message); }
+}
+
+/* ---------------- Dados derivados ---------------- */
+function sopsDaObra(ob){ const P=S.pacote; if(!P||!ob) return []; return (ob.sops||[]).map(c=>P.sops[c]).filter(Boolean); }
+function slotsDaObra(){ const P=S.pacote; const base=(P?.roteiroFotos||[]).map(s=>({k:s.k,t:s.t,d:s.d})); base.push({k:'ficha',t:'Ficha preenchida',d:'Foto da ficha de campo preenchida, legível, folha inteira.'}); base.push({k:'extra',t:'Foto extra',d:'Qualquer outra foto que ajude o escritório.'}); base.push({k:'ocorrencia',t:'Ocorrência',d:'Local, equipamento e causa, antes de mexer.'}); return base; }
+function checklistDaObra(ob){ const out=[]; for(const s of sopsDaObra(ob)) for(const p of (s.pronto||[])) out.push({sop:s.codigo,t:p}); return out; }
+function estadoChk(ob){ return LS.get('chk_'+ob.id+'_'+hoje(),{}); }
+function fotosDaObra(ob){ return S.fila.filter(x=>x.obraId===ob.id && x.tipo==='foto' && !x.meta?.original); }
+
+/* ---------------- Telas ---------------- */
+function render(){
+  const m=$('#main'); const P=S.pacote; const ob=obraAtual();
+  if(!ob){ $('#hTit').textContent='Campo'; $('#hSub').textContent='Natural Engenharia'; $('#hBtn').classList.add('hide'); m.innerHTML=telaInicio(); ligarInicio(); return; }
+  $('#hTit').textContent=ob.nome; $('#hSub').textContent=(ob.cliente||'')+(ob.linhas?.length?' · '+ob.linhas.map(l=>P.linhas[l]?.nome||l).join(', '):''); $('#hBtn').classList.remove('hide'); $('#hBtn').textContent='Obras';
+  const tabs=[['roteiro','Roteiro'],['fotos','Fotos'],['diario','Diário'],['proc','Procedimentos'],['fichas','Fichas'],['ocorr','Ocorrência']];
+  let html=`<div class="tabs">${tabs.map(t=>`<button data-tab="${t[0]}" class="${S.tab===t[0]?'on':''}">${t[1]}</button>`).join('')}</div>`;
+  html+= {roteiro:telaRoteiro, fotos:telaFotos, diario:telaDiario, proc:telaProc, fichas:telaFichas, ocorr:telaOcorr}[S.tab](ob);
+  m.innerHTML=html; m.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{S.tab=b.dataset.tab; render(); window.scrollTo(0,0);});
+  ({roteiro:ligarRoteiro, fotos:ligarFotos, diario:ligarDiario, proc:()=>{}, fichas:ligarFichas, ocorr:ligarOcorr})[S.tab](ob);
+}
+function telaInicio(){
+  const P=S.pacote; const semScript=!S.cfg.script;
+  let h='';
+  if(semScript) h+=`<div class="banner">O robô de campo ainda não está configurado neste aparelho. Abra <b>Ajustes</b> e cole a URL do robô. Sem ele o app funciona, mas nada sobe para o Drive.</div>`;
+  h+=`<div class="card"><label>Quem está usando este aparelho</label><input id="quem" placeholder="Primeiro e segundo nome" value="${esc(S.quem)}"><div class="nota">Vai no carimbo da foto e no nome do arquivo. Fica salvo neste celular.</div></div>`;
+  h+=`<div class="card"><h2>Obras abertas</h2><input id="busca" placeholder="Buscar obra ou cliente…" style="margin-bottom:10px"><div id="lista">`;
+  if(!P) h+=`<div class="muted">Nenhuma lista de obras neste aparelho ainda. Com internet, toque em <b>Atualizar lista</b>.</div>`;
+  else if(!P.obras.length) h+=`<div class="muted">Nenhuma obra aberta no painel.</div>`;
+  else h+=P.obras.map(cartaoObra).join('');
+  h+=`</div><div class="row" style="margin-top:8px"><button class="sec" id="atualizar">Atualizar lista</button><button class="sec" id="ajustes">Ajustes</button></div>`;
+  h+=`<div class="nota">${P?`Lista de ${fmtData(P.geradoEm)} · ${P.obras.length} obras abertas`:''} · app ${APP_VERSAO}</div></div>`;
+  const pend=S.fila.filter(x=>x.status!=='enviado');
+  if(pend.length){ h+=`<div class="card"><h2>Na fila de envio</h2>`+pend.map(x=>`<div class="chk" style="align-items:center"><span class="chip ${x.status==='erro'?'e':'w'}">${x.status==='erro'?'erro':'pendente'}</span><span style="flex:1;font-size:14px">${esc(x.obraNome)} · ${esc(x.slotTitulo||x.tipo)}${x.erro?`<br><small style="color:var(--err)">${esc(x.erro)}</small>`:''}</span></div>`).join('')+`</div>`; }
+  return h;
+}
+function cartaoObra(o){ const P=S.pacote; return `<button class="obra" data-id="${esc(o.id)}"><b>${esc(o.nome)}</b><small>${esc(o.cliente||'')}</small><div style="margin-top:6px">${(o.linhas||[]).map(l=>`<span class="chip">${esc(P.linhas[l]?.nome||l)}</span>`).join('')}${o.pastaId?'':'<span class="chip w">sem pasta no Drive</span>'}</div></button>`; }
+function ligarInicio(){
+  $('#quem').onchange=e=>{ S.quem=e.target.value.trim(); LS.set('quem',S.quem); };
+  $('#busca').oninput=e=>{ const q=e.target.value.toLowerCase(); $('#lista').innerHTML=(S.pacote?.obras||[]).filter(o=>(o.nome+' '+(o.cliente||'')+' '+(o.servico||'')).toLowerCase().includes(q)).map(cartaoObra).join('')||'<div class="muted">Nada encontrado.</div>'; ligarObras(); };
+  ligarObras();
+  $('#atualizar').onclick=()=>baixarPacote(false);
+  $('#ajustes').onclick=telaAjustes;
+}
+function ligarObras(){ document.querySelectorAll('.obra').forEach(b=>b.onclick=()=>{ if(!S.quem){ toast('Escreva seu nome primeiro'); $('#quem').focus(); return; } S.obraId=b.dataset.id; S.tab='roteiro'; LS.set('obraId',S.obraId); render(); window.scrollTo(0,0); iniciarGPS(); }); }
+function telaAjustes(){
+  const m=$('#main'); $('#hTit').textContent='Ajustes'; $('#hBtn').classList.remove('hide'); $('#hBtn').textContent='Voltar';
+  m.innerHTML=`<div class="card"><h2>Robô de campo</h2><label>URL do robô (Apps Script, termina em /exec)</label><input id="cfgScript" value="${esc(S.cfg.script)}" placeholder="https://script.google.com/macros/s/…/exec"><label>Chave</label><input id="cfgToken" value="${esc(S.cfg.token)}"><div class="nota">A URL vem do escritório. Depois de colar, toque em Salvar e em Atualizar lista.</div></div>
+  <div class="card"><h2>Foto</h2><label>Coordenada no carimbo</label><div class="seg"><button id="fGeo" class="${S.fmt==='geo'?'on':''}">Geográficas (lat/lon)</button><button id="fUtm" class="${S.fmt==='utm'?'on':''}">UTM</button></div>
+  <div class="chk" style="margin-top:10px"><input type="checkbox" id="cMarca" ${S.marca?'checked':''}><span>Marca d'água da Natural Engenharia nas fotos (dá para ligar/desligar na câmera também)</span></div>
+  <div class="chk"><input type="checkbox" id="cOrig" ${S.original?'checked':''}><span>Enviar também o original sem carimbo (para o marketing). Dobra o tamanho do envio.</span></div></div>
+  <div class="card"><h2>Este aparelho</h2><div class="muted">App ${APP_VERSAO} · ${S.pacote?`lista de ${fmtData(S.pacote.geradoEm)}`:'sem lista'} · ${S.fila.length} itens no histórico</div><div class="row" style="margin-top:10px"><button class="sec" id="limparEnv">Limpar enviados</button><button class="danger" id="limparTudo">Apagar fila inteira</button></div></div>
+  <button class="big green" id="salvarCfg">Salvar</button>`;
+  $('#fGeo').onclick=()=>{S.fmt='geo';LS.set('fmt','geo');telaAjustes();}; $('#fUtm').onclick=()=>{S.fmt='utm';LS.set('fmt','utm');telaAjustes();};
+  $('#cMarca').onchange=e=>{S.marca=e.target.checked;LS.set('marca',S.marca);}; $('#cOrig').onchange=e=>{S.original=e.target.checked;LS.set('original',S.original);};
+  $('#salvarCfg').onclick=async()=>{ S.cfg.script=$('#cfgScript').value.trim(); S.cfg.token=$('#cfgToken').value.trim(); LS.set('cfg',S.cfg); toast('Salvo'); S.obraId=null; render(); if(S.cfg.script) baixarPacote(false); };
+  $('#limparEnv').onclick=async()=>{ for(const x of S.fila.filter(x=>x.status==='enviado')) await DB.del(x.id); await recarregarFila(); telaAjustes(); };
+  $('#limparTudo').onclick=async()=>{ if(!$('#limparTudo').dataset.c){ $('#limparTudo').dataset.c=1; $('#limparTudo').textContent='Toque de novo para confirmar'; return; } for(const x of S.fila) await DB.del(x.id); await recarregarFila(); telaAjustes(); };
+  $('#hBtn').onclick=()=>{ S.obraId=null; render(); };
+}
+function telaRoteiro(ob){
+  const P=S.pacote; const fotos=fotosDaObra(ob); const chk=checklistDaObra(ob); const est=estadoChk(ob);
+  let h=`<div class="card"><h2>Coordenada agora</h2><div class="geo" id="geoLive">Procurando GPS…</div><div class="nota">Formato: ${S.fmt==='utm'?'UTM':'geográficas'} (muda em Ajustes ou na câmera).</div></div>`;
+  h+=`<div class="card"><h2>As 5 fotos + o que mais precisar</h2><div class="nota">Operação acontecendo, não posada. Horizontal. Toque na foto que falta.</div><div class="slots">`;
+  for(const s of slotsDaObra()){ const fs=fotos.filter(f=>f.slot===s.k); const n=P.roteiroFotos.findIndex(r=>r.k===s.k); h+=`<button class="slot ${fs.length?'done':''}" data-slot="${esc(s.k)}"><span class="n">${n>=0?n+1:'+'}</span><b>${esc(s.t)}</b><small>${esc(s.d)}</small>${fs.length?`<img src="${fs[fs.length-1].thumb}" alt=""><span class="cnt">${fs.length}</span>`:''}</button>`; }
+  h+=`</div><div class="row" style="margin-top:10px"><select id="galSlot">${slotsDaObra().map(s=>`<option value="${esc(s.k)}">${esc(s.t)}</option>`).join('')}</select><button class="sec" id="galRot">Da galeria</button><input type="file" id="galRotIn" accept="image/*" multiple class="hide"></div><div class="nota">Foto já tirada com a câmera do celular: escolha qual é e toque em "Da galeria".</div></div>`;
+  h+=`<div class="card"><h2>Antes de sair do ponto</h2><div class="nota">Critério de pronto dos procedimentos desta obra. O que não der para cumprir, deixe desmarcado e diga no diário por quê.</div>`;
+  h+=chk.map((c,i)=>`<label class="chk" style="text-transform:none;letter-spacing:0;font-size:15px;color:var(--ink);margin:0;font-weight:400"><input type="checkbox" data-i="${i}" ${est[i]?'checked':''}><span>${esc(c.t)} <span class="chip" style="font-size:10px">${esc(c.sop)}</span></span></label>`).join('');
+  h+=`<label>O que ficou faltando ou deu errado hoje</label><textarea id="obsDia" placeholder="Pode deixar em branco.">${esc(LS.get('obs_'+ob.id+'_'+hoje(),''))}</textarea><button class="big" id="fecharDia" style="margin-top:12px">Registrar o dia (${Object.values(est).filter(Boolean).length}/${chk.length} feitos)</button><div class="nota">Manda para o escritório o que foi feito, o que ficou faltando e a coordenada. Junto com as fotos e o áudio, isso é o registro do dia.</div></div>`;
+  return h;
+}
+function ligarRoteiro(ob){
+  atualizarGeo();
+  document.querySelectorAll('.slot').forEach(b=>b.onclick=()=>abrirCamera(b.dataset.slot));
+  $('#galRot').onclick=()=>$('#galRotIn').click();
+  $('#galRotIn').onchange=async e=>{ const files=[...e.target.files]; if(!files.length) return; const k=$('#galSlot').value; const st=slotsDaObra().find(s=>s.k===k)||{t:k}; toast('Processando '+files.length+' foto(s)…'); await daGaleria(files,k,st.t); };
+  document.querySelectorAll('input[data-i]').forEach(c=>c.onchange=()=>{ const est=estadoChk(ob); est[c.dataset.i]=c.checked; LS.set('chk_'+ob.id+'_'+hoje(),est); $('#fecharDia').textContent=`Registrar o dia (${Object.values(est).filter(Boolean).length}/${checklistDaObra(ob).length} feitos)`; });
+  $('#obsDia').oninput=e=>LS.set('obs_'+ob.id+'_'+hoje(),e.target.value);
+  $('#fecharDia').onclick=async()=>{ const chk=checklistDaObra(ob); const est=estadoChk(ob); const obs=$('#obsDia').value.trim();
+    await enfileirarRegistro({ tipo:'dia', obraId:ob.id, obra:ob.nome, quem:S.quem, data:new Date().toISOString(), coordenada:S.pos, feitos:chk.filter((c,i)=>est[i]).map(c=>c.t), pendentes:chk.filter((c,i)=>!est[i]).map(c=>c.t), fotos:fotosDaObra(ob).length, obs, app:APP_VERSAO }, `${hoje()}_registro_do_dia_${slug(S.quem)}.json`);
+    toast('Registro do dia na fila'); };
+}
+function telaFotos(ob){
+  const fotos=S.fila.filter(x=>x.obraId===ob.id && (x.tipo==='foto'||x.tipo==='audio'));
+  let h=`<div class="card"><div class="row"><button class="big green" id="abrirCam">📷 Câmera</button><button class="big sec" id="gal">Da galeria</button></div><input type="file" id="galIn" accept="image/*" multiple class="hide"><div class="nota">Câmera do app: carimba coordenada, data, obra e quem tirou na própria foto e grava o GPS no arquivo. Da galeria: lê a coordenada que a foto já tem; se não tiver, usa a do aparelho agora e avisa no carimbo.</div></div>`;
+  h+=`<div class="card"><h2>Fotos e áudios desta obra (${fotos.length})</h2>`;
+  if(!fotos.length) h+=`<div class="muted">Nada ainda.</div>`;
+  else h+=`<div class="thumbs">`+fotos.slice().reverse().map(f=>`<div class="th ${f.status==='enviado'?'sent':(f.status==='erro'?'err':'')}" data-id="${esc(f.id)}">${f.thumb?`<img src="${f.thumb}" alt="">`:`<div class="au">${f.tipo==='audio'?'🎙️':'📄'}</div>`}<div class="st">${esc(f.slotTitulo||f.tipo)} · ${f.status==='enviado'?'enviado':(f.status==='erro'?'erro':'na fila')}</div>${f.status!=='enviado'?`<button class="x" data-del="${esc(f.id)}">×</button>`:''}</div>`).join('')+`</div>`;
+  h+=`</div>`; return h;
+}
+function ligarFotos(ob){
+  $('#abrirCam').onclick=()=>abrirCamera('extra'); $('#gal').onclick=()=>$('#galIn').click();
+  $('#galIn').onchange=async e=>{ const files=[...e.target.files]; if(!files.length) return; toast('Processando '+files.length+' foto(s)…'); await daGaleria(files,'extra','Foto extra'); };
+  document.querySelectorAll('[data-del]').forEach(b=>b.onclick=async ev=>{ ev.stopPropagation(); await DB.del(b.dataset.del); await DB.del(b.dataset.del+'o').catch(()=>{}); await recarregarFila(); render(); });
+}
+function telaDiario(ob){
+  const P=S.pacote; const gravando=!!REC.mr;
+  let h=`<div class="card"><h2>Diário de obra — 40 segundos</h2><div class="nota">Cinco frases, nesta ordem. O escritório transcreve e vira o registro do dia.</div>`;
+  h+=(P.roteiroDiario||[]).map((f,i)=>`<div class="frase"><span>${i+1}</span><div>${esc(f)}</div></div>`).join('');
+  h+=`<div class="timer" id="timer">${gravando?'00:00 / 00:40':'00:40'}</div><button class="rec ${gravando?'on':''}" id="rec">${gravando?'■':'●'}</button><div class="nota" style="text-align:center">${gravando?'Gravando… toque para parar':'Toque para gravar'}</div>`;
+  if(REC.blob) h+=`<audio controls src="${URL.createObjectURL(REC.blob)}" style="width:100%;margin-top:8px"></audio><div class="row" style="margin-top:10px"><button class="green" id="enviarAudio">Guardar na fila</button><button class="sec" id="descartar">Regravar</button></div>`;
+  h+=`</div>`; return h;
+}
+function ligarDiario(ob){
+  $('#rec').onclick=gravar;
+  const b=$('#enviarAudio'); if(b) b.onclick=async()=>{ const ext=(REC.blob.type.includes('mp4')||REC.blob.type.includes('aac'))?'m4a':'webm'; await enfileirarArquivo(REC.blob,'audio',`${hoje()}_diario_${slug(S.quem)}.${ext}`); REC.blob=null; toast('Áudio na fila'); render(); };
+  const d=$('#descartar'); if(d) d.onclick=()=>{REC.blob=null;render();};
+}
+function telaProc(ob){
+  const sops=sopsDaObra(ob); const P=S.pacote;
+  let h=`<div class="nota">Procedimentos que regem esta obra, lidos do painel. O critério de pronto de cada um está na aba Roteiro.</div>`;
+  for(const s of sops){ h+=`<div class="card"><details><summary><span>${esc(s.codigo)} · ${esc(s.titulo)}</span></summary>`;
+    if(s.objetivo) h+=`<p><b>Objetivo.</b> ${esc(s.objetivo)}</p>`; if(s.quando) h+=`<p class="muted"><b>Quando.</b> ${esc(s.quando)}</p>`; if(s.executa) h+=`<p class="muted"><b>Quem.</b> ${esc(s.executa)}</p>`;
+    for(const f of (s.fases||[])){ h+=`<h3>${esc(f.nome||f.titulo||'')}</h3>`+ (f.etapas||[]).map(e=>`<div class="etapa">${esc(e.t)}${e.pq?`<div class="pq">${esc(e.pq)}</div>`:''}</div>`).join(''); }
+    if(s.regras?.length) h+=`<h3>Regras</h3>`+s.regras.map(r=>`<div class="regra">${esc(r)}</div>`).join('');
+    if(s.erros?.length) h+=`<h3>Se der errado</h3>`+s.erros.map(e=>`<div class="erro"><b>${esc(e.s)}</b> — ${esc(e.f)}</div>`).join('');
+    const a=s.autonomia||{}; if(a.sozinho||a.avisa||a.para) h+=`<h3>Autonomia</h3><div class="auto">${a.sozinho?`<div class="s"><b>Faz sozinho:</b> ${esc(a.sozinho)}</div>`:''}${a.avisa?`<div class="a"><b>Faz e avisa:</b> ${esc(a.avisa)}</div>`:''}${a.para?`<div class="p"><b>Para e pergunta:</b> ${esc(a.para)}</div>`:''}</div>`;
+    if(s.versao) h+=`<div class="nota">versão ${esc(s.versao)}</div>`;
+    h+=`</details></div>`; }
+  const refs=(P.referencia||[]).map(c=>P.sops[c]).filter(Boolean);
+  if(refs.length) h+=`<div class="card"><h2>Leitura de apoio</h2>`+refs.map(s=>`<div class="regra">${esc(s.codigo)} · ${esc(s.titulo)}${s.drive?` — <a href="${esc(s.drive)}" target="_blank" rel="noopener">abrir</a>`:''}</div>`).join('')+`</div>`;
+  return h;
+}
+function telaFichas(ob){
+  const sops=sopsDaObra(ob).filter(s=>s.ficha);
+  let h=`<div class="nota">Imprima antes de sair. Em campo: preencha no papel e fotografe a folha inteira, legível.</div>`;
+  if(!sops.length) h+=`<div class="card"><div class="muted">Esta linha de serviço não tem ficha de campo cadastrada. Use o diário e as fotos.</div></div>`;
+  for(const s of sops){ const f=s.ficha; h+=`<div class="card"><h2>${esc(f.codigo||'Ficha')}</h2><div class="muted" style="margin-bottom:10px">${esc(f.nome||'')}<br><small>${esc(s.codigo)} · ${esc(s.titulo)}</small></div><div class="row">${f.pdf?`<a href="${esc(f.pdf)}" target="_blank" rel="noopener"><button class="big">Abrir PDF / imprimir</button></a>`:''}${f.docx?`<a href="${esc(f.docx)}" target="_blank" rel="noopener"><button class="big sec">Word</button></a>`:''}</div></div>`; }
+  h+=`<div class="card"><h2>Ficha preenchida</h2><div class="nota">Uma foto por folha. Diga o furo/ponto/página quando houver mais de uma.</div><label>Identificação (furo, ponto, folha)</label><input id="fichaId" placeholder="ex.: SP-03 folha 1"><div class="row" style="margin-top:10px"><button class="big green" id="fichaCam">📷 Fotografar ficha</button><button class="big sec" id="fichaGal">Da galeria</button></div><input type="file" id="fichaIn" accept="image/*" multiple class="hide"></div>`;
+  return h;
+}
+function ligarFichas(ob){
+  $('#fichaCam').onclick=()=>{ CAM.extra={ficha:$('#fichaId').value.trim()}; abrirCamera('ficha'); };
+  $('#fichaGal').onclick=()=>$('#fichaIn').click();
+  $('#fichaIn').onchange=async e=>{ const files=[...e.target.files]; if(!files.length) return; await daGaleria(files,'ficha','Ficha preenchida',{ficha:$('#fichaId').value.trim()}); };
+}
+function telaOcorr(ob){
+  const P=S.pacote; const s22=P.sops['SOP-022'];
+  let h=`<div class="card"><h2>Aconteceu alguma coisa?</h2><div class="nota">Acidente, quase-acidente, dano, equipamento quebrado, acesso negado, chuva que parou o serviço, rocha, cliente pedindo coisa fora do combinado. Registre na hora: hora, o quê, quem. Depois ligue para o Ygor.</div>
+  <label>Tipo</label><select id="ocTipo"><option>Acidente com pessoa</option><option>Quase-acidente</option><option>Dano a bem do cliente</option><option>Equipamento falhou</option><option>Acesso negado / responsável ausente</option><option>Chuva ou condição impeditiva</option><option>Rocha / mudança de método</option><option>Cliente pediu fora do escopo</option><option>Outro</option></select>
+  <label>O que aconteceu</label><textarea id="ocTxt" placeholder="Hora, o que aconteceu, quem, o que foi feito, estado da pessoa, o que quebrou."></textarea>
+  <label>Gravidade</label><div class="seg"><button data-g="leve" class="on">Leve</button><button data-g="media">Média</button><button data-g="grave">Grave</button></div>
+  <div class="row" style="margin-top:12px"><button class="big sec" id="ocFoto">📷 Fotos do local</button><button class="big danger" id="ocEnviar">Registrar ocorrência</button></div></div>`;
+  if(s22){ h+=`<div class="card"><h2>${esc(s22.codigo)} · ${esc(s22.titulo)}</h2>`; for(const f of (s22.fases||[])){ h+=`<h3>${esc(f.nome||f.titulo||'')}</h3>`+(f.etapas||[]).map(e=>`<div class="etapa">${esc(e.t)}</div>`).join(''); } h+=`</div>`; }
+  return h;
+}
+function ligarOcorr(ob){
+  let grav='leve'; document.querySelectorAll('[data-g]').forEach(b=>b.onclick=()=>{ grav=b.dataset.g; document.querySelectorAll('[data-g]').forEach(x=>x.classList.toggle('on',x===b)); });
+  $('#ocFoto').onclick=()=>abrirCamera('ocorrencia');
+  $('#ocEnviar').onclick=async()=>{ const txt=$('#ocTxt').value.trim(); if(!txt) return toast('Escreva o que aconteceu');
+    await enfileirarRegistro({ tipo:'ocorrencia', obraId:ob.id, obra:ob.nome, quem:S.quem, data:new Date().toISOString(), coordenada:S.pos, categoria:$('#ocTipo').value, gravidade:grav, relato:txt, fotos:S.fila.filter(x=>x.obraId===ob.id&&x.slot==='ocorrencia').length, app:APP_VERSAO }, `${hoje()}_OCORRENCIA_${grav}_${slug(S.quem)}.json`);
+    $('#ocTxt').value=''; toast('Ocorrência registrada na fila. Agora ligue para o Ygor.',4000); };
+}
+
+/* ---------------- Boot ---------------- */
+(async function boot(){
+  await DB.open(); await recarregarFila();
+  $('#hBtn').onclick=()=>{ S.obraId=null; LS.set('obraId',null); render(); };
+  $('#filaBtn').onclick=()=>enviarFila();
+  $('#camFechar').onclick=fecharCamera; $('#shutter').onclick=fotografar;
+  $('#camTrocar').onclick=async()=>{ CAM.facing=CAM.facing==='environment'?'user':'environment'; try{ await ligarStream(); }catch(e){ toast(e.message); } };
+  $('#tgMarca').onclick=()=>{ S.marca=!S.marca; LS.set('marca',S.marca); pintarToggles(); };
+  $('#tgFmt').onclick=()=>{ S.fmt=S.fmt==='utm'?'geo':'utm'; LS.set('fmt',S.fmt); pintarToggles(); atualizarGeo(); };
+  window.addEventListener('online',()=>{ pintarFila(); enviarFila(); }); window.addEventListener('offline',pintarFila);
+  const ob=LS.get('obraId',null); if(ob && S.pacote?.obras.some(o=>o.id===ob)) S.obraId=ob;
+  render(); if(S.obraId) iniciarGPS();
+  if('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js').catch(()=>{}); }
+  if(navigator.onLine){ baixarPacote(true); enviarFila(); }
+  // pacote de demonstração local (quando abre pelo repositório sem robô configurado)
+  if(!S.pacote){ try{ const r=await fetch('campo.json'); if(r.ok){ S.pacote=await r.json(); LS.set('pacote',S.pacote); render(); } }catch(e){} }
+})();
+</script>
+</body>
+</html>

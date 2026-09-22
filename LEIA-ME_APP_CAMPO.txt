@@ -1,0 +1,64 @@
+APP DE CAMPO — NATURAL ENGENHARIA (v1.0.0, 22/09/2026)
+========================================================
+
+O QUE É
+  Página instalável (PWA) para Android e iPhone. Quem vai a campo escolhe a obra
+  (só as abertas no painel), vê os procedimentos (SOPs) daquela linha de serviço,
+  baixa/imprime as fichas, tira as 5 fotos com carimbo de coordenada (UTM ou
+  lat/lon) e marca d'água opcional, grava o diário de 40 s, fotografa a ficha
+  preenchida, registra ocorrência e fecha o dia. Sem sinal, tudo fica na fila e
+  sobe sozinho quando pegar internet. O material cai DIRETO em 03_CAMPO da pasta
+  do serviço no Drive (obra sem pasta cadastrada cai em
+  00_ENTRADA_FOTOS_CAMPO/<nome da obra>, marcada como trânsito).
+
+TRÊS PEÇAS
+  1. O app (esta pasta): index.html, sw.js, manifest.webmanifest, logo-*.png,
+     icon-*.png, campo.json. Hospedar num link público (GitHub Pages).
+  2. O Robô de Campo (apps-script/Code.gs): Apps Script na conta
+     geologoygor@gmail.com, implantado como App da Web ("Executar como eu",
+     "Qualquer pessoa"). Recebe os arquivos e serve o campo.json.
+  3. A exportação (exportacao/exportar_campo.py + tarefa agendada do Claude):
+     lê as coleções `obras` e `sops` do painel e grava campo.json na pasta
+     CLAUDE do Drive. O painel continua sendo a única fonte da verdade.
+
+PASSO A PASSO DA PRIMEIRA VEZ (ordem importa)
+  A. Apps Script — 5 min (você): script.google.com > Novo projeto > colar
+     Code.gs > Implantar > App da Web > Executar como EU / Qualquer pessoa >
+     autorizar > copiar a URL /exec.
+  B. Hospedar o app — GitHub Pages: repositório PÚBLICO "natural-campo" (o app
+     não guarda segredo), subir os arquivos da raiz desta pasta (não precisa das
+     pastas apps-script, exportacao e teste), Settings > Pages > Branch main /
+     root. O link fica https://geologoygor.github.io/natural-campo/
+  C. No celular: abrir o link > menu do navegador > "Adicionar à tela inicial".
+     Abrir o app > Ajustes > colar a URL do robô > Salvar > Atualizar lista.
+  D. Exportação: enquanto a tarefa agendada não existir, pedir ao Claude
+     "atualiza o app de campo" — ele regrava o campo.json na pasta CLAUDE.
+
+REGRAS QUE O APP APLICA (vêm dos SOPs, não do app)
+  - As 5 fotos do SOP-001 v1.3: chegando · máquina · gente com EPI · de perto ·
+    resultado. Operação acontecendo, não posada.
+  - Foto não passa por WhatsApp: o app manda o arquivo com GPS no EXIF e no carimbo.
+  - Carimbo diz de onde veio a coordenada: "GPS do aparelho" (câmera do app),
+    "GPS da foto" (galeria, EXIF) ou "GPS do aparelho no envio (foto sem
+    coordenada)". Nunca finge georreferência que não existe.
+  - Marca d'água da empresa: liga/desliga na própria câmera ou em Ajustes.
+  - Original sem carimbo também sobe (para o marketing) — desliga em Ajustes.
+  - Checklist "antes de sair do ponto" = critério de pronto dos SOPs da obra.
+
+NOMES DOS ARQUIVOS NO DRIVE
+  AAAA-MM-DD_HHMMSS_<assunto>_<Nome_Sobrenome>.jpg   (foto carimbada)
+  AAAA-MM-DD_HHMMSS_<assunto>_original_<Nome>.jpg     (original limpo)
+  AAAA-MM-DD_diario_<Nome>.webm|m4a                   (áudio de 40 s)
+  AAAA-MM-DD_registro_do_dia_<Nome>.json              (checklist + obs + coordenada)
+  AAAA-MM-DD_OCORRENCIA_<gravidade>_<Nome>.json       (ocorrência SOP-022)
+  Cada envio vira uma linha em 00_ENTRADA_FOTOS_CAMPO/campo_envios.jsonl —
+  é o que o Claude lê para alimentar o painel (RDO, demandas, marketing).
+
+LIMITES CONHECIDOS
+  - A chave (token) do app é filtro de lixo, não segredo: quem tiver o link do
+    robô e a chave consegue mandar arquivo para a entrada. Tamanho máx. 25 MB
+    e só imagem/áudio/JSON/PDF.
+  - iPhone: gravação sai em .m4a; câmera dentro do app precisa de iOS 14.3+.
+  - Precisão é a do GPS do celular (3–10 m). Não substitui o GNSS para locação.
+  - O texto do EXIF é ASCII (sem acento), por exigência do padrão; o carimbo
+    na imagem tem acento normal.
