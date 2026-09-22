@@ -134,6 +134,9 @@ details[open] summary::after{content:"–"}
 #cam .tg .sw::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:left .15s}
 #cam .tg .sw.on::after{left:23px}
 #flash{position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:60;transition:opacity .15s}
+.desfazer-bar,#desfazer{position:fixed;left:12px;right:12px;bottom:calc(84px + var(--sab));z-index:71;background:var(--ink);color:#fff;border-radius:12px;padding:10px 12px;display:flex;align-items:center;gap:10px;font-size:14px;box-shadow:0 4px 16px rgba(0,0,0,.3)}
+#desfazer span{flex:1}
+#desfazer button{background:var(--green);color:#fff;border:0;border-radius:8px;padding:8px 14px;font-weight:700;min-height:0}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(80px + var(--sab));background:var(--ink);color:#fff;padding:10px 16px;border-radius:999px;font-size:14px;z-index:70;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw;text-align:center}
 .toast.on{opacity:1}
 .rec{width:88px;height:88px;border-radius:50%;background:var(--err);color:#fff;font-size:30px;margin:10px auto;display:flex;align-items:center;justify-content:center;padding:0}
@@ -192,14 +195,14 @@ details[open] summary::after{content:"–"}
 <div class="toast" id="toast"></div>
 <canvas id="cv" class="hide"></canvas>
 
-<script src="fichas.js?v=1.6.0"></script>
+<script src="fichas.js?v=1.6.1"></script>
 <script>
 /* ============================================================
    CAMPO · Natural Engenharia — app de campo (PWA)
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.6.0';
+const APP_VERSAO = '1.6.1';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -225,6 +228,11 @@ const $ = (s, el=document) => el.querySelector(s);
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function EH_APP(){ try{ return matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches || navigator.standalone===true; }catch(e){ return false; } }
 window.addEventListener('beforeinstallprompt',e=>{ e.preventDefault(); S.promptInstalar=e; if(!S.obraId) try{ render(); }catch(_){} });
+function barraDesfazer(msg, acao, ms=7000){ // apaga na hora, com chance de voltar atrás (nada de perguntar duas vezes)
+  const v=$('#desfazer'); if(v) v.remove();
+  const b=document.createElement('div'); b.id='desfazer'; b.innerHTML=`<span>${esc(msg)}</span><button>Desfazer</button>`;
+  b.querySelector('button').onclick=async()=>{ b.remove(); try{ await acao(); }catch(e){ toast('Não deu para desfazer: '+e.message); } };
+  document.body.appendChild(b); setTimeout(()=>{ if(b.isConnected) b.remove(); }, ms); }
 function toast(m, ms=2200){ const t=$('#toast'); t.textContent=m; t.classList.add('on'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('on'), ms); }
 function hoje(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; } // data LOCAL (Boa Vista), não UTC
 function agoraArq(){ const d=new Date(); return hoje()+'_'+[d.getHours(),d.getMinutes(),d.getSeconds()].map(n=>String(n).padStart(2,'0')).join(''); } // nome único: 2º áudio/registro do dia não some
@@ -790,7 +798,10 @@ function ligarFotos(ob){
   ligarMarcos(ob);
   $('#abrirCam').onclick=()=>abrirCamera('extra'); $('#gal').onclick=()=>$('#galIn').click();
   $('#galIn').onchange=async e=>{ const files=[...e.target.files]; if(!files.length) return; toast('Processando '+files.length+' foto(s)…'); await daGaleria(files,'extra','Foto extra'); };
-  document.querySelectorAll('[data-del]').forEach(b=>b.onclick=async ev=>{ ev.stopPropagation(); await DB.del(b.dataset.del); await DB.del(b.dataset.del+'o').catch(()=>{}); await recarregarFila(); render(); });
+  document.querySelectorAll('[data-del]').forEach(b=>b.onclick=async ev=>{ ev.stopPropagation(); const id=b.dataset.del;
+    const guardados=S.fila.filter(x=>x.id===id||x.id===id+'o').map(x=>Object.assign({},x));
+    await DB.del(id); await DB.del(id+'o').catch(()=>{}); await recarregarFila(); render();
+    barraDesfazer('Apagado da fila.', async()=>{ for(const g of guardados) await DB.put(g); await recarregarFila(); render(); toast('De volta na fila'); }); });
 }
 function telaDiario(ob){
   const P=S.pacote; const gravando=!!REC.mr;

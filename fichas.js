@@ -320,7 +320,9 @@ function ligarEditor(f){
       if(tb.seq==='metro'){ const u=arr[arr.length-1]; const de=u&&u.ate!==''&&!isNaN(NUM(u.ate))?NUM(u.ate):0; extra={de:String(de).replace('.',','), ate:String(de+1).replace('.',',')}; }
       else if(arr.length && arr[arr.length-1].ate!==undefined){ extra={de:arr[arr.length-1].ate||''}; }
       arr.push(linhaVazia(tb,extra)); gravar(f); desenharEditor(); const ult=document.querySelector(`[data-li="${arr.length-1}"]`); if(ult) ult.scrollIntoView({block:'center'}); });
-  document.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{ const [k,i]=b.dataset.del.split('.'); if(b.dataset.c!=='1'){ b.dataset.c='1'; b.textContent='toque de novo para apagar'; return; } f.dados[k].splice(+i,1); gravar(f); desenharEditor(); });
+  document.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{ const [k,i]=b.dataset.del.split('.'); const linha=f.dados[k][+i];
+    f.dados[k].splice(+i,1); gravar(f); desenharEditor();
+    barraDesfazer('Apagado.', ()=>{ f.dados[k].splice(+i,0,linha); gravar(f); desenharEditor(); }); });
   document.querySelectorAll('[data-mostra]').forEach(b=>b.onclick=()=>{ document.querySelectorAll('.linha.vz').forEach(x=>x.classList.toggle('oc')); });
   document.querySelectorAll('[data-ass]').forEach(el=>el.onclick=()=>{ if(f.status==='encerrada') return; assinar(el.dataset.ass, url=>{ f.dados[el.dataset.ass]=url; gravar(f); desenharEditor(); }); });
   document.querySelectorAll('[data-gmat]').forEach(box=>box.querySelectorAll('button').forEach(b=>b.onclick=()=>{ const [k,i,c]=box.dataset.gmat.split('.'); const l=f.dados[k][+i]; const s=l._sel||(l._sel={tipos:[],cor:'',umid:''}); const gr=box.dataset.grupo, v=b.dataset.v;
@@ -331,7 +333,8 @@ function ligarEditor(f){
   document.querySelectorAll('[data-gfoto]').forEach(b=>b.onclick=()=>{ const [k,i]=b.dataset.gfoto.split('.'); const tb=def.blocos.find(x=>x.tabela&&x.tabela.k===k).tabela; const l=f.dados[k][+i];
     CAM.extra={ fichaId:f.id, ficha:def.ident(f.dados), tabela:k, linha:+i, trecho:`${l.de||'?'} a ${l.ate||'?'} m` }; abrirCamera('amostra', `${tb.foto.replace(/^Foto d[ao] /,'').replace(/^./,x=>x.toUpperCase())} · ${def.ident(f.dados)} · ${l.de||'?'} a ${l.ate||'?'} m`); });
   const enc=$('#encerrar'); if(enc) enc.onclick=()=>encerrar(f);
-  const exc=$('#excluir'); if(exc) exc.onclick=()=>{ if(exc.dataset.c!=='1'){ exc.dataset.c='1'; exc.textContent='Toque de novo para excluir de vez'; return; } remover(f.id); fechar(); };
+  const exc=$('#excluir'); if(exc) exc.onclick=()=>{ const copia=JSON.parse(JSON.stringify(f)); remover(f.id); fechar();
+    barraDesfazer('Ficha excluída.', ()=>{ gravar(copia); render(); toast('Ficha de volta'); }, 12000); };
   const rea=$('#reabrir'); if(rea) rea.onclick=()=>{ f.status='rascunho'; f.versao=(f.versao||1)+1; gravar(f); desenharEditor(); toast('Reaberta: versão '+f.versao); };
   const pv=$('#pdfver'); if(pv) pv.onclick=async()=>{ const b=await gerarPDF(f); verPDF({ titulo:`${def.codigo} · ${def.ident(f.dados)}`, paginas:b._paginas, nome:`${def.codigo.replace(/\s+/g,'-')}_${slug(def.ident(f.dados))}_v${f.versao||1}.pdf`, pdf:async()=>b }); }; // mostra dentro do app
   ligarProx(f);
@@ -562,12 +565,14 @@ function desenharSPT(f){
   h+=`<button class="big green" data-add="golpes" style="margin-bottom:12px">+ Próximo metro${g.length?` (${g.length+1}º)`:''}</button>`;
 
   // 3 · Água
-  const temNA=d.na_ini!==''&&d.na_ini!=null, seco=d.seco!==''&&d.seco!=null;
-  h+=`<div class="card agua"><h2>3 · Água no furo</h2><div class="mini">Sonde quando achar água e de novo no fim do furo.</div>
-   <div class="grid" style="margin-top:6px"><div style="grid-column:span 2"><label for="f_na_ini">Achou água a (m)</label><div class="row">${inp('na_ini','profundidade','num')}<input id="f_na_ini_h" type="time" data-f="na_ini_h" value="${esc(d.na_ini_h||'')}" style="max-width:120px"><button class="sec" data-agora="na_ini_h" style="flex:0 0 auto;padding:10px">agora</button></div></div>
-   <div style="grid-column:span 2"><label for="f_na_fim">No fim, sondou de novo: (m)</label><div class="row">${inp('na_fim','profundidade','num')}<input id="f_na_fim_h" type="time" data-f="na_fim_h" value="${esc(d.na_fim_h||'')}" style="max-width:120px"><button class="sec" data-agora="na_fim_h" style="flex:0 0 auto;padding:10px">agora</button></div></div>
-   <div style="grid-column:span 2"><label for="f_seco">Não achou água: seco até (m)</label>${inp('seco','profundidade','num')}</div></div>
-   ${temNA&&seco?'<div class="alerta">Marcou que achou água e também "seco até". Confira qual vale.</div>':''}</div>`;
+  const temNA=d.na_ini!==''&&d.na_ini!=null, seco=d.seco!==''&&d.seco!=null; const modo = d._agua || (temNA?'agua':(seco?'seco':''));
+  h+=`<div class="card agua"><h2>3 · Água no furo</h2>
+   <div class="row" style="gap:8px"><button class="${modo==='agua'?'green':'sec'} opt" data-agua="agua">Achei água</button><button class="${modo==='seco'?'green':'sec'} opt" data-agua="seco">Furo seco</button></div>
+   ${modo==='agua'?`<div class="grid" style="margin-top:8px">
+     <div style="grid-column:span 2"><label for="f_na_ini">Achou água a (m)</label><div class="row">${inp('na_ini','profundidade','num')}<input id="f_na_ini_h" type="time" data-f="na_ini_h" value="${esc(d.na_ini_h||'')}" style="max-width:120px"><button class="sec" data-agora="na_ini_h" style="flex:0 0 auto;padding:10px">agora</button></div></div>
+     <div style="grid-column:span 2"><label for="f_na_fim">No fim do furo, sondou de novo: (m)</label><div class="row">${inp('na_fim','profundidade','num')}<input id="f_na_fim_h" type="time" data-f="na_fim_h" value="${esc(d.na_fim_h||'')}" style="max-width:120px"><button class="sec" data-agora="na_fim_h" style="flex:0 0 auto;padding:10px">agora</button></div></div></div>`
+   : modo==='seco'?`<div class="grid" style="margin-top:8px"><div style="grid-column:span 2"><label for="f_seco">Seco até (m)</label><div class="row">${inp('seco','profundidade','num')}${d.prof_final&&!d.seco?`<button class="sec" data-usarseco="${esc(d.prof_final)}" style="flex:0 0 auto">${esc(d.prof_final)} m</button>`:''}</div><div class="mini">É a profundidade que sondou e não achou água — em geral o fundo do furo.</div></div></div>`
+   : `<div class="mini" style="margin-top:8px">Escolha uma das duas quando chegar a hora. Se achar água, o app pede a profundidade e a hora; se o furo for seco, pede até onde sondou.</div>`}</div>`;
 
   // 4 · Fim
   const ult=g.length?g[g.length-1]:null; let penet=0; if(ult) for(const k of [1,2,3]){ if(ult['g'+k]!==''&&ult['g'+k]!=null){ const c=NUM(ult['c'+k]); penet+= isNaN(c)?15:c; } }
@@ -607,6 +612,11 @@ function ligarSPT(f){
     if(v==='Achou água aqui' && partes.includes(v) && (d.na_ini===''||d.na_ini==null)){ d.na_ini=l.de||''; d.na_ini_h=AGORA(); toast('Anotado em "Água no furo". Confira a profundidade.'); }
     refazer(); }));
   document.querySelectorAll('[data-parou] button').forEach(b=>b.onclick=()=>{ d.parou = d.parou===b.dataset.v ? '' : b.dataset.v; refazer(); });
+  document.querySelectorAll('[data-agua]').forEach(b=>b.onclick=()=>{ const v=b.dataset.agua;
+    if(v==='agua'){ d.seco=''; if(!d.na_ini_h) d.na_ini_h=AGORA(); }            // achou água: já marca a hora
+    else { d.na_ini=''; d.na_ini_h=''; d.na_fim=''; d.na_fim_h=''; }            // furo seco: limpa o bloco de água
+    d._agua=v; gravar(f); desenharSPT(f); });
+  document.querySelectorAll('[data-usarseco]').forEach(b=>b.onclick=()=>{ d.seco=b.dataset.usarseco; gravar(f); desenharSPT(f); });
   document.querySelectorAll('[data-usarfim]').forEach(b=>b.onclick=()=>{ d.prof_final=b.dataset.usarfim; refazer(); });
   document.querySelectorAll('[data-fotoam]').forEach(b=>b.onclick=()=>{ const i=+b.dataset.fotoam; const l=g[i];
     CAM.extra={ fichaId:f.id, ficha:'SP-'+(d.furo||''), linha:i, metro:trechoTxt(l), amostra:l.am||String(i+1) };
