@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#113E6B">
+<meta name="robots" content="noindex">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Inventário · Natural Engenharia</title>
+<style>
+:root{
+  --navy:#113E6B; --navy-2:#0C2F52; --green:#19A878; --green-2:#137F5B;
+  --ink:#1B2430; --muted:#5B6570; --line:#D9DEE5; --bg:#F3F5F8; --card:#FFFFFF; --soft:#F6F8FB;
+  --warn:#8A4B00; --warn-bg:#FEF3C7; --err:#B91C1C; --err-bg:#FEE2E2; --ok:#137F5B; --ok-bg:#DCFCE7;
+  --sat:env(safe-area-inset-top,0px); --sab:env(safe-area-inset-bottom,0px);
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --ink:#E8EEF5; --muted:#9FB2C7; --line:#2B415C; --bg:#0B1524; --card:#101F33; --soft:#16283F;
+  --warn:#F2C879; --warn-bg:#2D2310; --err:#F08268; --err-bg:#2C1A15; --ok:#4CC79E; --ok-bg:#123028; color-scheme:dark;}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{background:var(--navy);color:#fff;padding:calc(10px + var(--sat)) 16px 10px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:20}
+header img{height:26px;display:block}
+header .t{flex:1;min-width:0}
+header .t b{display:block;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media(max-width:420px){header img{height:22px}header button{padding:6px 8px;font-size:12px}}
+header .t small{display:block;font-size:12px;opacity:.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+header button{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.24);color:#fff;border-radius:9px;padding:7px 11px;font:inherit;font-size:13px;cursor:pointer}
+main{padding:14px 16px calc(100px + var(--sab));max-width:720px;margin:0 auto;display:grid;gap:13px}
+h2.tit{margin:2px 0 0;font-size:18px;color:var(--navy)}
+@media (prefers-color-scheme:dark){h2.tit{color:#8DB8E6}}
+.sec{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:14px;display:grid;gap:12px}
+.sec>h3{margin:0;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--green-2)}
+@media (prefers-color-scheme:dark){.sec>h3{color:var(--green)}}
+.dica{margin:0;font-size:13px;color:var(--muted)}
+.campo{display:grid;gap:6px}
+.campo>label,.campo>.lb{font-size:14px;font-weight:600}
+input[type=text],input[type=date],select,textarea{width:100%;font:inherit;font-size:16px;padding:11px 12px;border:1.5px solid var(--line);border-radius:10px;background:var(--soft);color:var(--ink)}
+textarea{min-height:80px;resize:vertical}
+.un{display:flex;gap:8px;align-items:center}.un input{flex:1}.un span{font-size:14px;color:var(--muted)}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:520px){.g2{grid-template-columns:1fr}}
+.ops{display:flex;flex-wrap:wrap;gap:7px}
+.ops button{border:1.5px solid var(--line);background:var(--soft);color:var(--ink);border-radius:20px;padding:9px 14px;font:inherit;font-size:15px;cursor:pointer;min-height:42px}
+.ops button.on{background:var(--navy);border-color:var(--navy);color:#fff}
+.ops.chk button.on::before{content:"✓ "}
+.btn{background:var(--green);color:#fff;border:0;border-radius:11px;padding:13px 18px;font:inherit;font-weight:600;font-size:16px;cursor:pointer}
+.btn.ghost{background:var(--soft);color:var(--ink);border:1.5px solid var(--line)}
+.btn.sm{padding:8px 12px;font-size:14px;border-radius:9px}
+.btn:disabled{opacity:.5}
+.link{background:none;border:0;padding:0;color:var(--navy);font:inherit;text-decoration:underline;cursor:pointer}
+@media (prefers-color-scheme:dark){.link{color:#8DB8E6}}
+.aviso{border-left:4px solid #D97706;background:var(--warn-bg);color:var(--warn);border-radius:10px;padding:11px 13px;font-size:14px}
+.aviso.neg{border-left-color:var(--err);background:var(--err-bg);color:var(--err)}
+.aviso.ok{border-left-color:var(--green);background:var(--ok-bg);color:var(--ok)}
+.lista{display:grid;gap:8px}
+.bem{display:grid;gap:4px;width:100%;text-align:left;background:var(--card);color:var(--ink);border:1.5px solid var(--line);border-left:4px solid var(--line);border-radius:11px;padding:11px 13px;font:inherit;cursor:pointer}
+.bem.pend{border-left-color:#D97706}.bem.ok{border-left-color:var(--green)}
+.bem b{font-size:15px}.bem small{font-size:13px;color:var(--muted)}
+.faltas{display:flex;flex-wrap:wrap;gap:4px}
+.faltas i{font-style:normal;font-size:12px;padding:2px 8px;border-radius:12px;background:var(--err-bg);color:var(--err)}
+.faltas i.ok{background:var(--ok-bg);color:var(--ok)}
+.tag{font-size:11px;font-weight:600;padding:2px 7px;border-radius:6px;background:var(--warn-bg);color:var(--warn);vertical-align:2px}
+.acoes{display:flex;gap:7px;flex-wrap:wrap}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:9px}
+.tile{display:grid;gap:3px;text-align:left;background:var(--soft);color:var(--ink);border:1.5px solid var(--line);border-radius:11px;padding:12px;font:inherit;cursor:pointer;min-height:66px}
+.tile b{font-size:15px}.tile small{font-size:12.5px;color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips button{border:1.5px dashed var(--line);background:none;color:var(--muted);border-radius:16px;padding:7px 12px;font:inherit;font-size:14px;cursor:pointer}
+.acess{display:grid;gap:6px}
+.acl{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 10px;align-items:center;padding:8px 9px;border:1px solid var(--line);border-radius:10px}
+.acl .nm{font-size:15px}.sw{display:flex;gap:5px}
+.sw button{border:1.5px solid var(--line);background:var(--soft);color:var(--ink);border-radius:8px;padding:7px 10px;font:inherit;font-size:14px;cursor:pointer;min-width:52px}
+.sw button.on.s{background:var(--green);border-color:var(--green);color:#fff}.sw button.on.n{background:var(--err);border-color:var(--err);color:#fff}
+.ex{grid-column:1/-1;display:grid;grid-template-columns:90px 1fr;gap:6px}
+.ex input{font:inherit;font-size:16px;padding:8px;border:1.5px solid var(--line);border-radius:8px;background:var(--soft);color:var(--ink);min-width:0}
+.itens{display:grid;gap:8px}
+.it{border:1px solid var(--line);border-radius:10px;padding:9px;display:grid;gap:7px}
+.it .l1{display:flex;gap:8px;align-items:center}
+.it input{font:inherit;font-size:16px;padding:8px;border:1.5px solid var(--line);border-radius:8px;background:var(--soft);color:var(--ink);min-width:0;width:100%}
+.it .l1 input{font-weight:600}
+.it .l2{display:grid;grid-template-columns:1fr 1.3fr 1fr;gap:6px}.it .l2 label{font-size:11.5px;color:var(--muted);display:grid;gap:3px}
+.it .x{border:0;background:none;color:var(--muted);font-size:22px;cursor:pointer}
+.tot{font-size:14px;color:var(--muted)}.tot b{color:var(--ink)}
+.slot{border:1.5px dashed var(--line);border-radius:11px;padding:10px;display:grid;gap:8px}
+.slot .tt{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.slot .tt b{flex:1;min-width:140px;font-size:15px}
+.req{color:var(--err)}
+.bt{border:1.5px solid var(--line);background:var(--soft);border-radius:9px;padding:8px 12px;font-size:14px;cursor:pointer}
+.bt input{display:none}
+.thumbs{display:flex;flex-wrap:wrap;gap:6px}
+.thumbs figure{position:relative;margin:0;width:84px;height:84px;border-radius:9px;overflow:hidden;border:1px solid var(--line)}
+.thumbs img{width:100%;height:100%;object-fit:cover}
+.thumbs .pdf{display:grid;place-items:center;width:100%;height:100%;font-weight:700;background:var(--soft);color:var(--muted)}
+.thumbs button{position:absolute;top:3px;right:3px;border:0;background:rgba(0,0,0,.62);color:#fff;border-radius:50%;width:24px;height:24px;cursor:pointer}
+#pe{position:fixed;left:0;right:0;bottom:0;z-index:20;background:var(--card);border-top:1px solid var(--line);padding:10px 16px calc(10px + var(--sab));display:flex;gap:9px;justify-content:center}
+#pe[hidden]{display:none}
+#pe .btn{flex:1;max-width:340px}
+.toast{position:fixed;left:50%;bottom:calc(84px + var(--sab));transform:translateX(-50%) translateY(20px);background:#0F2440;color:#fff;padding:11px 16px;border-radius:11px;font-size:14px;max-width:calc(100% - 32px);opacity:0;transition:.2s;z-index:50;pointer-events:none}
+.toast.on{opacity:1;transform:translateX(-50%)}
+</style>
+</head>
+<body>
+<header>
+  <img src="logo-white.png" alt="Natural Engenharia">
+  <div class="t"><b>Inventário de patrimônio</b><small id="quem"></small></div>
+  <button type="button" id="h-inicio">Início</button>
+  <button type="button" id="h-ajustes" aria-label="Ajustes">Ajustes</button>
+</header>
+<main id="main"></main>
+<div id="pe" hidden></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+/* ===================== INVENTÁRIO DE CAMPO — tipos de bem =====================
+   22/09/2026, pedido do Ygor: inventário feito em campo, pelo celular, campo a campo
+   conforme o tipo do equipamento. Cada tipo diz o que se levanta dele — o que um GNSS
+   precisa (acessórios, calibração) não é o que um veículo precisa (placa, IPVA, CRLV).
+   Tudo o que sai daqui entra no Patrimônio marcado "a validar" e só vale depois que
+   o Ygor valida. Fotos e documentos sobem para a pasta do bem no Drive.
+   DSL: campo = {k, l, t:"tx"|"n"|"d"|"r"|"c"|"ta"|"sel", op:[...], u:"unidade",
+   se:{k,v} (só aparece se outro campo tiver valor v), dica}.
+   Seção pode ter campos, acess (checklist de acessórios com qtd/série) ou itens
+   (tabela com quantidade × comprimento = metros). */
+var INV_PASTA_RAIZ = "1ucAsvYrku-dtWDQ0CUiJBxm1dqapeo_Y";   /* ADMINISTRATIVO FINANCEIRO/PATRIMÔNIO - FICHAS DOS BENS */
+var INV_DRIVE = "Google Drive";
+
+var INV_VEIC = [
+  {t:"Documento do veículo", campos:[
+    {k:"temPlaca", l:"Tem placa?", t:"r", op:["Sim","Não (não emplacado)"]},
+    {k:"placa", l:"Placa", t:"tx", se:{k:"temPlaca",v:"Sim"}, up:1},
+    {k:"renavam", l:"RENAVAM", t:"tx", se:{k:"temPlaca",v:"Sim"}, mod:"numeric"},
+    {k:"chassi", l:"Chassi", t:"tx", up:1},
+    {k:"anoFab", l:"Ano de fabricação", t:"n"},
+    {k:"anoMod", l:"Ano do modelo", t:"n"},
+    {k:"cor", l:"Cor", t:"tx"},
+    {k:"comb", l:"Combustível", t:"r", op:["Diesel","Gasolina","Flex","Elétrico"]},
+    {k:"titular", l:"Documento está em nome de", t:"r", op:["Natural Engenharia","Sócio","Outra pessoa ou empresa"]},
+    {k:"titularNome", l:"Nome do titular no documento", t:"tx", se:{k:"titular",v:"*outro"}},
+    {k:"financ", l:"Financiamento", t:"r", op:["Quitado","Financiado","Não sei"]}
+  ]},
+  {t:"Impostos, licenciamento e seguro", campos:[
+    {k:"ipvaSit", l:"IPVA deste ano", t:"r", op:["Pago","Em aberto","Parcelando","Isento","Não sei"]},
+    {k:"licSit", l:"Licenciamento", t:"r", op:["Em dia","Atrasado","Não sei"]},
+    {k:"multas", l:"Tem multa pendente?", t:"r", op:["Não","Sim","Não sei"]},
+    {k:"multasValor", l:"Valor das multas (R$)", t:"tx", se:{k:"multas",v:"Sim"}, mod:"decimal"},
+    {k:"seguro", l:"Tem seguro?", t:"r", op:["Sim","Não"]},
+    {k:"seguradora", l:"Seguradora", t:"tx", se:{k:"seguro",v:"Sim"}},
+    {k:"apolice", l:"Nº da apólice", t:"tx", se:{k:"seguro",v:"Sim"}}
+  ]},
+  {t:"Uso e conservação", campos:[
+    {k:"km", l:"Hodômetro", t:"n", u:"km"},
+    {k:"revKm", l:"Próxima revisão", t:"n", u:"km"},
+    {k:"pneus", l:"Pneus", t:"r", op:["Bons","Meia vida","Precisa trocar"]},
+    {k:"estepe", l:"Estepe", t:"r", op:["Bom","Ruim","Não tem"]},
+    {k:"obrig", l:"Itens que estão no veículo", t:"c", op:["Triângulo","Macaco","Chave de roda","Extintor","Rastreador","Cabo de reboque","Kit primeiros socorros"]}
+  ]}
+];
+var INV_VEIC_VENC = [
+  {k:"licenc", l:"Licenciamento (CRLV) válido até", orgao:"DETRAN"},
+  {k:"ipva", l:"IPVA — próximo vencimento", orgao:"SEFAZ"},
+  {k:"seguro", l:"Seguro — fim da vigência", orgao:"SEGURADORA"},
+  {k:"revisao", l:"Próxima revisão (data)", orgao:"OFICINA"},
+  {k:"extintor", l:"Extintor — validade da carga", orgao:""}
+];
+var INV_VEIC_DOCS = [
+  {k:"crlv", l:"CRLV — documento do veículo", req:{k:"temPlaca",v:"Sim"}},
+  {k:"apolice", l:"Apólice do seguro"},
+  {k:"nf", l:"Nota fiscal ou contrato de compra"}
+];
+var INV_VEIC_FOTOS = ["Frente","Traseira com a placa","Lateral","Painel com o hodômetro","Número do chassi","Avarias (se houver)"];
+
+var INV_TIPOS = [
+ {id:"gnss", rot:"GNSS RTK", sub:"base, rover e acessórios", cat:"equipamento", centro:"TOPOGRAFIA",
+  match:/gnss|rtk|topografia|chc|i73|receptor/i,
+  secoes:[
+   {t:"Receptor", campos:[
+     {k:"funcao", l:"Função deste receptor", t:"r", op:["Base","Rover","Base ou rover (troca)"]},
+     {k:"firmware", l:"Versão do firmware", t:"tx"},
+     {k:"radioInt", l:"Rádio UHF interno?", t:"r", op:["Sim","Não"]},
+     {k:"freq", l:"Frequência / canal do rádio", t:"tx", dica:"Ex.: 464,500 MHz, canal 3"},
+     {k:"ntrip", l:"Usa chip de dados (NTRIP)?", t:"r", op:["Sim","Não"]},
+     {k:"chip", l:"Operadora e número do chip", t:"tx", se:{k:"ntrip",v:"Sim"}}
+   ]},
+   {t:"Acessórios do kit", acess:["Controladora / coletora","Bastão (prumo)","Tripé","Base nivelante (tribrach)","Adaptador de tribrach","Antena UHF","Rádio externo","Bateria","Carregador","Cabo de dados / USB","Cabo do rádio","Trena de altura","Maleta / case"]}
+  ],
+  venc:[{k:"calib", l:"Calibração / aferição — validade", orgao:"LABORATÓRIO"}],
+  docs:[{k:"calib", l:"Certificado de calibração"},{k:"nf", l:"Nota fiscal"}],
+  fotos:["Receptor (visão geral)","Etiqueta com nº de série","Controladora ligada (tela Sobre)","Kit completo aberto na maleta","Avarias (se houver)"]},
+
+ {id:"gpsmao", rot:"GPS de mão", sub:"navegação", cat:"equipamento", centro:"TOPOGRAFIA",
+  match:/gps de m|garmin|etrex/i,
+  secoes:[
+   {t:"Aparelho", campos:[
+     {k:"alim", l:"Alimentação", t:"r", op:["Pilhas AA","Bateria interna"]},
+     {k:"cartao", l:"Cartão de memória", t:"r", op:["Tem","Não tem"]}
+   ]},
+   {t:"Acessórios", acess:["Cabo USB","Capa / estojo","Cordão","Suporte veicular","Pilhas recarregáveis"]}
+  ],
+  docs:[{k:"nf", l:"Nota fiscal"}],
+  fotos:["Aparelho ligado","Etiqueta com nº de série (atrás / compartimento da pilha)","Acessórios"]},
+
+ {id:"computador", rot:"Computador", sub:"notebook ou desktop", cat:"ti", centro:"ESCRITORIO",
+  match:/computador|notebook|desktop|pc\b/i,
+  secoes:[
+   {t:"Configuração", campos:[
+     {k:"tipoPc", l:"Tipo", t:"r", op:["Notebook","Desktop (gabinete)","All-in-one"]},
+     {k:"cpu", l:"Processador", t:"tx", dica:"Ex.: Intel i7-12700H — está em Configurações › Sistema › Sobre"},
+     {k:"ram", l:"Memória RAM", t:"n", u:"GB"},
+     {k:"disco", l:"Armazenamento", t:"n", u:"GB"},
+     {k:"discoTipo", l:"Tipo de disco", t:"r", op:["SSD","HD","SSD + HD"]},
+     {k:"so", l:"Sistema operacional", t:"r", op:["Windows 11","Windows 10","Outro"]},
+     {k:"soOriginal", l:"Windows ativado / original?", t:"r", op:["Sim","Não","Não sei"]},
+     {k:"bateria", l:"Bateria (notebook)", t:"r", op:["Boa","Dura pouco","Não segura carga"], se:{k:"tipoPc",v:"Notebook"}},
+     {k:"progs", l:"Programas instalados", t:"c", op:["Office","AutoCAD","QGIS","ArcGIS","Métrica TOPO","CGO2","Res2DInv","LandStar","eMotion","Google Drive para desktop"]},
+     {k:"licencas", l:"Licenças pagas (qual, até quando)", t:"ta"},
+     {k:"nomeRede", l:"Nome do computador na rede", t:"tx"}
+   ]},
+   {t:"Acessórios", acess:["Carregador / fonte","Monitor extra","Teclado","Mouse","Mochila / case","Estabilizador / nobreak","Webcam","Headset"]}
+  ],
+  docs:[{k:"nf", l:"Nota fiscal"}],
+  fotos:["Visão geral","Etiqueta com nº de série / service tag","Tela Sistema › Sobre (configuração)","Avarias (se houver)"]},
+
+ {id:"impressora", rot:"Impressora", sub:"jato, tanque ou laser", cat:"ti", centro:"ESCRITORIO",
+  match:/impressora|multifuncional/i,
+  secoes:[
+   {t:"Impressora", campos:[
+     {k:"tecn", l:"Tecnologia", t:"r", op:["Jato de tinta","Tanque de tinta","Laser"]},
+     {k:"func", l:"Faz", t:"c", op:["Imprime","Copia","Digitaliza","Colorida","Frente e verso automático","Folha A3"]},
+     {k:"conex", l:"Conexão", t:"c", op:["USB","Wi-Fi","Rede (cabo)"]},
+     {k:"volt", l:"Voltagem", t:"r", op:["110 V","220 V","Bivolt"]},
+     {k:"supr", l:"Suprimento (modelo do cartucho, tinta ou toner)", t:"tx"},
+     {k:"contador", l:"Contador de páginas", t:"n", u:"páginas"}
+   ]}
+  ],
+  docs:[{k:"nf", l:"Nota fiscal"}],
+  fotos:["Visão geral","Etiqueta com nº de série","Contador de páginas (relatório impresso ou tela)"]},
+
+ {id:"eletro", rot:"Eletrodoméstico", sub:"frigobar, cafeteira, ar…", cat:"movel", centro:"ESCRITORIO",
+  match:/frigobar|geladeira|cafeteira|micro|bebedouro|ar.condicionado|ventilador/i,
+  secoes:[
+   {t:"Aparelho", campos:[
+     {k:"eletroTipo", l:"O que é", t:"r", op:["Frigobar","Geladeira","Cafeteira","Micro-ondas","Bebedouro","Ar-condicionado","Ventilador","Outro"]},
+     {k:"volt", l:"Voltagem", t:"r", op:["110 V","220 V","Bivolt"]},
+     {k:"capac", l:"Capacidade ou potência", t:"tx", dica:"Ex.: 80 L · 12.000 BTU · 1.000 W"}
+   ]}
+  ],
+  docs:[{k:"nf", l:"Nota fiscal"}],
+  fotos:["Visão geral","Etiqueta do fabricante (modelo, série, voltagem)"]},
+
+ {id:"perfuratriz", rot:"Máquina de perfurar poço", sub:"perfuratriz e ferramental", cat:"maquina", centro:"POÇOS",
+  match:/perfur|m[aá]quina de po|maq.*po[cç]o/i,
+  secoes:[
+   {t:"Máquina", campos:[
+     {k:"metodo", l:"Método", t:"r", op:["Rotativa (lama)","Roto-pneumática (martelo)","Mista"]},
+     {k:"acion", l:"Acionamento", t:"r", op:["Hidráulico","Mecânico"]},
+     {k:"montagem", l:"Montada sobre", t:"r", op:["Caminhão","Reboque / carreta","Esteira","Skid (fixa)"]},
+     {k:"placaMaq", l:"Placa do caminhão/reboque que a leva", t:"tx", up:1, dica:"O veículo tem ficha própria — anote a placa para ligar os dois."},
+     {k:"profMax", l:"Profundidade máxima", t:"n", u:"m"},
+     {k:"diamMax", l:"Diâmetro máximo de perfuração", t:"tx", u:"pol"},
+     {k:"motor", l:"Motor (marca e modelo)", t:"tx"},
+     {k:"pot", l:"Potência do motor", t:"n", u:"cv"},
+     {k:"comb", l:"Combustível", t:"r", op:["Diesel","Gasolina"]},
+     {k:"horim", l:"Horímetro", t:"n", u:"h"}
+   ]},
+   {t:"Ferramental (conte e meça)", itens:[
+     {i:"Hastes / tubos de perfuração", m:1},{i:"Brocas tricônicas", d:1},{i:"Bits / martelo de fundo (DTH)", d:1},
+     {i:"Subs e adaptadores"},{i:"Estabilizadores"},{i:"Bomba de lama"},{i:"Mangueira de ar / lama", m:1},{i:"Cabo de aço", m:1}
+   ]}
+  ],
+  docs:[{k:"nf", l:"Nota fiscal ou recibo"},{k:"manual", l:"Manual"}],
+  fotos:["Visão geral da máquina","Placa do motor","Horímetro","Hastes arrumadas (dá para contar)","Brocas e bits","Avarias (se houver)"]},
+
+ {id:"spt", rot:"Equipamento SPT", sub:"sondagem à percussão", cat:"maquina", centro:"SONDAGENS",
+  match:/spt|sondagem/i,
+  secoes:[
+   {t:"Conjunto", campos:[
+     {k:"nConj", l:"Quantos conjuntos completos de sondagem?", t:"n"}
+   ]},
+   {t:"Peças e metragem (conte e meça)", itens:[
+     {i:"Tripé / torre"},{i:"Martelo 65 kg"},{i:"Cabeça de bater"},{i:"Roldana"},
+     {i:"Hastes Ø 1\" (25 mm)", m:1},{i:"Tubo de revestimento 2½\"", m:1},
+     {i:"Amostrador padrão (Raymond)"},{i:"Trado concha / cavadeira"},{i:"Trado helicoidal"},
+     {i:"Trépano de lavagem"},{i:"Motobomba d'água"},{i:"Mangueira", m:1},{i:"Corda / cabo do martelo", m:1},
+     {i:"Chave de grifo"},{i:"Tambor / caixa d'água"}
+   ]}
+  ],
+  docs:[{k:"nf", l:"Nota fiscal ou recibo"}],
+  fotos:["Conjunto montado ou arrumado","Hastes arrumadas (dá para contar)","Revestimentos","Martelo e amostrador","Avarias (se houver)"]},
+
+ {id:"gerador", rot:"Gerador", sub:"grupo gerador", cat:"maquina", centro:"POÇOS",
+  match:/gerador/i,
+  secoes:[
+   {t:"Gerador", campos:[
+     {k:"kva", l:"Potência", t:"n", u:"kVA"},
+     {k:"comb", l:"Combustível", t:"r", op:["Diesel","Gasolina"]},
+     {k:"fases", l:"Fases", t:"r", op:["Monofásico","Trifásico"]},
+     {k:"tensao", l:"Tensão de saída", t:"c", op:["127 V","220 V","380 V"]},
+     {k:"partida", l:"Partida", t:"r", op:["Manual","Elétrica"]},
+     {k:"motor", l:"Motor (marca e modelo)", t:"tx"},
+     {k:"horim", l:"Horímetro", t:"n", u:"h"},
+     {k:"tanque", l:"Tanque", t:"n", u:"L"},
+     {k:"carenado", l:"Carenado (silenciado)?", t:"r", op:["Sim","Não"]},
+     {k:"rodas", l:"Tem rodas / carrinho?", t:"r", op:["Sim","Não"]}
+   ]}
+  ],
+  docs:[{k:"nf", l:"Nota fiscal ou recibo"},{k:"manual", l:"Manual"}],
+  fotos:["Visão geral","Placa do gerador (kVA, série)","Placa do motor","Horímetro","Avarias (se houver)"]},
+
+ {id:"compressor", rot:"Compressor", sub:"ar comprimido", cat:"maquina", centro:"POÇOS",
+  match:/compressor/i,
+  secoes:[
+   {t:"Compressor", campos:[
+     {k:"tipoComp", l:"Tipo", t:"r", op:["Pistão","Parafuso"]},
+     {k:"acion", l:"Acionamento", t:"r", op:["Elétrico","Diesel","Gasolina"]},
+     {k:"vazao", l:"Vazão", t:"n", u:"pcm"},
+     {k:"pressao", l:"Pressão máxima", t:"n", u:"psi"},
+     {k:"reserv", l:"Reservatório", t:"n", u:"L"},
+     {k:"pot", l:"Potência", t:"n", u:"cv"},
+     {k:"volt", l:"Voltagem (se elétrico)", t:"r", op:["110 V","220 V","380 V"], se:{k:"acion",v:"Elétrico"}},
+     {k:"horim", l:"Horímetro", t:"n", u:"h"}
+   ]},
+   {t:"Acessórios", acess:["Mangueira","Engates rápidos","Manômetro","Filtro de ar reserva"]}
+  ],
+  docs:[{k:"nf", l:"Nota fiscal ou recibo"},{k:"manual", l:"Manual"}],
+  fotos:["Visão geral","Placa do fabricante","Manômetro / horímetro","Avarias (se houver)"]},
+
+ {id:"medidor", rot:"Medidor elétrico", sub:"sonda de nível, multímetro…", cat:"equipamento", centro:"POÇOS",
+  match:/medidor (el|de n)|sonda|mult[ií]metro|alicate/i,
+  secoes:[
+   {t:"Medidor", campos:[
+     {k:"medTipo", l:"O que é", t:"r", op:["Medidor de nível d'água (sonda elétrica)","Multímetro","Alicate amperímetro","Megôhmetro","Outro"]},
+     {k:"cabo", l:"Comprimento do cabo / fita", t:"n", u:"m", se:{k:"medTipo",v:"Medidor de nível d'água (sonda elétrica)"}},
+     {k:"grad", l:"Graduação da fita", t:"tx", se:{k:"medTipo",v:"Medidor de nível d'água (sonda elétrica)"}, dica:"Ex.: marcas a cada 1 cm"},
+     {k:"alim", l:"Alimentação", t:"r", op:["Pilha","Bateria 9 V","Bateria interna"]},
+     {k:"teste", l:"Teste na hora: apitou/leu certo?", t:"r", op:["Sim","Não","Não testei"]}
+   ]},
+   {t:"Acessórios", acess:["Carretel","Pontas de prova","Estojo","Pilhas / bateria reserva"]}
+  ],
+  venc:[{k:"calib", l:"Calibração — validade", orgao:"LABORATÓRIO"}],
+  docs:[{k:"calib", l:"Certificado de calibração"},{k:"nf", l:"Nota fiscal"}],
+  fotos:["Visão geral","Etiqueta com nº de série","Carretel / fita (mostrando a graduação)"]},
+
+ {id:"ruido", rot:"Medidor de ruído", sub:"decibelímetro", cat:"equipamento", centro:"CONSULTORIA",
+  match:/ru[ií]do|decibel/i,
+  secoes:[
+   {t:"Medidor", campos:[
+     {k:"classe", l:"Classe (tipo)", t:"r", op:["Classe 1","Classe 2","Não informado"]},
+     {k:"faixa", l:"Faixa de medição", t:"tx", dica:"Ex.: 30–130 dB"},
+     {k:"pond", l:"Ponderações", t:"c", op:["A","C","Z"]},
+     {k:"resp", l:"Resposta", t:"c", op:["Rápida (Fast)","Lenta (Slow)"]},
+     {k:"calibrador", l:"Tem calibrador acústico?", t:"r", op:["Sim","Não"]},
+     {k:"lab", l:"Laboratório da última calibração", t:"tx"}
+   ]},
+   {t:"Acessórios", acess:["Protetor de vento (espuma)","Tripé","Cabo / software","Estojo","Pilhas"]}
+  ],
+  venc:[{k:"calib", l:"Certificado de calibração — validade", orgao:"LABORATÓRIO"}],
+  docs:[{k:"calib", l:"Certificado de calibração"},{k:"nf", l:"Nota fiscal"}],
+  fotos:["Visão geral","Etiqueta com nº de série","Calibrador acústico (se tiver)"]},
+
+ {id:"celular", rot:"Celular da empresa", sub:"aparelho e linha", cat:"ti", centro:"ESCRITORIO",
+  match:/celular|smartphone|telefone/i,
+  secoes:[
+   {t:"Aparelho e linha", campos:[
+     {k:"imei1", l:"IMEI 1", t:"tx", mod:"numeric", dica:"Disque *#06# que ele aparece"},
+     {k:"imei2", l:"IMEI 2", t:"tx", mod:"numeric"},
+     {k:"linha", l:"Número da linha", t:"tx", mod:"tel"},
+     {k:"operadora", l:"Operadora", t:"r", op:["Vivo","Claro","TIM","Oi","Outra"]},
+     {k:"plano", l:"Plano", t:"r", op:["Pré-pago","Controle","Pós-pago"]},
+     {k:"conta", l:"Conta Google / Apple vinculada (e-mail)", t:"tx"},
+     {k:"armaz", l:"Armazenamento", t:"n", u:"GB"}
+   ]},
+   {t:"Acessórios", acess:["Carregador","Cabo","Capa","Película","Fone"]}
+  ],
+  docs:[{k:"nf", l:"Nota fiscal"}],
+  fotos:["Frente","Verso","Tela com o IMEI (*#06#)"],
+  aviso:"Não anote senha nem PIN aqui."},
+
+ {id:"vant", rot:"VANT / drone", sub:"eBee GEO e acessórios", cat:"equipamento", centro:"DRONE VANT",
+  match:/drone|vant|ebee/i, marca:"AgEagle (senseFly)", modelo:"eBee GEO",
+  secoes:[
+   {t:"Aeronave e registros", campos:[
+     {k:"sisant", l:"Nº de registro na ANAC (SISANT)", t:"tx", up:1, dica:"Fica no certificado do SISANT e deve estar gravado na aeronave"},
+     {k:"reta", l:"Tem seguro RETA?", t:"r", op:["Sim","Não","Não sei"]},
+     {k:"retaSeg", l:"Seguradora e nº da apólice RETA", t:"tx", se:{k:"reta",v:"Sim"}},
+     {k:"anatel", l:"Homologação ANATEL (rádio)", t:"r", op:["Tem selo","Não tem","Não sei"]},
+     {k:"voos", l:"Voos / horas registrados", t:"tx", dica:"Ex.: 120 voos, 38 h — está no eMotion"},
+     {k:"camera", l:"Câmera / sensor (modelo)", t:"tx", dica:"Ex.: S.O.D.A. 3D, Aeria X"},
+     {k:"cameraSerie", l:"Nº de série da câmera", t:"tx"},
+     {k:"ppk", l:"PPK / RTK ativado?", t:"r", op:["Sim","Não","Não sei"]},
+     {k:"emotion", l:"eMotion — versão e licença", t:"tx"}
+   ]},
+   {t:"Acessórios", acess:["Bateria de voo","Carregador de baterias","Rádio / modem de telemetria","Asas (par)","Hélices reserva","Câmera extra","Notebook de campo","Maleta de transporte","Kit de reparo"]}
+  ],
+  venc:[{k:"reta", l:"Seguro RETA — fim da vigência", orgao:"SEGURADORA"},{k:"sisant", l:"SISANT — validade do cadastro", orgao:"ANAC"}],
+  docs:[{k:"sisant", l:"Certidão de cadastro SISANT (ANAC)"},{k:"reta", l:"Apólice do seguro RETA"},{k:"nf", l:"Nota fiscal"}],
+  fotos:["Aeronave inteira","Registro SISANT gravado na aeronave","Etiqueta com nº de série","Câmera","Maleta com acessórios","Baterias","Avarias (se houver)"]},
+
+ {id:"radio", rot:"Rádio comunicador", sub:"HT / walkie-talkie", cat:"equipamento", centro:"TOPOGRAFIA",
+  match:/r[aá]dio comun|walkie|\bht\b/i,
+  secoes:[
+   {t:"Rádio", campos:[
+     {k:"faixa", l:"Faixa", t:"r", op:["Uso livre (PMR / FRS)","VHF","UHF"]},
+     {k:"canal", l:"Canal ou frequência em uso", t:"tx"},
+     {k:"anatel", l:"Selo ANATEL", t:"r", op:["Tem","Não tem","Não sei"]},
+     {k:"bateria", l:"Bateria", t:"r", op:["Boa","Dura pouco","Não segura carga"]}
+   ]},
+   {t:"Acessórios", acess:["Carregador","Antena","Fone / PTT de lapela","Clip de cinto","Bateria reserva"]}
+  ],
+  docs:[{k:"nf", l:"Nota fiscal"}],
+  fotos:["Rádio","Etiqueta com nº de série (dentro do compartimento da bateria)"]},
+
+ {id:"geofisica", rot:"Eletrorresistivímetro", sub:"geofísica: aparelho, cabos, eletrodos", cat:"equipamento", centro:"GEOFISICA",
+  match:/eletrorres|resistiv|x6xtal|geof/i,
+  secoes:[
+   {t:"Aparelho", campos:[
+     {k:"potSaida", l:"Potência de saída", t:"tx", dica:"Ex.: 500 W"},
+     {k:"alim", l:"Alimentação", t:"r", op:["Bateria 12 V externa","Bateria interna","Gerador"]},
+     {k:"teste", l:"Ligou e mediu na hora?", t:"r", op:["Sim","Não","Não testei"]}
+   ]},
+   {t:"Cabos e eletrodos (conte e meça)", itens:[
+     {i:"Cabo de corrente (AB)", m:1},{i:"Cabo de potencial (MN)", m:1},{i:"Carretéis"},{i:"Eletrodos de aço inox"},
+     {i:"Eletrodos não polarizáveis"},{i:"Garras jacaré"},{i:"Marreta"},{i:"Bateria 12 V"}
+   ]}
+  ],
+  venc:[{k:"calib", l:"Aferição — validade", orgao:"FABRICANTE"}],
+  docs:[{k:"nf", l:"Nota fiscal"},{k:"manual", l:"Manual"}],
+  fotos:["Aparelho","Etiqueta com nº de série","Carretéis e cabos","Eletrodos"]},
+
+ {id:"veiculo", rot:"Veículo", sub:"caminhonete, carro, caminhão, reboque", cat:"veiculo", centro:"LOCOMOÇAO DE EQUIPAMENTOS",
+  match:/ranger|caminhonete|kwid|carro|caminh[aã]o|reboque|carrocinha|ve[ií]culo/i,
+  secoes:INV_VEIC, venc:INV_VEIC_VENC, docs:INV_VEIC_DOCS, fotos:INV_VEIC_FOTOS, veic:true},
+
+ {id:"quadriciclo", rot:"Quadriciclo", sub:"ou moto", cat:"veiculo", centro:"POÇOS",
+  match:/quadric|moto\b/i,
+  secoes:INV_VEIC, venc:INV_VEIC_VENC, docs:INV_VEIC_DOCS, fotos:INV_VEIC_FOTOS, veic:true},
+
+ {id:"outro", rot:"Outro item", sub:"ferramenta, móvel, aparelho…", cat:"equipamento", centro:"",
+  match:/$^/,
+  secoes:[
+   {t:"Detalhes", campos:[
+     {k:"catLivre", l:"Categoria", t:"sel", op:[["equipamento","Equipamento"],["maquina","Máquina"],["ti","Informática"],["movel","Móveis e utensílios"],["veiculo","Veículo"]]},
+     {k:"volt", l:"Voltagem (se for elétrico)", t:"r", op:["110 V","220 V","Bivolt","Não é elétrico"]},
+     {k:"desc", l:"Descrição técnica (medidas, capacidade, potência)", t:"ta"}
+   ]},
+   {t:"Acessórios que vieram junto", acess:[]}
+  ],
+  docs:[{k:"nf", l:"Nota fiscal"},{k:"manual", l:"Manual / certificado"}],
+  fotos:["Visão geral","Etiqueta com modelo e nº de série","Avarias (se houver)"]}
+];
+/* Lembretes do que costuma ficar de fora de inventário — o Ygor pediu "e outros mais
+   que talvez tenhamos esquecido". Cada um abre a ficha já no tipo certo. */
+var INV_ESQUECIDOS = [
+  ["geofisica","Eletrorresistivímetro X6xtal 500"],["outro","Bomba submersa de teste de vazão"],
+  ["outro","Medidor de vazão / hidrômetro"],["outro","Estação total ou nível óptico"],
+  ["outro","Trena de roda"],["eletro","Ar-condicionado"],["outro","Nobreak / estabilizador"],
+  ["outro","Roteador / modem de internet"],["outro","Monitor"],["outro","Projetor ou TV"],
+  ["outro","Furadeira / esmerilhadeira / máquina de solda"],["outro","Mesas e cadeiras"],
+  ["outro","Armários e arquivos"],["outro","Tenda / lona de campo"],["outro","Caixa d'água / tanque de água"],
+  ["outro","Bombona de combustível"],["outro","Motobomba"],["outro","Betoneira"]
+];
+
+/* ===================== INVENTÁRIO DE PATRIMÔNIO — página pública =====================
+   22/09/2026. Link aberto (sem conta no Claude), feito para o celular, no mesmo site do
+   app de campo. Cada ficha vira arquivos que o Robô de Campo grava no Drive, numa pasta
+   "PATRIMONIO - <nº> - <bem>" dentro de 00_ENTRADA_FOTOS_CAMPO; a ficha em JSON vai por
+   último e diz quais fotos e documentos ela tem. A tarefa agendada do Claude lê o registro
+   do robô, move a pasta para ADMINISTRATIVO FINANCEIRO/PATRIMÔNIO - FICHAS DOS BENS e grava
+   o bem no Patrimônio do painel como "a validar". Só vale depois que o Ygor valida.
+   Sem sinal: tudo fica no aparelho (IndexedDB) e sobe sozinho quando voltar a internet. */
+var CFG_PADRAO = {
+  script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec',
+  token: 'natural-campo-2026'
+};
+var VERSAO = 'inv-1.0.0';
+var S = { cfg:null, quem:"", pacote:null, tela:"inicio", tipo:null, bemId:null, d:null, fotos:[], docs:[], rascId:null, fila:[], enviando:false };
+var LS = { get:function(k,d){ try{ var v=localStorage.getItem("inv."+k); return v?JSON.parse(v):d; }catch(e){ return d; } },
+           set:function(k,v){ try{ localStorage.setItem("inv."+k, JSON.stringify(v)); }catch(e){} } };
+function $(s,r){ return (r||document).querySelector(s); }
+function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+function hojeBV(){ var d=new Date(Date.now()-4*3600*1000); return d.toISOString().slice(0,10); }   /* Boa Vista, UTC-4 */
+function horaBV(){ var d=new Date(Date.now()-4*3600*1000); return d.toISOString().slice(11,19).replace(/:/g,""); }
+function brData(iso){ return iso? String(iso).slice(0,10).split("-").reverse().join("/") : ""; }
+function uid(p){ return (p||"")+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+function toast(m,ms){ var t=$("#toast"); t.textContent=m; t.classList.add("on"); clearTimeout(toast.t); toast.t=setTimeout(function(){ t.classList.remove("on"); }, ms||3200); }
+function limparNome(s){ return String(s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^A-Za-z0-9 ._-]+/g," ").replace(/\s+/g," ").trim(); }
+function arq(s){ return limparNome(s).replace(/\s+/g,"_").slice(0,50); }
+function num(v){ return +String(v||"").replace(/\./g,"").replace(",",".")||0; }
+
+/* ---------- tipos ---------- */
+function tipoDe(id){ return INV_TIPOS.find(function(t){ return t.id===id; })||INV_TIPOS[INV_TIPOS.length-1]; }
+function tipoDoBem(b){
+  if(b&&b.tipo) return b.tipo;
+  var nome=(b&&((b.nome||"")+" "+(b.marca||"")+" "+(b.modelo||"")))||"";
+  for(var i=0;i<INV_TIPOS.length;i++) if(INV_TIPOS[i].match.test(nome)) return INV_TIPOS[i].id;
+  return b&&b.categoria==="veiculo"?"veiculo":"outro";
+}
+function val(k){ return S.d&&S.d.c?S.d.c[k]:undefined; }
+function condOk(se){ if(!se) return true; var v=val(se.k); if(se.v==="*outro") return !!v&&v!=="Natural Engenharia"; return v===se.v; }
+
+/* ---------- IndexedDB: rascunhos e fila de envio ---------- */
+var idbP=null;
+function idb(){
+  if(idbP) return idbP;
+  idbP=new Promise(function(res){
+    try{ var rq=indexedDB.open("natural-inventario",1);
+      rq.onupgradeneeded=function(){ var db=rq.result; db.createObjectStore("rasc",{keyPath:"id"}); db.createObjectStore("fila",{keyPath:"id"}); };
+      rq.onsuccess=function(){ res(rq.result); }; rq.onerror=function(){ res(null); };
+    }catch(e){ res(null); }
+  });
+  return idbP;
+}
+function op(store,modo,fn){
+  return idb().then(function(db){ if(!db) return null;
+    return new Promise(function(res){ try{ var tx=db.transaction(store,modo), r=fn(tx.objectStore(store));
+      tx.oncomplete=function(){ res(r&&r.result!==undefined?r.result:null); }; tx.onerror=function(){ res(null); }; }catch(e){ res(null); } }); });
+}
+function rascSalvar(){
+  if(!S.d) return Promise.resolve();
+  if(!S.rascId) S.rascId=uid("RI");
+  return op("rasc","readwrite",function(st){ return st.put({id:S.rascId,tipo:S.tipo,bemId:S.bemId,d:S.d,em:new Date().toISOString(),
+    fotos:S.fotos.map(function(f){ return {slot:f.slot,blob:f.blob,tipo:f.tipo}; }),
+    docs:S.docs.map(function(f){ return {k:f.k,l:f.l,blob:f.blob,tipo:f.tipo}; })}); });
+}
+function rascLista(){ return op("rasc","readonly",function(st){ return st.getAll(); }).then(function(r){ return r||[]; }); }
+function rascApagar(id){ return op("rasc","readwrite",function(st){ return st.delete(id); }); }
+function filaLista(){ return op("fila","readonly",function(st){ return st.getAll(); }).then(function(r){ return r||[]; }); }
+function filaPut(it){ return op("fila","readwrite",function(st){ return st.put(it); }); }
+
+/* ---------- imagem ---------- */
+function reduzir(file){
+  return new Promise(function(res){
+    if(!/^image\//.test(file.type)){ res(file); return; }
+    var url=URL.createObjectURL(file), img=new Image();
+    img.onload=function(){ var M=1800, w=img.naturalWidth, h=img.naturalHeight, s=Math.min(1,M/Math.max(w,h));
+      var cv=document.createElement("canvas"); cv.width=Math.round(w*s); cv.height=Math.round(h*s);
+      cv.getContext("2d").drawImage(img,0,0,cv.width,cv.height); URL.revokeObjectURL(url);
+      cv.toBlob(function(b){ res(b||file); },"image/jpeg",0.82); };
+    img.onerror=function(){ URL.revokeObjectURL(url); res(file); };
+    img.src=url;
+  });
+}
+function b64(blob){ return new Promise(function(ok,er){ var r=new FileReader(); r.onload=function(){ ok(String(r.result).split(",")[1]); }; r.onerror=er; r.readAsDataURL(blob); }); }
+
+/* ---------- lista do Patrimônio (vem do painel pelo robô: campo.json › patrimonio) ---------- */
+function baixarPacote(silencioso){
+  return fetch(S.cfg.script+"?acao=config&token="+encodeURIComponent(S.cfg.token)+"&_="+Date.now())
+    .then(function(r){ return r.json(); }).then(function(j){
+      if(j&&j.obras){ S.pacote=j; LS.set("pacote",j); if(!silencioso) toast("Lista atualizada: "+((j.patrimonio||[]).length)+" bens no Patrimônio"); render(); return true; }
+      if(!silencioso) toast("O robô respondeu sem a lista: "+(j&&j.erro||"?")); return false;
+    }).catch(function(e){ if(!silencioso) toast("Sem internet agora — usando a lista guardada no aparelho."); return false; });
+}
+function bensLista(){ return (S.pacote&&S.pacote.patrimonio)||[]; }
+function proxPatrimonio(){
+  var mx=0, base=S.pacote&&S.pacote.patrimonioProx; var m0=/^NE-(\d+)/i.exec(base||""); if(m0) mx=+m0[1]-1;
+  bensLista().forEach(function(b){ var m=/^NE-(\d+)/i.exec(b.patrimonio||""); if(m) mx=Math.max(mx,+m[1]); });
+  (LS.get("usados",[])||[]).forEach(function(p){ var m=/^NE-(\d+)/i.exec(p||""); if(m) mx=Math.max(mx,+m[1]); });
+  return "NE-"+String(mx+1).padStart(4,"0");
+}
+
+/* ---------- navegação ---------- */
+function render(){
+  var main=$("#main"), pe=$("#pe"); pe.hidden=true; pe.innerHTML="";
+  $("#quem").textContent=S.quem?("Inventário por "+S.quem):"";
+  if(!S.quem){ pintarQuem(main); return; }
+  if(S.tela==="ficha") pintarFicha(main,pe);
+  else if(S.tela==="ajustes") pintarAjustes(main);
+  else pintarInicio(main);
+}
+function ir(t){ S.tela=t; render(); window.scrollTo(0,0); if(t!=="inicio"){ try{ history.pushState({t:t},""); }catch(e){} } }
+window.addEventListener("popstate",function(){ if(S.tela!=="inicio"){ if(S.tela==="ficha") rascSalvar(); S.tela="inicio"; render(); } });
+
+function pintarQuem(main){
+  main.innerHTML='<section class="sec"><h3>Antes de começar</h3><div class="campo"><label for="q-nome">Seu nome e sobrenome</label>'+
+    '<input type="text" id="q-nome" autocomplete="name" placeholder="Ex.: Denilson Rabelo"></div>'+
+    '<p class="dica">Fica gravado em cada ficha que você enviar. Não precisa de conta nem senha.</p>'+
+    '<button type="button" class="btn" id="q-ok">Começar</button></section>';
+  $("#q-ok").onclick=function(){ var n=$("#q-nome").value.trim(); if(n.split(/\s+/).length<2){ toast("Escreva nome e sobrenome."); return; }
+    S.quem=n; LS.set("quem",n); render(); };
+}
+function pintarAjustes(main){
+  main.innerHTML='<section class="sec"><h3>Ajustes</h3>'+
+    '<div class="campo"><label for="a-quem">Seu nome</label><input type="text" id="a-quem" value="'+esc(S.quem)+'"></div>'+
+    '<div class="campo"><label for="a-script">Endereço do Robô de Campo</label><input type="text" id="a-script" value="'+esc(S.cfg.script)+'"></div>'+
+    '<div class="campo"><label for="a-token">Chave</label><input type="text" id="a-token" value="'+esc(S.cfg.token)+'"></div>'+
+    '<button type="button" class="btn" id="a-ok">Salvar</button> <button type="button" class="btn ghost" id="a-lista">Atualizar lista do Patrimônio</button>'+
+    '<p class="dica">Versão '+VERSAO+'.</p></section>';
+  $("#a-ok").onclick=function(){ S.quem=$("#a-quem").value.trim()||S.quem; LS.set("quem",S.quem);
+    S.cfg={script:$("#a-script").value.trim()||CFG_PADRAO.script, token:$("#a-token").value.trim()||CFG_PADRAO.token}; LS.set("cfg",S.cfg); toast("Salvo."); ir("inicio"); };
+  $("#a-lista").onclick=function(){ baixarPacote(false); };
+}
+
+/* ---------- tela inicial ---------- */
+function pintarInicio(main){
+  var bens=bensLista().slice().sort(function(a,b){ return (b.faltas||[]).length-(a.faltas||[]).length; });
+  var h='<div id="filabox"></div><div id="rascbox"></div>';
+  h+='<div class="aviso">Uma ficha por unidade: dois GPS são duas fichas. O que você enviar entra no Patrimônio da Natural como <b>a validar</b> — o Ygor confere antes de valer.</div>';
+  h+='<section class="sec"><h3>Completar os bens que já estão cadastrados ('+bens.length+')</h3>'+
+    '<p class="dica">Em vermelho, o que ainda falta na ficha. Toque para completar.</p>'+
+    (bens.length?'<div class="lista">'+bens.map(function(b){ var f=b.faltas||[];
+      return '<button type="button" class="bem '+(b.validacao==="pendente"?"pend":(f.length?"":"ok"))+'" data-bem="'+esc(b.id)+'">'+
+        '<b>'+esc(b.nome||"")+(b.validacao==="pendente"?' <span class="tag">a validar</span>':'')+'</b>'+
+        '<small>'+esc(tipoDe(tipoDoBem(b)).rot)+(b.patrimonio?' · '+esc(b.patrimonio):'')+(b.local?' · '+esc(b.local):'')+'</small>'+
+        '<span class="faltas">'+(f.length?f.map(function(x){ return '<i>'+esc(x)+'</i>'; }).join(""):'<i class="ok">ficha completa</i>')+'</span></button>'; }).join("")+'</div>'
+      :'<p class="dica">A lista ainda não chegou neste aparelho. <button type="button" class="link" id="i-baixar">Baixar agora</button></p>')+'</section>';
+  h+='<section class="sec"><h3>Cadastrar item novo</h3><div class="tiles">'+
+    INV_TIPOS.map(function(t){ return '<button type="button" class="tile" data-novo="'+t.id+'"><b>'+esc(t.rot)+'</b><small>'+esc(t.sub)+'</small></button>'; }).join("")+'</div></section>';
+  h+='<section class="sec"><h3>Talvez esquecidos</h3><p class="dica">Coisas que costumam ficar de fora. Se a empresa tiver, toque e cadastre.</p><div class="chips">'+
+    INV_ESQUECIDOS.map(function(e,i){ return '<button type="button" data-esq="'+i+'">+ '+esc(e[1])+'</button>'; }).join("")+'</div></section>';
+  main.innerHTML=h;
+  var bx=$("#i-baixar"); if(bx) bx.onclick=function(){ baixarPacote(false); };
+  pintarFila(); pintarRasc();
+}
+function pintarRasc(){
+  rascLista().then(function(L){ var box=$("#rascbox"); if(!box) return;
+    if(!L.length){ box.innerHTML=""; return; }
+    box.innerHTML='<section class="sec"><h3>Fichas começadas neste aparelho ('+L.length+')</h3>'+
+      L.sort(function(a,b){ return String(b.em).localeCompare(String(a.em)); }).map(function(r){
+        return '<div class="bem pend"><b>'+esc((r.d&&r.d.c&&r.d.c.nome)||tipoDe(r.tipo).rot)+'</b><small>'+(r.fotos||[]).length+' foto(s) · '+brData(r.em)+'</small>'+
+          '<span class="acoes"><button type="button" class="btn sm" data-rasc="'+esc(r.id)+'">Continuar</button>'+
+          '<button type="button" class="btn sm ghost" data-rascdel="'+esc(r.id)+'">Descartar</button></span></div>'; }).join("")+'</section>';
+  });
+}
+function pintarFila(){
+  filaLista().then(function(L){ S.fila=L; var box=$("#filabox"); if(!box) return;
+    var pend=L.filter(function(x){ return x.status!=="enviado"; }), erro=pend.filter(function(x){ return x.status==="erro"; });
+    var fichas={}; pend.forEach(function(x){ fichas[x.fichaId]=x.bemNome||"ficha"; });
+    if(!pend.length){ var env=L.filter(function(x){ return x.status==="enviado"&&x.papel==="ficha"; }).length;
+      box.innerHTML=env?'<div class="aviso ok">Tudo enviado. '+env+(env===1?" ficha já foi":" fichas já foram")+' para o Drive — o painel recebe em até 1 hora.</div>':''; return; }
+    box.innerHTML='<div class="aviso'+(erro.length?" neg":"")+'"><b>'+pend.length+' arquivo(s) esperando para subir</b> ('+Object.keys(fichas).length+' ficha(s): '+esc(Object.values(fichas).join(", "))+').<br>'+
+      (S.enviando?"Enviando agora…":(navigator.onLine?(erro.length?"Último erro: "+esc(erro[0].erro||"")+"":"Vai subir em instantes."):"Sem internet — sobe sozinho quando o sinal voltar."))+
+      (!S.enviando?' <button type="button" class="link" id="f-enviar">Enviar agora</button>':'')+'</div>';
+    var b=$("#f-enviar"); if(b) b.onclick=function(){ enviarFila(true); };
+  });
+}
+
+/* ---------- ficha ---------- */
+function novaFicha(tipoId, bemId, nomeSug){
+  var t=tipoDe(tipoId), b=bemId?bensLista().find(function(x){ return x.id===bemId; }):null;
+  S.tipo=t.id; S.bemId=bemId||null; S.rascId=null; S.fotos=[]; S.docs=[];
+  var c={ nome:b?b.nome:(nomeSug||t.rot), marca:(b&&b.marca)||t.marca||"", modelo:(b&&b.modelo)||t.modelo||"",
+    serie:(b&&b.serie)||"", patrimonio:(b&&b.patrimonio)||proxPatrimonio(), local:(b&&b.local)||"",
+    centro:(b&&b.centro)||t.centro||"", situacao:"ativo" };
+  if(t.veic&&b&&b.serie&&/^[A-Z]{3}-?\d[A-Z0-9]\d{2}$/i.test(b.serie)){ c.placa=b.serie.toUpperCase(); c.temPlaca="Sim"; }
+  S.d={c:c, acess:{}, itens:itensPadrao(t), venc:{}, obs:""};
+  ir("ficha");
+}
+function itensPadrao(t){ var L=[]; (t.secoes||[]).forEach(function(s){ (s.itens||[]).forEach(function(it){ L.push({i:it.i,q:"",c:"",d:"",est:"",m:!!it.m,dz:!!it.d}); }); }); return L; }
+function campoHtml(f){
+  if(!condOk(f.se)) return "";
+  var v=val(f.k), id="c-"+f.k, h='<div class="campo">';
+  if(f.t==="r"||f.t==="c"){
+    h+='<span class="lb">'+esc(f.l)+'</span><div class="ops'+(f.t==="c"?" chk":"")+'" data-ops="'+f.k+'" data-multi="'+(f.t==="c"?1:0)+'">'+
+      f.op.map(function(o){ var on=f.t==="c"?(Array.isArray(v)&&v.indexOf(o)>=0):v===o;
+        return '<button type="button" class="'+(on?"on":"")+'" data-v="'+esc(o)+'">'+esc(o)+'</button>'; }).join("")+'</div>';
+  } else if(f.t==="sel"){
+    h+='<label for="'+id+'">'+esc(f.l)+'</label><select id="'+id+'" data-k="'+f.k+'">'+
+      f.op.map(function(o){ return '<option value="'+esc(o[0])+'"'+(v===o[0]?" selected":"")+'>'+esc(o[1])+'</option>'; }).join("")+'</select>';
+  } else if(f.t==="ta"){
+    h+='<label for="'+id+'">'+esc(f.l)+'</label><textarea id="'+id+'" data-k="'+f.k+'">'+esc(v||"")+'</textarea>';
+  } else {
+    var tp=f.t==="d"?"date":"text", mod=f.t==="n"?"decimal":(f.mod||"text");
+    var inp='<input type="'+tp+'" id="'+id+'" data-k="'+f.k+'"'+(f.up?' data-up="1" autocapitalize="characters"':'')+' inputmode="'+mod+'" value="'+esc(v||"")+'">';
+    h+='<label for="'+id+'">'+esc(f.l)+'</label>'+(f.u?'<div class="un">'+inp+'<span>'+esc(f.u)+'</span></div>':inp);
+  }
+  if(f.dica) h+='<p class="dica">'+esc(f.dica)+'</p>';
+  return h+'</div>';
+}
+function acessHtml(lista){
+  var A=S.d.acess, todos=lista.concat(Object.keys(A).filter(function(k){ return lista.indexOf(k)<0; }));
+  return '<div class="acess">'+todos.map(function(nm){ var a=A[nm]||{}, k=esc(nm);
+    return '<div class="acl"><span class="nm">'+esc(nm)+'</span><span class="sw">'+
+      '<button type="button" class="s'+(a.tem==="s"?" on":"")+'" data-ac="'+k+'" data-v="s">Tem</button>'+
+      '<button type="button" class="n'+(a.tem==="n"?" on":"")+'" data-ac="'+k+'" data-v="n">Não</button></span>'+
+      (a.tem==="s"?'<span class="ex"><input inputmode="numeric" placeholder="qtd" data-acq="'+k+'" value="'+esc(a.q||"")+'"><input placeholder="nº de série / obs." data-aco="'+k+'" value="'+esc(a.o||"")+'"></span>':'')+'</div>';
+  }).join("")+'<button type="button" class="btn sm ghost" data-acnovo="1">+ outro acessório</button></div>';
+}
+function metros(it){ return Math.round(num(it.q)*num(it.c)*100)/100; }
+function itensHtml(){
+  return '<div class="itens">'+S.d.itens.map(function(it,ix){ var tot=it.m&&metros(it);
+    return '<div class="it"><div class="l1"><input class="nm" data-it="'+ix+'" data-f="i" value="'+esc(it.i)+'" placeholder="peça"><button type="button" class="x" data-itdel="'+ix+'" aria-label="Tirar linha">×</button></div>'+
+      '<div class="l2"><label>Quantidade<input inputmode="numeric" data-it="'+ix+'" data-f="q" value="'+esc(it.q||"")+'"></label>'+
+      (it.m?'<label>Comprimento de cada (m)<input inputmode="decimal" data-it="'+ix+'" data-f="c" value="'+esc(it.c||"")+'"></label>'
+           :'<label>'+(it.dz?"Diâmetros":"Detalhe")+'<input data-it="'+ix+'" data-f="d" value="'+esc(it.d||"")+'"></label>')+
+      '<label>Estado<input data-it="'+ix+'" data-f="est" value="'+esc(it.est||"")+'" placeholder="bom / gasto"></label></div>'+
+      (it.m?'<div class="tot" data-tot="'+ix+'">Total: <b>'+(tot?String(tot).replace(".",","):"—")+' m</b></div>':'')+'</div>';
+  }).join("")+'<span class="acoes"><button type="button" class="btn sm ghost" data-itnovo="0">+ peça</button><button type="button" class="btn sm ghost" data-itnovo="1">+ peça medida em metros</button></span><div class="tot" id="totm"></div></div>';
+}
+function totMetros(){ var el=$("#totm"); if(!el) return;
+  var L=S.d.itens.filter(function(it){ return it.m&&metros(it); });
+  el.innerHTML=L.length?"Metragem: "+L.map(function(it){ return esc(it.i)+" <b>"+String(metros(it)).replace(".",",")+" m</b>"; }).join(" · "):""; }
+function slotHtml(slot, lista, img, rot, req){
+  var fs=lista.filter(function(f){ return (img?f.slot:f.k)===slot; });
+  return '<div class="slot"><div class="tt"><b>'+esc(rot)+(req?' <span class="req">*</span>':'')+'</b>'+
+    (img?'<label class="bt">Câmera<input type="file" accept="image/*" capture="environment" data-foto="'+esc(slot)+'"></label><label class="bt">Galeria<input type="file" accept="image/*" multiple data-foto="'+esc(slot)+'"></label>'
+        :'<label class="bt">Fotografar<input type="file" accept="image/*" capture="environment" data-doc="'+esc(slot)+'"></label><label class="bt">Arquivo<input type="file" accept="image/*,application/pdf" data-doc="'+esc(slot)+'"></label>')+
+    '</div><div class="thumbs">'+fs.map(function(f){ var ix=lista.indexOf(f);
+      return '<figure>'+(f.tipo==="application/pdf"?'<div class="pdf">PDF</div>':'<img alt="" src="'+f.url+'">')+'<button type="button" data-tirar="'+(img?"f":"d")+ix+'" aria-label="Tirar">×</button></figure>'; }).join("")+'</div></div>';
+}
+function pintarFicha(main, pe){
+  var t=tipoDe(S.tipo), c=S.d.c, b=S.bemId?bensLista().find(function(x){ return x.id===S.bemId; }):null;
+  S.fotos.concat(S.docs).forEach(function(f){ if(!f.url) f.url=URL.createObjectURL(f.blob); });
+  var h='<h2 class="tit">'+(b?"Completar: ":"Novo: ")+esc(t.rot)+'</h2>';
+  if(b&&b.validacao==="pendente") h+='<div class="aviso">Este bem já tem uma ficha esperando o Ygor validar. Se você enviar outra, a mais nova é a que vale.</div>';
+  if(t.aviso) h+='<div class="aviso">'+esc(t.aviso)+'</div>';
+  if(!b) h+='<section class="sec"><h3>Tipo</h3><div class="campo"><label for="c-tipo">O que é</label><select id="c-tipo">'+
+    INV_TIPOS.map(function(x){ return '<option value="'+x.id+'"'+(x.id===t.id?" selected":"")+'>'+esc(x.rot)+'</option>'; }).join("")+'</select></div></section>';
+  h+='<section class="sec"><h3>Identificação</h3>'+campoHtml({k:"nome",l:"Nome do bem",t:"tx",dica:"Como a equipe chama. Ex.: GNSS RTK CHC i73+ (base)"})+
+    '<div class="g2">'+campoHtml({k:"marca",l:"Marca",t:"tx"})+campoHtml({k:"modelo",l:"Modelo",t:"tx"})+'</div>'+
+    '<div class="g2">'+campoHtml({k:"serie",l:t.veic?"Chassi ou outro identificador":"Nº de série",t:"tx",up:1})+
+    campoHtml({k:"patrimonio",l:"Nº de patrimônio (etiqueta)",t:"tx",up:1,dica:"Sugerido. Escreva na etiqueta e cole no bem."})+'</div></section>';
+  (t.secoes||[]).forEach(function(s){ h+='<section class="sec"><h3>'+esc(s.t)+'</h3>'+(s.campos?s.campos.map(campoHtml).join(""):"")+(s.acess?acessHtml(s.acess):"")+(s.itens?itensHtml():"")+'</section>'; });
+  if(t.veic&&c.temPlaca!=="Não (não emplacado)") h+='<section class="sec"><h3>Valor de mercado (FIPE)</h3><p class="dica">O escritório consulta a tabela FIPE com estes dados. Quanto mais exata a versão, mais certo o valor.</p>'+
+    campoHtml({k:"fipeVersao",l:"Versão exata (como está no documento)",t:"tx",dica:"Ex.: RANGER XL 2.0 4X4 CD DIESEL MANUAL"})+
+    campoHtml({k:"fipeCodigo",l:"Código FIPE (se souber)",t:"tx"})+'</section>';
+  h+='<section class="sec"><h3>Estado</h3>'+campoHtml({k:"conserv",l:"Conservação",t:"r",op:["Novo","Bom","Regular","Ruim","Sucata"]})+
+    campoHtml({k:"funciona",l:"Está funcionando?",t:"r",op:["Sim","Com defeito","Não","Não testei"]})+
+    campoHtml({k:"defeito",l:"Qual o defeito ou avaria?",t:"ta",se:{k:"funciona",v:"Com defeito"}})+
+    campoHtml({k:"defeito2",l:"Por que não funciona?",t:"ta",se:{k:"funciona",v:"Não"}})+'</section>';
+  var equipe=((S.pacote&&S.pacote.equipe)||[]);
+  h+='<section class="sec"><h3>Onde está e com quem</h3>'+
+    campoHtml({k:"situacao",l:"Situação",t:"sel",op:[["ativo","Em uso"],["manutencao","Em manutenção"],["emprestado","Emprestado"],["aguardando","Não entregue (pago, não chegou)"]]})+
+    campoHtml({k:"local",l:"Onde fica",t:"tx",dica:"Ex.: escritório, galpão, caminhonete, obra X"})+
+    (equipe.length?'<div class="campo"><label for="c-resp">Com quem está</label><select id="c-resp" data-k="resp"><option value="">— ninguém em particular —</option>'+
+      equipe.map(function(f){ return '<option value="'+esc(f.id)+'"'+(c.resp===f.id?" selected":"")+'>'+esc(f.nome)+'</option>'; }).join("")+'</select></div>'
+      :campoHtml({k:"respNome",l:"Com quem está",t:"tx"}))+'</section>';
+  h+='<section class="sec"><h3>Compra</h3>'+campoHtml({k:"nfTem",l:"Tem nota fiscal ou recibo?",t:"r",op:["Tem","Não tem","Não sei"]})+
+    '<p class="dica">Data e valor só com o documento na mão. Sem ele, deixe em branco.</p>'+
+    '<div class="g2">'+campoHtml({k:"aquisicao",l:"Data da compra",t:"d"})+campoHtml({k:"valor",l:"Valor de compra (R$)",t:"tx",mod:"decimal"})+'</div>'+
+    campoHtml({k:"fornecedor",l:"Onde foi comprado",t:"tx"})+campoHtml({k:"garantia",l:"Garantia até",t:"d"})+'</section>';
+  if((t.venc||[]).length) h+='<section class="sec"><h3>Vencimentos</h3><p class="dica">Cada data vira um aviso no painel da Natural.</p>'+
+    t.venc.map(function(v){ return '<div class="campo"><label for="v-'+v.k+'">'+esc(v.l)+'</label><input type="date" id="v-'+v.k+'" data-venc="'+v.k+'" value="'+esc(S.d.venc[v.k]||"")+'"></div>'; }).join("")+'</section>';
+  h+='<section class="sec"><h3>Documentos</h3><p class="dica">Vão para a pasta do bem no Drive, para achar fácil quando precisar.</p>'+
+    (t.docs||[]).map(function(d){ return slotHtml(d.k,S.docs,false,d.l,d.req&&condOk(d.req)); }).join("")+slotHtml("outro",S.docs,false,"Outro documento")+
+    (t.veic&&c.temPlaca==="Sim"&&!S.docs.some(function(d){ return d.k==="crlv"; })?
+      '<div class="ops chk" data-ops="crlvDepois" data-multi="1"><button type="button" class="'+(Array.isArray(c.crlvDepois)&&c.crlvDepois.length?"on":"")+'" data-v="Não estou com o CRLV agora — mando depois">Não estou com o CRLV agora — mando depois</button></div>':'')+'</section>';
+  h+='<section class="sec"><h3>Fotos</h3><p class="dica">Uma boa foto da etiqueta de série vale mais que três de longe.</p>'+
+    (t.fotos||[]).map(function(s,i){ return slotHtml(s,S.fotos,true,s,i===0); }).join("")+slotHtml("Outras fotos",S.fotos,true,"Outras fotos")+'</section>';
+  h+='<section class="sec"><h3>Observações</h3><div class="campo"><textarea data-obs="1" placeholder="O que mais o escritório precisa saber deste bem">'+esc(S.d.obs||"")+'</textarea></div></section><div id="faltam"></div>';
+  main.innerHTML=h;
+  pe.hidden=false;
+  pe.innerHTML='<button type="button" class="btn ghost" data-guardar="1">Guardar e continuar depois</button><button type="button" class="btn" data-enviar="1">Enviar</button>';
+  totMetros(); pintarFaltam();
+}
+function avisos(){
+  var t=tipoDe(S.tipo), c=S.d.c, L=[];
+  if(!String(c.nome||"").trim()) L.push("dê um nome ao bem");
+  if(!c.serie&&!(t.veic&&c.placa)) L.push("sem nº de série — fotografe a etiqueta se não conseguir ler");
+  if(!S.fotos.length) L.push("nenhuma foto");
+  if(t.veic&&!c.temPlaca) L.push("diga se o veículo tem placa");
+  if(t.veic&&c.temPlaca==="Sim"&&!c.placa) L.push("falta a placa");
+  if(t.veic&&c.temPlaca==="Sim"&&!S.docs.some(function(d){ return d.k==="crlv"; })&&!(Array.isArray(c.crlvDepois)&&c.crlvDepois.length)) L.push("veículo com placa precisa do CRLV (ou marque que manda depois)");
+  if(t.veic&&c.temPlaca==="Sim"&&!S.d.venc.licenc) L.push("falta a validade do licenciamento (está no CRLV)");
+  return L;
+}
+function bloqueios(){
+  var t=tipoDe(S.tipo), c=S.d.c, L=[];
+  if(!String(c.nome||"").trim()) L.push("Dê um nome ao bem.");
+  if(t.veic&&!c.temPlaca) L.push("Diga se o veículo tem placa.");
+  if(t.veic&&c.temPlaca==="Sim"&&!S.docs.some(function(d){ return d.k==="crlv"; })&&!(Array.isArray(c.crlvDepois)&&c.crlvDepois.length)) L.push("Veículo com placa: anexe o CRLV ou marque que manda depois.");
+  return L;
+}
+function pintarFaltam(){ var el=$("#faltam"); if(!el) return; var L=avisos();
+  el.innerHTML=L.length?'<div class="aviso"><b>Antes de enviar, confira:</b><br>'+L.map(function(x){ return "• "+esc(x); }).join("<br>")+'</div>':''; }
+
+var tmr=null; function salvarLogo(){ clearTimeout(tmr); tmr=setTimeout(rascSalvar,900); }
+function repintar(){ var y=window.scrollY; render(); window.scrollTo(0,y); }
+document.addEventListener("input",function(ev){ var el=ev.target; if(S.tela!=="ficha"||!S.d) return;
+  if(el.dataset.k){ var v=el.value; if(el.dataset.up) v=v.toUpperCase(); S.d.c[el.dataset.k]=v; pintarFaltam(); salvarLogo(); return; }
+  if(el.dataset.venc){ S.d.venc[el.dataset.venc]=el.value; pintarFaltam(); salvarLogo(); return; }
+  if(el.dataset.obs){ S.d.obs=el.value; salvarLogo(); return; }
+  if(el.dataset.acq!==undefined){ (S.d.acess[el.dataset.acq]=S.d.acess[el.dataset.acq]||{}).q=el.value; salvarLogo(); return; }
+  if(el.dataset.aco!==undefined){ (S.d.acess[el.dataset.aco]=S.d.acess[el.dataset.aco]||{}).o=el.value; salvarLogo(); return; }
+  if(el.dataset.it!==undefined){ var it=S.d.itens[+el.dataset.it]; if(!it) return; it[el.dataset.f]=el.value;
+    var tt=document.querySelector('[data-tot="'+el.dataset.it+'"]'); if(tt&&it.m){ var tot=metros(it); tt.innerHTML='Total: <b>'+(tot?String(tot).replace(".",","):"—")+' m</b>'; }
+    totMetros(); salvarLogo(); }
+});
+document.addEventListener("change",function(ev){ var el=ev.target; if(S.tela!=="ficha"||!S.d) return;
+  if(el.id==="c-tipo"){ S.tipo=el.value; var t=tipoDe(el.value); S.d.itens=itensPadrao(t); if(!S.d.c.centro) S.d.c.centro=t.centro; repintar(); return; }
+  if(el.dataset.k&&el.tagName==="SELECT"){ S.d.c[el.dataset.k]=el.value; salvarLogo(); return; }
+  if(el.dataset.foto!==undefined||el.dataset.doc!==undefined){
+    var ehFoto=el.dataset.foto!==undefined, slot=ehFoto?el.dataset.foto:el.dataset.doc, files=[].slice.call(el.files||[]); el.value="";
+    Promise.all(files.map(function(f){ return reduzir(f).then(function(b){ return {slot:slot,k:slot,blob:b,tipo:b.type||f.type||"image/jpeg",url:URL.createObjectURL(b)}; }); }))
+    .then(function(L){ L.forEach(function(x){ if(ehFoto) S.fotos.push(x); else { x.l=((tipoDe(S.tipo).docs||[]).find(function(q){ return q.k===slot; })||{l:"Outro documento"}).l; S.docs.push(x); } });
+      rascSalvar(); repintar(); });
+  }
+});
+document.addEventListener("click",function(ev){
+  var b=ev.target.closest("button"); if(!b) return; var ds=b.dataset;
+  if(b.id==="h-ajustes"){ ir("ajustes"); return; }
+  if(b.id==="h-inicio"){ if(S.tela==="ficha") rascSalvar(); S.tela="inicio"; render(); return; }
+  if(ds.bem){ var bem=bensLista().find(function(x){ return x.id===ds.bem; }); novaFicha(tipoDoBem(bem), ds.bem); return; }
+  if(ds.novo){ novaFicha(ds.novo); return; }
+  if(ds.esq!==undefined){ var e=INV_ESQUECIDOS[+ds.esq]; novaFicha(e[0],null,e[1]); return; }
+  if(ds.rasc){ rascLista().then(function(L){ var r=L.find(function(x){ return x.id===ds.rasc; }); if(!r) return;
+      S.tipo=r.tipo; S.bemId=r.bemId; S.rascId=r.id; S.d=r.d;
+      S.fotos=(r.fotos||[]).map(function(f){ return {slot:f.slot,k:f.slot,blob:f.blob,tipo:f.tipo}; });
+      S.docs=(r.docs||[]).map(function(f){ return {slot:f.k,k:f.k,l:f.l,blob:f.blob,tipo:f.tipo}; });
+      ir("ficha"); }); return; }
+  if(ds.rascdel){ if(!window.confirm("Descartar esta ficha começada? As fotos dela se perdem.")) return; rascApagar(ds.rascdel).then(render); return; }
+  if(S.tela!=="ficha"||!S.d) return;
+  var ops=b.closest("[data-ops]");
+  if(ops){ var k=ops.dataset.ops, v=ds.v;
+    if(ops.dataset.multi==="1"){ var arr=Array.isArray(S.d.c[k])?S.d.c[k].slice():[]; var i=arr.indexOf(v); if(i>=0) arr.splice(i,1); else arr.push(v); S.d.c[k]=arr; }
+    else S.d.c[k]=(S.d.c[k]===v?"":v);
+    salvarLogo(); repintar(); return; }
+  if(ds.ac!==undefined){ var a=S.d.acess[ds.ac]=S.d.acess[ds.ac]||{}; a.tem=(a.tem===ds.v?"":ds.v); salvarLogo(); repintar(); return; }
+  if(ds.acnovo){ var nm=(window.prompt("Nome do acessório")||"").trim(); if(!nm) return; S.d.acess[nm]={tem:"s"}; salvarLogo(); repintar(); return; }
+  if(ds.itnovo!==undefined){ S.d.itens.push({i:"",q:"",c:"",d:"",est:"",m:ds.itnovo==="1"}); salvarLogo(); repintar(); return; }
+  if(ds.itdel!==undefined){ S.d.itens.splice(+ds.itdel,1); salvarLogo(); repintar(); return; }
+  if(ds.tirar){ (ds.tirar[0]==="f"?S.fotos:S.docs).splice(+ds.tirar.slice(1),1); rascSalvar(); repintar(); return; }
+  if(ds.guardar){ rascSalvar().then(function(){ toast("Guardado neste aparelho. Continue quando quiser, mesmo sem internet."); S.tela="inicio"; render(); }); return; }
+  if(ds.enviar){ enviar(); return; }
+});
+
+/* ---------- enviar: vira itens da fila; a ficha em JSON vai por último ---------- */
+function montar(fichaId){
+  var t=tipoDe(S.tipo), c=S.d.c, cat=t.id==="outro"?(c.catLivre||"equipamento"):t.cat;
+  var serie=c.serie||""; if(t.veic&&c.placa&&!serie) serie=c.placa;
+  var acess={}; Object.keys(S.d.acess).forEach(function(k){ var a=S.d.acess[k]; if(a&&a.tem) acess[k]={tem:a.tem,q:a.q||"",o:a.o||""}; });
+  var itens=S.d.itens.filter(function(it){ return it.i&&(it.q||it.c||it.d||it.est); }).map(function(it){
+    var o={i:it.i,q:it.q||"",d:it.d||"",est:it.est||""}; if(it.m){ o.c=it.c||""; o.m=true; o.metros=metros(it); } return o; });
+  return {app:"inventario", versao:VERSAO, fichaId:fichaId, bemId:S.bemId||"", tipo:t.id, tipoRot:t.rot, quem:S.quem, em:new Date().toISOString(),
+    proposto:{nome:String(c.nome||"").trim(), categoria:cat, marca:(c.marca||"").trim(), modelo:(c.modelo||"").trim(), serie:serie.trim(),
+      patrimonio:(c.patrimonio||"").trim(), aquisicao:c.aquisicao||"", valor:Math.round(num(c.valor)*100)/100, situacao:c.situacao||"ativo",
+      centro:c.centro||t.centro||"", responsavelId:c.resp||"", local:(c.local||"").trim()},
+    c:c, acess:acess, itens:itens, venc:S.d.venc, obs:S.d.obs||"",
+    fipe:(t.veic&&c.temPlaca==="Sim")?{pedir:true, versao:c.fipeVersao||"", codigo:c.fipeCodigo||"", anoModelo:c.anoMod||"", combustivel:c.comb||""}:null,
+    arquivos:[]};
+}
+function enviar(){
+  var bl=bloqueios(); if(bl.length){ toast(bl.join(" "),5200); pintarFaltam(); return; }
+  var fichaId=uid("FI"), ficha=montar(fichaId), p=ficha.proposto;
+  var pasta=("PATRIMONIO - "+(p.patrimonio||"SEM NUMERO")+" - "+limparNome(p.nome).toUpperCase()).slice(0,70)+" ("+fichaId.slice(-6)+")";
+  var pref=arq(p.patrimonio||"BEM"), dia=hojeBV(), hr=horaBV(), itens=[];
+  S.fotos.forEach(function(f,i){ var nome=dia+"_"+hr+"_"+pref+"_foto_"+arq(f.slot)+"_"+(i+1)+".jpg";
+    ficha.arquivos.push({nome:nome,papel:"foto",slot:f.slot});
+    itens.push({blob:f.blob,mime:f.tipo||"image/jpeg",nome:nome,papel:"foto",slot:f.slot}); });
+  S.docs.forEach(function(d,i){ var ext=d.tipo==="application/pdf"?".pdf":".jpg", nome=dia+"_"+hr+"_"+pref+"_doc_"+arq(d.k==="outro"?"documento":d.k)+"_"+(i+1)+ext;
+    ficha.arquivos.push({nome:nome,papel:"doc",k:d.k,l:d.l});
+    itens.push({blob:d.blob,mime:d.tipo||"image/jpeg",nome:nome,papel:"doc",slot:d.k}); });
+  var nomeFicha=dia+"_"+hr+"_"+pref+"_ficha_inventario.json";
+  itens.push({blob:new Blob([JSON.stringify(ficha,null,1)],{type:"application/json"}),mime:"application/json",nome:nomeFicha,papel:"ficha",slot:"ficha"});
+  var agora=new Date().toISOString();
+  var regs=itens.map(function(it,i){ return {id:fichaId+"-"+String(i).padStart(3,"0"), fichaId:fichaId, bemNome:p.nome, obraId:"PATRIMONIO", obraNome:pasta,
+    tipo:"inventario", slot:it.slot, slotTitulo:it.papel, nome:it.nome, mime:it.mime, blob:it.blob, papel:it.papel, status:"pendente", criadoEm:agora,
+    meta:{app:"inventario", fichaId:fichaId, papel:it.papel, bemId:S.bemId||"", patrimonio:p.patrimonio, bem:p.nome, ultimo:it.papel==="ficha"}}; });
+  Promise.all(regs.map(filaPut)).then(function(){
+    var us=LS.get("usados",[]); if(p.patrimonio&&us.indexOf(p.patrimonio)<0){ us.push(p.patrimonio); LS.set("usados",us); }
+    return S.rascId?rascApagar(S.rascId):null;
+  }).then(function(){
+    S.d=null; S.rascId=null; S.fotos=[]; S.docs=[]; S.tela="inicio"; render(); window.scrollTo(0,0);
+    toast(navigator.onLine?"Ficha na fila de envio. Subindo…":"Sem internet: a ficha ficou no aparelho e sobe quando o sinal voltar.",4200);
+    enviarFila(false);
+  });
+}
+function enviarFila(manual){
+  if(S.enviando) return; if(!navigator.onLine){ if(manual) toast("Sem internet agora."); pintarFila(); return; }
+  S.enviando=true; pintarFila();
+  filaLista().then(function(L){
+    var pend=L.filter(function(x){ return x.status!=="enviado"; }).sort(function(a,b){ return a.id.localeCompare(b.id); });
+    var p=Promise.resolve(), parar=false;
+    pend.forEach(function(it){ p=p.then(function(){ if(parar) return;
+      return b64(it.blob).then(function(b){
+        var corpo={token:S.cfg.token, acao:"enviar", id:it.id, obraId:it.obraId, obraNome:it.obraNome, quem:S.quem, tipo:it.tipo, slot:it.slot, slotTitulo:it.slotTitulo,
+          nome:it.nome, mime:it.mime, meta:it.meta, criadoEm:it.criadoEm, b64:b};
+        return fetch(S.cfg.script,{method:"POST",body:JSON.stringify(corpo)}).then(function(r){ return r.json().catch(function(){ return {ok:false,erro:"resposta inválida"}; }); });
+      }).then(function(j){
+        if(j.ok){ it.status="enviado"; it.enviadoEm=new Date().toISOString(); it.url=j.url||""; it.blob=null; it.erro=null; }
+        else { it.status="erro"; it.erro=j.erro||"erro"; parar=true; }
+        return filaPut(it);
+      }).catch(function(e){ it.status="pendente"; it.erro=null; parar=true; return filaPut(it); })
+        .then(pintarFila);
+    }); });
+    return p;
+  }).then(function(){ S.enviando=false; pintarFila(); });
+}
+window.addEventListener("online",function(){ enviarFila(false); });
+
+/* ---------- início ---------- */
+(function(){
+  S.cfg=LS.get("cfg",null)||CFG_PADRAO; S.quem=LS.get("quem",""); S.pacote=LS.get("pacote",null);
+  render();
+  var qb=null; try{ qb=new URLSearchParams(location.search).get("bem"); }catch(e){}
+  function abrirQb(){ if(!qb||!S.quem) return; var bem=bensLista().find(function(x){ return x.id===qb; }); if(bem){ qb=null; novaFicha(tipoDoBem(bem), bem.id); } }
+  abrirQb();
+  baixarPacote(true).then(function(){ abrirQb(); enviarFila(false); });
+  setInterval(function(){ enviarFila(false); }, 60000);
+  if("serviceWorker" in navigator){ try{ navigator.serviceWorker.register("sw.js"); }catch(e){} }
+})();
+
+</script>
+</body>
+</html>
