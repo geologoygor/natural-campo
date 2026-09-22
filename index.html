@@ -192,14 +192,14 @@ details[open] summary::after{content:"–"}
 <div class="toast" id="toast"></div>
 <canvas id="cv" class="hide"></canvas>
 
-<script src="fichas.js?v=1.5.1"></script>
+<script src="fichas.js?v=1.6.0"></script>
 <script>
 /* ============================================================
    CAMPO · Natural Engenharia — app de campo (PWA)
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.5.1';
+const APP_VERSAO = '1.6.0';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -468,11 +468,12 @@ async function enfileirarFoto(blobOriginal, opts){
   const carimbo=await carimbar(bmp,{obra:ob.nome, quem:S.quem, slot:opts.slotTitulo, pos, fonte, data, fmt:S.fmt, marca:S.marca});
   const comExif=await inserirExif(carimbo,{data, gps:pos?{lat:pos.lat,lon:pos.lon,alt:pos.alt}:null, desc:`${ob.nome} · ${opts.slotTitulo||''} · ${S.quem||''}`});
   const id='F'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-  const stamp=new Date(); const nomeBase=`${hoje()}_${String(stamp.getHours()).padStart(2,'0')}${String(stamp.getMinutes()).padStart(2,'0')}${String(stamp.getSeconds()).padStart(2,'0')}_${slug(opts.slotTitulo||'foto')}`;
+  const stamp=new Date(); const nomeBase= opts.slot==='marco' ? `${hoje()}_${String(stamp.getHours()).padStart(2,'0')}${String(stamp.getMinutes()).padStart(2,'0')}${String(stamp.getSeconds()).padStart(2,'0')}_MARCO_${(opts.extra&&opts.extra.marco)||'SEM_CODIGO'}` : `${hoje()}_${String(stamp.getHours()).padStart(2,'0')}${String(stamp.getMinutes()).padStart(2,'0')}${String(stamp.getSeconds()).padStart(2,'0')}_${slug(opts.slotTitulo||'foto')}`;
   const thumb=await miniatura(bmp);
   const meta={ lat:pos?.lat??null, lon:pos?.lon??null, acc:pos?.acc??null, alt:pos?.alt??null, fmt:S.fmt, utm:pos?toUTM(pos.lat,pos.lon):null, fonte, marca:S.marca, quando:data.toISOString(), origem:opts.fonte, app:APP_VERSAO, extra:opts.extra||null };
   await DB.put({ id, tipo:'foto', obraId:ob.id, obraNome:ob.nome, pastaId:ob.pastaId||null, quem:S.quem, slot:opts.slot, slotTitulo:opts.slotTitulo, nome:nomeBase+'.jpg', mime:'image/jpeg', blob:comExif, thumb, meta, status:'pendente', criadoEm:new Date().toISOString() });
-  if(S.original && opts.fonte==='camera'){ // original limpo (sem carimbo) para o marketing
+  if(opts.slot==='marco'){ /* marco: sem cópia original; o robô nomeia pelo código e gera o KML */ }
+  else if(S.original && opts.fonte==='camera'){ // original limpo (sem carimbo) para o marketing
     await DB.put({ id:id+'o', tipo:'foto', obraId:ob.id, obraNome:ob.nome, pastaId:ob.pastaId||null, quem:S.quem, slot:opts.slot, slotTitulo:opts.slotTitulo, nome:nomeBase+'_original.jpg', mime:'image/jpeg', blob:await inserirExif(blobOriginal.type==='image/jpeg'?blobOriginal:carimbo,{data,gps:pos?{lat:pos.lat,lon:pos.lon,alt:pos.alt}:null,desc:ob.nome}), thumb:null, meta:Object.assign({},meta,{original:true}), status:'pendente', criadoEm:new Date().toISOString() }); }
   else if(S.original && opts.fonte==='galeria'){
     await DB.put({ id:id+'o', tipo:'foto', obraId:ob.id, obraNome:ob.nome, pastaId:ob.pastaId||null, quem:S.quem, slot:opts.slot, slotTitulo:opts.slotTitulo, nome:nomeBase+'_original.'+(blobOriginal.type.split('/')[1]||'jpg').replace('jpeg','jpg'), mime:blobOriginal.type||'image/jpeg', blob:blobOriginal, thumb:null, meta:Object.assign({},meta,{original:true}), status:'pendente', criadoEm:new Date().toISOString() }); }
@@ -503,7 +504,7 @@ async function enviarFila(){
         const corpo={ token:S.cfg.token, acao:'enviar', id:it.id, obraId:it.obraId, obraNome:it.obraNome, pastaId:it.pastaId, quem:it.quem, tipo:it.tipo, slot:it.slot, slotTitulo:it.slotTitulo, nome:it.nome, mime:it.mime, meta:it.meta, criadoEm:it.criadoEm, b64: await b64(it.blob) };
         const r=await fetch(S.cfg.script,{method:'POST',body:JSON.stringify(corpo)});
         const j=await r.json().catch(()=>({ok:false,erro:'resposta inválida'}));
-        if(j.ok){ it.status='enviado'; it.enviadoEm=new Date().toISOString(); it.url=j.url||null; it.pasta=j.pasta||null; it.blob=null; it.erro=null; }
+        if(j.ok){ it.status='enviado'; it.enviadoEm=new Date().toISOString(); it.url=j.url||null; it.pasta=j.pasta||null; it.marco=j.marco||null; it.blob=null; it.erro=null; }
         else { it.status='erro'; it.erro=j.erro||('HTTP '+r.status); }
       }catch(e){ if(e instanceof TypeError || !navigator.onLine){ it.status='pendente'; it.erro=null; await DB.put(it); break; } it.status='erro'; it.erro=String(e.message||e); }
       await DB.put(it); pintarFila();
@@ -523,7 +524,7 @@ async function baixarPacote(silencioso){
 /* ---------------- Câmera ---------------- */
 const CAM={ stream:null, facing:'environment', slot:null };
 async function abrirCamera(slot, titulo){
-  CAM.slot=slot; CAM.slotTitulo=titulo||null; const sel=$('#camSlot'); const lista=slotsDaObra(); if(titulo && !lista.some(s=>s.k===slot)) lista.unshift({k:slot,t:titulo}); sel.innerHTML=lista.map(s=>`<option value="${esc(s.k)}" ${s.k===slot?'selected':''}>${esc(s.t)}</option>`).join('');
+  CAM.slot=slot; CAM.slotTitulo=titulo||null; const sel=$('#camSlot'); const lista=slotsDaObra(); if(titulo){ const ex=lista.find(s=>s.k===slot); if(ex) ex.t=titulo; else lista.unshift({k:slot,t:titulo}); } sel.innerHTML=lista.map(s=>`<option value="${esc(s.k)}" ${s.k===slot?'selected':''}>${esc(s.t)}</option>`).join('');
   $('#cam').classList.add('on'); abrirCamHist(); pintarToggles(); iniciarGPS(); atualizarGeo();
   try{ await ligarStream(); }catch(e){ $('#cam').classList.remove('on'); toast('Câmera indisponível: '+e.message+'. Use "Da galeria".',4000); }
 }
@@ -540,7 +541,7 @@ async function fotografar(){
   let blob=null;
   if(window.ImageCapture){ try{ blob=await new ImageCapture(track).takePhoto(); }catch(e){ blob=null; } }
   if(!blob){ const v=$('#video'); const oc=document.createElement('canvas'); oc.width=v.videoWidth; oc.height=v.videoHeight; oc.getContext('2d').drawImage(v,0,0); blob=await new Promise(ok=>oc.toBlob(ok,'image/jpeg',0.95)); }
-  const slot=$('#camSlot').value; const st=slotsDaObra().find(s=>s.k===slot)||{t:(slot===CAM.slot&&CAM.slotTitulo)||slot};
+  const slot=$('#camSlot').value; const st=(slot===CAM.slot&&CAM.slotTitulo)?{t:CAM.slotTitulo}:(slotsDaObra().find(s=>s.k===slot)||{t:slot});
   await enfileirarFoto(blob,{slot, slotTitulo:st.t, fonte:'camera', extra:(slot===CAM.slot?CAM.extra:null)||null});
   toast('Foto '+st.t+' guardada');
 }
@@ -645,7 +646,11 @@ async function gravar(){
 
 /* ---------------- Dados derivados ---------------- */
 function sopsDaObra(ob){ const P=S.pacote; if(!P||!ob) return []; return (ob.sops||[]).map(c=>P.sops[c]).filter(Boolean); }
-function slotsDaObra(){ const P=S.pacote; const base=(P?.roteiroFotos||[]).map(s=>({k:s.k,t:s.t,d:s.d})); base.push({k:'ficha',t:'Ficha preenchida',d:'Foto da ficha de campo preenchida, legível, folha inteira.'}); base.push({k:'extra',t:'Foto extra',d:'Qualquer outra foto que ajude o escritório.'}); base.push({k:'ocorrencia',t:'Ocorrência',d:'Local, equipamento e causa, antes de mexer.'}); return base; }
+function slotsDaObra(){ const P=S.pacote; const base=(P?.roteiroFotos||[]).map(s=>({k:s.k,t:s.t,d:s.d})); base.push({k:'ficha',t:'Ficha preenchida',d:'Foto da ficha de campo preenchida, legível, folha inteira.'}); base.push({k:'extra',t:'Foto extra',d:'Qualquer outra foto que ajude o escritório.'}); base.push({k:'ocorrencia',t:'Ocorrência',d:'Local, equipamento e causa, antes de mexer.'});
+  if(temMarcos(obraAtual())) base.splice(P?.roteiroFotos?.length||0,0,{k:'marco',t:'Marco',d:'Chapa do marco de perto, legível. Uma foto por marco (ou mais, se precisar).'});
+  return base; }
+function temMarcos(ob){ return !!ob && (ob.linhas||[]).some(l=>l==='georef'||l==='topografia'); }
+function codMarco(v){ const t=String(v||'').toUpperCase().replace(/\s+/g,'').replace(/[–—_]/g,'-'); const m=/^([A-Z0-9]{3,5})-?([MPV])-?(\d{3,5})$/.exec(t); return m?`${m[1]}-${m[2]}-${m[3]}`:''; }
 /* "Antes de sair do ponto" — só o ESSENCIAL de campo (o critério completo de cada SOP continua na aba Procedimentos).
    O que o app consegue conferir sozinho, ele confere (fotos, áudio, coordenada, ficha); o resto é marcado à mão. */
 const ESSENCIAL={
@@ -757,15 +762,32 @@ function ligarRoteiro(ob){
     await enfileirarRegistro({ tipo:'dia', obraId:ob.id, obra:ob.nome, quem:S.quem, data:new Date().toISOString(), coordenada:S.pos, feitos:chk.filter(c=>c.ok).map(c=>c.t), pendentes:chk.filter(c=>!c.ok).map(c=>c.t), fotos:fotosDaObra(ob).length, obs, app:APP_VERSAO }, `${agoraArq()}_registro_do_dia_${slug(S.quem)}.json`);
     toast('Registro do dia na fila'); };
 }
+function cartaoMarcos(ob){
+  if(!temMarcos(ob)) return '';
+  const ms=S.fila.filter(x=>x.obraId===ob.id && x.slot==='marco');
+  const nome=x=> x.marco&&x.marco.codigo ? x.marco.codigo : (x.meta?.extra?.marco || (x.status==='enviado'?'sem código — conferir':'código: o robô lê na foto'));
+  return `<div class="card"><h2>Marcos</h2><div class="nota">Digite o código da chapa se conseguir ler (ex.: FTBE-M-0001). Se não, só fotografe a chapa de perto: o robô lê o código na foto quando sincronizar, dá o nome e gera o KML.</div>
+   <div class="row" style="margin-top:6px"><input id="mCod" placeholder="FTBE-M-0001" autocapitalize="characters" style="text-transform:uppercase"></div>
+   <div class="row" style="margin-top:8px"><button class="big green" id="mCam">📷 Fotografar marco</button><button class="big sec" id="mGal">Da galeria</button></div><input type="file" id="mGalIn" accept="image/*" multiple class="hide">
+   ${ms.length?`<h3>Marcos desta obra (${ms.length})</h3><div class="thumbs">`+ms.slice().reverse().map(x=>`<div class="th ${x.status==='enviado'?'sent':''}">${x.thumb?`<img src="${x.thumb}" alt="">`:''}<div class="st">${esc(nome(x))} · ${x.status==='enviado'?'enviado':'na fila'}</div></div>`).join('')+`</div>`:''}</div>`; }
+function ligarMarcos(ob){
+  if(!$('#mCam')) return;
+  const cod=()=>{ const v=$('#mCod').value.trim(); if(!v) return ''; const c=codMarco(v); if(!c){ toast('Código fora do padrão (ex.: FTBE-M-0001). Vai sem código; o robô tenta ler na foto.',4500); } return c; };
+  $('#mCod').onblur=()=>{ const c=codMarco($('#mCod').value); if(c) $('#mCod').value=c; };
+  $('#mCam').onclick=()=>{ const c=cod(); CAM.extra={marco:c||null}; abrirCamera('marco', c?`Marco ${c}`:'Marco'); };
+  $('#mGal').onclick=()=>$('#mGalIn').click();
+  $('#mGalIn').onchange=async e=>{ const files=[...e.target.files]; if(!files.length) return; const c=cod(); await daGaleria(files,'marco',c?`Marco ${c}`:'Marco',{marco:c||null}); };
+}
 function telaFotos(ob){
   const fotos=S.fila.filter(x=>x.obraId===ob.id && (x.tipo==='foto'||x.tipo==='audio'));
-  let h=`<div class="card"><div class="row"><button class="big green" id="abrirCam">📷 Câmera</button><button class="big sec" id="gal">Da galeria</button></div><input type="file" id="galIn" accept="image/*,video/*" multiple class="hide"><div class="nota">Câmera do app: carimba coordenada, data, obra e quem tirou na própria foto e grava o GPS no arquivo. Da galeria: lê a coordenada que a foto já tem; se não tiver, usa a do aparelho agora e avisa no carimbo.</div></div>`;
+  let h=cartaoMarcos(ob)+`<div class="card"><div class="row"><button class="big green" id="abrirCam">📷 Câmera</button><button class="big sec" id="gal">Da galeria</button></div><input type="file" id="galIn" accept="image/*,video/*" multiple class="hide"><div class="nota">Câmera do app: carimba coordenada, data, obra e quem tirou na própria foto e grava o GPS no arquivo. Da galeria: lê a coordenada que a foto já tem; se não tiver, usa a do aparelho agora e avisa no carimbo.</div></div>`;
   h+=`<div class="card"><h2>Fotos e áudios desta obra (${fotos.length})</h2>`;
   if(!fotos.length) h+=`<div class="muted">Nada ainda.</div>`;
   else h+=`<div class="thumbs">`+fotos.slice().reverse().map(f=>`<div class="th ${f.status==='enviado'?'sent':(f.status==='erro'?'err':'')}" data-id="${esc(f.id)}">${f.thumb?`<img src="${f.thumb}" alt="">`:`<div class="au">${f.tipo==='audio'?'🎙️':(f.tipo==='video'?'🎬':'📄')}</div>`}<div class="st">${f.tipo==='video'?'🎬 ':''}${esc(f.slotTitulo||f.tipo)} · ${f.status==='enviado'?'enviado':(f.status==='erro'?'erro':'na fila')}</div>${f.status!=='enviado'?`<button class="x" data-del="${esc(f.id)}">×</button>`:''}</div>`).join('')+`</div>`;
   h+=`</div>`; return h;
 }
 function ligarFotos(ob){
+  ligarMarcos(ob);
   $('#abrirCam').onclick=()=>abrirCamera('extra'); $('#gal').onclick=()=>$('#galIn').click();
   $('#galIn').onchange=async e=>{ const files=[...e.target.files]; if(!files.length) return; toast('Processando '+files.length+' foto(s)…'); await daGaleria(files,'extra','Foto extra'); };
   document.querySelectorAll('[data-del]').forEach(b=>b.onclick=async ev=>{ ev.stopPropagation(); await DB.del(b.dataset.del); await DB.del(b.dataset.del+'o').catch(()=>{}); await recarregarFila(); render(); });
