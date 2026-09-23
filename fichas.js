@@ -460,6 +460,11 @@ function proximaLeitura(d){
 }
 function desenharEditor(){
   const f=pegar(ABERTA); if(!f){ fechar(); return; }
+  if(ehGeo(f.tipo)){
+    if(!f.dados.terreno){ const t=terrenoDaObra(f); if(t){ f.dados.terreno=t; f.dados._terrenoObra=t; gravar(f); } }
+    if(GEO_SUG[f.id]===undefined){ GEO_SUG[f.id]=null;
+      sugestaoGeo(f).then(()=>{ if(ABERTA===f.id) desenharEditor(); }); }
+  }
   if(f.tipo==='spt' && f.status!=='encerrada') return desenharSPT(f);
   if(f.status!=='encerrada' && S.pos){ let mudou=false; for(const b of DEF[f.tipo].blocos) for(const c of (b.campos||[])) if(c.tipo==='gps' && !f.dados[c.k]){ f.dados[c.k]=textoCoordFicha(S.pos); mudou=true; } if(mudou) gravar(f); }
   if(f.status!=='encerrada') injetarCssSPT();
@@ -527,8 +532,9 @@ function ligarEditor(f){
     try{
       const off=document.createElement('canvas'); off.width=1240; off.height=1000;
       const r=await desenharFiguraGeof(f, k, off);
-      if(!r) toast(k==='cam'?'Precisa de pelo menos 4 leituras anotadas.':'Precisa de pelo menos 6 leituras anotadas.',4000);
-      else { GEOF_CACHE[f.id+'_'+k]=r; GEOF_PIX[f.id+'_'+k]=off; f.dados['_fig_'+k]=r;
+      if(r && r.semTerreno) toast('Escolha o terreno primeiro.',4000);
+      else if(!r) toast(k==='cam'?'Precisa de pelo menos 4 leituras anotadas.':'Precisa de pelo menos 6 leituras anotadas.',4000);
+      else if(!r.semTerreno) { GEOF_CACHE[f.id+'_'+k]=r; GEOF_PIX[f.id+'_'+k]=off; f.dados['_fig_'+k]=r;
              if(k==='cam' && r.estaca!=null && (f.dados.estaca_final===''||f.dados.estaca_final==null)) f.dados.estaca_final=r.estaca;
              gravar(f); desenharEditor();
              const el=$('#fig_'+k); if(el) el.scrollIntoView({block:'center'}); return; }
@@ -582,10 +588,45 @@ function assinatura(d){ let n=0, v=0;
   for(const l of (d.leituras||[])){ if(l.pulou||l.mv===''||l.mv==null) continue;
     n++; v += (NUM(l.mv)||0)*0.001 + (NUM(l.ma)||0) + (NUM(l.sp)||0)*0.01; }
   return n+':'+v.toFixed(4); }
-/* o terreno é escolhido por botão no cartão do gráfico, não por campo:
-   em campo você só sabe em qual regime está depois de ver o perfil */
-function terrenoId(d){ return d.terreno==='sedimentar' ? 'sedimentar' : 'cristalino'; }
-function faixaAlvo(d){ const T=window.GEOF.TERRENOS[terrenoId(d)];
+/* O terreno NUNCA é assumido. Vem, nesta ordem:
+     1. da obra (o escritório decidiu, viaja no campo.json e fica em cache)
+     2. do botão, no campo
+   Sem nenhum dos dois o gráfico não é gerado — um padrão errado e silencioso
+   é pior que nenhum padrão: em Boa Vista a lógica é invertida e o app
+   marcaria argila como alvo. O mapa do ZEE só SUGERE. */
+function terrenoId(d){ return d.terreno === 'sedimentar' ? 'sedimentar'
+                            : d.terreno === 'cristalino' ? 'cristalino' : null; }
+function terrenoDaObra(f){
+  const ob = (S.pacote && S.pacote.obras || []).find(o => o.id === f.obraId);
+  const t = ob && String(ob.terreno || '').toLowerCase();
+  return (t === 'sedimentar' || t === 'cristalino') ? t : null;
+}
+let GEO_SUG = {};
+async function sugestaoGeo(f){
+  if (GEO_SUG[f.id] !== undefined) return GEO_SUG[f.id];
+  const d = f.dados;
+  const txt = String(d.c_ini || d.c_centro || '');
+  let lat = null, lon = null;
+  /* o campo de GPS do app grava "... · Lat 4.150194 Lon -61.434592 · ..." —
+     ler isso é bem mais seguro que reinterpretar o DMS */
+  const dec = txt.match(/Lat\s*(-?\d+[.,]\d+)\s*Lon\s*(-?\d+[.,]\d+)/i);
+  if (dec){ lat = NUM(dec[1]); lon = NUM(dec[2]); }
+  if (lat == null){
+    /* coordenada digitada à mão, em graus/minutos/segundos */
+    const m = txt.match(/(\d+)\s*[°º]\s*(\d+)\s*['´′]\s*([\d.,]+)\s*["”″]?\s*([NSns])[\s,;·]*(\d+)\s*[°º]\s*(\d+)\s*['´′]\s*([\d.,]+)\s*["”″]?\s*([WOEwoe])/);
+    if (m){
+      const g = (a,b,c,h) => { const v = NUM(a) + NUM(b)/60 + NUM(c)/3600;
+        return /[SsWwOo]/.test(h) ? -v : v; };
+      lat = g(m[1],m[2],m[3],m[4]); lon = g(m[5],m[6],m[7],m[8]);
+    }
+  }
+  if (lat == null && S.pos){ lat = S.pos.lat; lon = S.pos.lon; }
+  if (lat == null) { GEO_SUG[f.id] = {estado:'sem-coordenada'}; return GEO_SUG[f.id]; }
+  await window.GEOF.carregarHidrogeo();
+  GEO_SUG[f.id] = window.GEOF.sugerirTerreno(lat, lon);
+  return GEO_SUG[f.id];
+}
+function faixaAlvo(d){ const T=window.GEOF.TERRENOS[terrenoId(d)||'cristalino'];
   return { rMin:(d.r_min===''||d.r_min==null)?T.alvo.rMin:NUM(d.r_min),
            rMax:(d.r_max===''||d.r_max==null)?T.alvo.rMax:NUM(d.r_max) }; }
 /* acha o caminhamento que deu origem a esta SEV, para integrar as duas */
@@ -615,7 +656,7 @@ function geoResCam(d, fid){
 }
 function geoLocCam(d, res){
   if(!res) return null;
-  const fa=faixaAlvo(d), T=window.GEOF.TERRENOS[terrenoId(d)];
+  const fa=faixaAlvo(d), T=window.GEOF.TERRENOS[terrenoId(d)||'cristalino'];
   return window.GEOF.melhorEstaca(res, { rMin:fa.rMin, rMax:fa.rMax, extremo:T.extremo,
                                          zMin:NUM(d.z_min)||10, zMax:NUM(d.z_max)||70 });
 }
@@ -629,6 +670,7 @@ function geoSev(d){
 }
 async function desenharFiguraGeof(f, tipo, cv, terrenoTmp){
   const d = terrenoTmp ? Object.assign({}, f.dados, {terreno:terrenoTmp}) : f.dados;
+  if (!terrenoId(d)) return { semTerreno:true };
   const logo=await new Promise(ok=>{ const i=new Image(); i.onload=()=>ok(i); i.onerror=()=>ok(null); i.src='logo-color.png'; });
   const tit=`${d.cliente||f.obraNome} · ${DEF[f.tipo].ident(d)}${d.local?' · '+d.local:''}`;
   if(tipo==='cam'){
@@ -713,6 +755,28 @@ function verGrandeGeof(f,k){
 }
 function cartaoGrafico(f,b){
   const k=b.grafico, r=GEOF_CACHE[f.id+'_'+k]||f.dados['_fig_'+k];
+  const T = window.GEOF.TERRENOS;
+  const tid = terrenoId(f.dados);
+  const daObra = terrenoDaObra(f);
+  const sug = GEO_SUG[f.id];
+  let origem = '';
+  if (daObra && f.dados.terreno === daObra) origem = `<div class="mini">Veio da obra, definido no escritório.</div>`;
+  else if (daObra && tid && tid !== daObra) origem = `<div class="erro">Você mudou o que o escritório definiu (${esc(T[daObra].curto)}). A mudança vai registrada na ficha.</div>`;
+  let mapa = '';
+  if (sug){
+    if (sug.estado === 'ok'){
+      const bate = tid && tid === sug.classe;
+      mapa = `<div class="nota" style="margin-top:6px">Pelo mapa aqui é <b>${esc(T[sug.classe].curto)}</b> — ${esc(sug.sistema)}${sug.substrato?' · '+esc(sug.substrato):''}${sug.potencial&&!/^s\.i/.test(sug.potencial)?' · '+esc(sug.potencial):''}.
+        <br>${esc(sug.fonte)}${sug.perto?` · <b style="color:var(--err)">a só ${String(sug.kmBorda).replace('.',',')} km do contato — nessa escala o mapa não decide</b>`:` · contato mais próximo a ${String(sug.kmBorda).replace('.',',')} km`}.
+        ${tid&&!bate?'<br><b>Você escolheu diferente do mapa.</b> Pode estar certo: o mapa é 1:500.000 e de 2003.':''}</div>`;
+    } else if (sug.estado === 'fora-do-mapa'){
+      mapa = `<div class="nota" style="margin-top:6px">${esc(sug.nota)} Aqui não há sugestão: escolha pelo que você vê no terreno.</div>`;
+    } else if (sug.estado === 'sem-coordenada'){
+      mapa = `<div class="nota" style="margin-top:6px">Sem coordenada na ficha ainda — preencha o GPS e o mapa sugere o terreno.</div>`;
+    } else if (sug.estado === 'sem-base'){
+      mapa = `<div class="nota" style="margin-top:6px">O mapa do ZEE não está guardado neste celular. Sem sugestão; escolha pelo terreno.</div>`;
+    }
+  }
   let res='';
   if(k==='cam' && r && r.estaca!=null){
     res=`<div class="banner" style="background:#FDEBEC;color:#B91C1C;border:1px solid #F3C2C6;margin-top:10px">
@@ -721,32 +785,32 @@ function cartaoGrafico(f,b){
     if(r.leitura){ const L=r.leitura;
       res+=`<div class="banner" style="background:#F7F9FB;color:var(--ink);border:1px solid var(--line);margin-top:8px">
         <b>Leitura de campo</b><div style="margin-top:4px">Marcar o poço na <b>estaca ${esc(String(L.estaca))} m</b>.</div>
-        ${L.faixas.length?`<div>${L.tipo==='poroso'?'Aquífero poroso (camada contínua)':L.tipo==='fratura'?'Fratura estimada':'Zona favorável'} entre ${L.faixas.map(f=>Math.round(f.de)+'–'+Math.round(f.ate)+' m').join(' e ')}.</div>`:'<div>Nenhuma zona na faixa de alvo deste terreno.</div>'}
+        ${L.faixas.length?`<div>${L.tipo==='poroso'?'Aquífero poroso (camada contínua)':L.tipo==='fratura'?'Fratura estimada':'Zona favorável'} entre ${L.faixas.map(x=>Math.round(x.de)+'–'+Math.round(x.ate)+' m').join(' e ')}.</div>`:'<div>Nenhuma zona na faixa de alvo deste terreno.</div>'}
         <div class="mini" style="margin-top:4px">${esc(L.terreno)}</div></div>`;
       (L.avisos||[]).forEach(a=>{ res+=`<div class="erro">${esc(a)}</div>`; }); }
-    if(r.avisos && r.avisos.length) res+=r.avisos.map(a=>`<div class="erro">${esc(a)}</div>`).join('');
   }
-  if(k==='sev' && r && r.perfil){
-    res=`<div class="banner" style="background:var(--ok-bg);color:var(--green-2);margin-top:10px">
-      <b>Ajuste ${String(r.rms).replace('.',',')} %</b></div>`;
-    if(r.leitura){ const L=r.leitura;
-      res+=`<div class="banner" style="background:#F7F9FB;color:var(--ink);border:1px solid var(--line);margin-top:8px">
+  if(k==='sev' && r && r.leitura){
+    const L=r.leitura;
+    res=`<div class="banner" style="background:var(--ok-bg);color:var(--green-2);margin-top:10px"><b>Ajuste ${String(r.rms).replace('.',',')} %</b></div>
+      <div class="banner" style="background:#F7F9FB;color:var(--ink);border:1px solid var(--line);margin-top:8px">
         <b>Leitura de campo</b>
         ${L.horizontes.map(h=>`<div style="margin-top:3px">${h.agua==='sim'?'<b>':''}<span style="display:inline-block;width:10px;height:10px;background:${h.cor};border-radius:2px;margin-right:6px"></span>${esc(h.classe)} — ${h.de===0?'da superfície':'de '+Math.round(h.de)+' m'} até ${h.ate==null?'o fundo':Math.round(h.ate)+' m'} (${Math.round(h.rho)} Ω·m)${h.agua==='sim'?'</b>':''}</div>`).join('')}
         <div class="mini" style="margin-top:5px">${esc(L.terreno)}</div></div>`;
-      (L.avisos||[]).forEach(a=>{ res+=`<div class="erro">${esc(a)}</div>`; }); }
+    if(r.integrado) res+=`<div class="banner" style="background:#FDEBEC;color:#B91C1C;border:1px solid #F3C2C6;margin-top:8px">
+        ${r.integrado.linhas.map(x=>`<div${x.forte?' style="font-weight:700"':''}>${esc(x.t)}</div>`).join('')}</div>`;
+    (L.avisos||[]).forEach(a=>{ res+=`<div class="erro">${esc(a)}</div>`; });
   }
-  const tid = f.dados.terreno==='sedimentar' ? 'sedimentar' : 'cristalino';
-  const T = window.GEOF.TERRENOS;
   return `<div class="card"><h2>${esc(b.t)}</h2>
     <div class="nota">Roda no próprio celular, sem internet. Gere de novo depois de lançar mais leituras.</div>
-    <div class="sub2" style="margin-top:8px">Calibração do terreno — troque para ver o outro resultado</div>
+    <div class="sub2" style="margin-top:8px">Terreno — é ele que define toda a leitura</div>
     <div class="chips mt" data-terreno="${k}">
       <button class="${tid==='cristalino'?'on':''}" data-tv="cristalino">${esc(T.cristalino.curto)}</button>
       <button class="${tid==='sedimentar'?'on':''}" data-tv="sedimentar">${esc(T.sedimentar.curto)}</button>
     </div>
-    <div class="mini">${esc(T[tid].rotulo)} · alvo ${T[tid].alvo.rMin}–${T[tid].alvo.rMax} Ω·m</div>
-    <button class="big sec" data-fig="${k}" style="margin:10px 0">${r?'Gerar de novo':'Gerar gráfico'}</button>
+    ${tid?`<div class="mini">${esc(T[tid].rotulo)} · alvo ${T[tid].alvo.rMin}–${T[tid].alvo.rMax} Ω·m</div>`:''}
+    ${origem}${mapa}
+    ${tid?'':`<div class="erro" style="margin-top:8px">Escolha o terreno para gerar o gráfico. Não assumo por você: em Boa Vista a areia saturada é resistiva e a regra do cristalino marcaria argila como alvo.</div>`}
+    <button class="big ${tid?'sec':'ghost'}" data-fig="${k}" ${tid?'':'disabled'} style="margin:10px 0">${r?'Gerar de novo':'Gerar gráfico'}</button>
     <canvas id="fig_${k}" width="1240" height="1000" style="width:100%;border:1px solid var(--line);border-radius:6px;background:#fff;${r?'':'display:none'}"></canvas>
     ${r?`<button class="big ghost" data-figver="${k}" style="margin-top:8px">Ver grande</button>`:''}
     ${res}</div>`;
@@ -1059,5 +1123,5 @@ async function encerrar(f){
 
 window.FICHAS_DA_LINHA = FICHAS_DA_LINHA;
 function encerradasHoje(obraId){ const h=HOJE(); return todas().filter(f=>f.obraId===obraId && f.status==='encerrada' && f.encerradaEm && new Date(f.encerradaEm).toDateString()===new Date().toDateString()).length; }
-window.FICHAS = { encerradasHoje, secaoLista, ligarLista, abrir, fechar, aberta, desenharEditor, gerarPDF, DEF, _novaFicha:novaFicha, _pegar:pegar };
+window.FICHAS = { encerradasHoje, secaoLista, ligarLista, abrir, fechar, aberta, desenharEditor, gerarPDF, DEF, _novaFicha:novaFicha, _pegar:pegar, _fig:desenharFiguraGeof };
 })();

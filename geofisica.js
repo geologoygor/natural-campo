@@ -792,7 +792,16 @@ function integrar(cam, sev){
     if (ate > de && (!inter || (ate-de) > (inter.ate-inter.de))) inter = { de, ate };
   }
   const linhas = [], avisos = [];
-  linhas.push({ t:`Furar na ESTACA ${fmtN(cam.estaca)} m — posição dada pelo caminhamento`, forte:true });
+  /* o caminhamento só manda na posição se ELE achou alguma coisa. Sem faixa na
+     janela, a estaca é a menos ruim da linha, não uma indicação — e a frase
+     tem de dizer isso, senão soa igual a um caso bom. */
+  if (fx.length)
+    linhas.push({ t:`Furar na ESTACA ${fmtN(cam.estaca)} m — posição dada pelo caminhamento`, forte:true });
+  else {
+    linhas.push({ t:`O caminhamento NÃO achou zona favorável em nenhuma estaca.`, forte:true });
+    linhas.push({ t:`A estaca ${fmtN(cam.estaca)} m é só a menos ruim da linha — não é indicação.` });
+    avisos.push('Posição lateral sem apoio do caminhamento: ou a linha não pegou o alvo, ou a faixa de alvo deste terreno não serve aqui. Vale estender a linha, mudar o azimute, ou rever o terreno escolhido.');
+  }
   if (al.length){
     const a = al[0];
     linhas.push({ t:`Entrada de água esperada entre ${fmtN(Math.round(a.de))} e ${a.ate>=1e9?'o fundo do ensaio':fmtN(Math.round(a.ate))+' m'} — profundidade dada pela SEV`, forte:true });
@@ -808,11 +817,75 @@ function integrar(cam, sev){
 }
 const FRASE_PADRAO = 'Zona de resistividade favorável é indicação de alvo, não comprovação de água. A confirmação depende da perfuração, do desenvolvimento e do teste de vazão.';
 
+
+/* ============================================================
+   SUGESTÃO DE TERRENO PELO GPS — offline
+   Base: ZEE Roraima, camada de hidrogeologia (SIRGAS 2000), campo DOM_AQ.
+   Simplificada a ~444 m de tolerância: medido em 2.500 pontos, a
+   simplificação troca a classe em 0,16 % e deixa 0,56 % "fora do mapa".
+   LIMITES REAIS, que o app declara: a camada é 1:500.000 e NÃO cobre o
+   extremo norte do estado (acaba na latitude 4,50 — Uiramutã fica de fora),
+   nem nada fora de Roraima. Perto de um contato o mapa não decide nada.
+   É SUGESTÃO. Quem escolhe é a pessoa.
+   ============================================================ */
+let HIDROGEO = null, HIDROGEO_ERRO = null;
+async function carregarHidrogeo(){
+  if (HIDROGEO || HIDROGEO_ERRO) return HIDROGEO;
+  try{
+    const r = await fetch('hidrogeo.json', {cache:'force-cache'});
+    if (!r.ok) throw new Error('HTTP '+r.status);
+    HIDROGEO = await r.json();
+  }catch(e){ HIDROGEO_ERRO = e.message; }
+  return HIDROGEO;
+}
+function dentroAnel(x, y, anel){
+  let d = false;
+  for (let i = 0, j = anel.length-1; i < anel.length; j = i++){
+    const xi = anel[i][0], yi = anel[i][1], xj = anel[j][0], yj = anel[j][1];
+    if (((yi > y) !== (yj > y)) && (x < (xj-xi)*(y-yi)/(yj-yi || 1e-300) + xi)) d = !d;
+  }
+  return d;
+}
+function dentroFeicao(x, y, g){
+  let cnt = 0;
+  for (const anel of g) if (dentroAnel(x, y, anel)) cnt++;
+  return cnt % 2 === 1;      // even-odd: buraco cancela
+}
+function kmAteBorda(x, y, g){
+  const cl = Math.cos(y*Math.PI/180), md = { v: Infinity };
+  for (const anel of g) for (const p of anel){
+    const dx = (p[0]-x)*111.32*cl, dy = (p[1]-y)*110.57;
+    const d = Math.sqrt(dx*dx + dy*dy);
+    if (d < md.v) md.v = d;
+  }
+  return md.v;
+}
+function sugerirTerreno(lat, lon){
+  if (!HIDROGEO) return { estado: HIDROGEO_ERRO ? 'sem-base' : 'carregando' };
+  if (!isFinite(lat) || !isFinite(lon)) return { estado: 'sem-coordenada' };
+  for (const f of HIDROGEO){
+    let x0=Infinity, x1=-Infinity, y0=Infinity, y1=-Infinity;
+    for (const a of f.g) for (const p of a){
+      if (p[0]<x0) x0=p[0]; if (p[0]>x1) x1=p[0];
+      if (p[1]<y0) y0=p[1]; if (p[1]>y1) y1=p[1];
+    }
+    if (lon<x0 || lon>x1 || lat<y0 || lat>y1) continue;
+    if (!dentroFeicao(lon, lat, f.g)) continue;
+    const km = kmAteBorda(lon, lat, f.g);
+    return { estado:'ok', classe:f.c, sistema:f.s, substrato:f.sub, potencial:f.p,
+             kmBorda:+km.toFixed(1), perto: km < 1.5,
+             fonte:'ZEE Roraima · hidrogeologia (1:500.000)' };
+  }
+  return { estado:'fora-do-mapa',
+           nota:'Este ponto está fora da camada do ZEE Roraima — ela não cobre o extremo norte do estado nem fora de Roraima.' };
+}
+
 /* ---------------- exportação para o app ---------------- */
 window.GEOF = {
   Kexato, processarCaminhamento, melhorEstaca, coberturaPoly,
   rhoA, zohdy, intervalos, blocar, figuraCaminhamento, figuraSEV,
   TERRENOS, lerSEV, lerCaminhamento, integrar, FRASE_PADRAO,
+  carregarHidrogeo, sugerirTerreno,
   NAVY, GREEN, GRAY, VERM
 };
 
