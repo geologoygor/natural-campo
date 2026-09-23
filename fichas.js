@@ -305,10 +305,29 @@ DEF.geof_sev = {
 /* ----- cartão "leitura da vez" da geofísica (feito para o pião) ----- */
 function ehGeo(t){ return t==='geof_cam' || t==='geof_sev'; }
 function proxGeo(d){ return (d.leituras||[]).findIndex(l=>!l.pulou && (l.mv===''||l.mv==null||l.ma===''||l.ma==null)); }
+/* Posição do cartão. Sem entrada = "leitura da vez" (a próxima em branco).
+   Com número = está corrigindo aquela leitura. É o que permite voltar sem
+   caçar a linha na tabela de 55. */
+let GEO_POS = {};
+function geoIndice(f){
+  const p = GEO_POS[f.id];
+  return (typeof p === 'number') ? p : proxGeo(f.dados);
+}
+function geoCorrigindo(f){ return typeof GEO_POS[f.id] === 'number'; }
 function cartaoGeo(f){
-  const d=f.dados, arr=d.leituras||[], i=proxGeo(d);
+  const d=f.dados, arr=d.leituras||[];
+  const corr=geoCorrigindo(f);
+  let i=geoIndice(f);
   const feitas=arr.filter(l=>l.mv!==''&&l.mv!=null&&l.ma!==''&&l.ma!=null).length;
-  if(i<0) return `<div class="card spt" id="prox" style="border-left:5px solid var(--green)"><h2>Acabou: ${feitas} de ${arr.length} anotadas</h2><div class="nota">Confira a tabela lá embaixo e encerre a ficha.</div></div>`;
+  const puladas=arr.filter(l=>l.pulou).length;
+  if(i<0 && !corr){
+    const av = puladas?`<div class="erro">${puladas} leitura(s) ficaram como "não deu para medir". Toque em corrigir se quiser anotar alguma.</div>`:'';
+    return `<div class="card spt" id="prox" style="border-left:5px solid var(--green)">
+      <h2>Acabou: ${feitas} de ${arr.length} anotadas</h2>
+      <div class="nota">Confira a tabela lá embaixo e encerre a ficha.</div>${av}
+      <button class="big sec" id="gVolta" style="margin-top:10px">← Corrigir uma leitura</button></div>`;
+  }
+  if(i<0) i=arr.length-1;
   const l=arr[i];
   const alvo = f.tipo==='geof_cam'
     ? `A na <b>estaca ${l.A}</b> &nbsp;·&nbsp; M na <b>estaca ${l.M}</b>`
@@ -316,9 +335,12 @@ function cartaoGeo(f){
   const sub = f.tipo==='geof_cam'
     ? `nível ${l.n} · esta leitura enxerga ≈ ${PROF_NIVEL[l.n]} m`
     : (l.emb ? 'EMBREAGEM — não mexa em A e B, troque só o MN e meça de novo' : `K = ${fmtN(l.K)} m`);
-  return `<div class="card spt" id="prox" style="border-left:5px solid var(--green)">
-   <h2>Leitura ${l.ord} de ${arr.length}</h2>
-   <div class="mini">${feitas} anotadas · faltam ${arr.length-feitas}</div>
+  const estado = l.pulou ? '<span class="chip w">estava marcada como não medida</span>'
+               : (l.mv!==''&&l.mv!=null) ? '<span class="chip">já anotada</span>' : '';
+  const daVez = proxGeo(d);
+  return `<div class="card spt" id="prox" style="border-left:5px solid ${corr?'#B9410F':'var(--green)'}">
+   <h2>${corr?'Corrigindo a leitura':'Leitura'} ${l.ord} de ${arr.length}</h2>
+   <div class="mini">${feitas} anotadas · faltam ${arr.length-feitas}${puladas?` · ${puladas} pulada(s)`:''} ${estado}</div>
    <div style="font-size:19px;line-height:1.5;margin:8px 0">${alvo}</div>
    <div class="mini" ${l.emb?'style="color:#B9410F;font-weight:700"':''}>${esc(sub)}</div>
    <div class="gols" style="grid-template-columns:1fr 1fr 1fr;margin-top:10px">
@@ -326,22 +348,44 @@ function cartaoGeo(f){
      <div class="gol"><div class="t">2 · voltagem</div><input class="g" inputmode="decimal" id="g_mv" value="${esc(l.mv||'')}"></div>
      <div class="gol"><div class="t">3 · corrente</div><input class="g" inputmode="decimal" id="g_ma" value="${esc(l.ma||'')}"></div>
    </div>
-   <button class="big green" id="gOk" style="margin-top:10px">Anotar e ir para a próxima</button>
-   <button class="big sec" id="gPula" style="margin-top:8px">Não deu para medir — pular esta</button>
+   <button class="big green" id="gOk" style="margin-top:10px">${corr?'Salvar a correção':'Anotar e ir para a próxima'}</button>
+   <div class="row" style="gap:8px;margin-top:8px">
+     <button class="sec" id="gAnt" ${i<=0?'disabled':''} style="flex:1">← anterior</button>
+     <button class="sec" id="gProx" ${i>=arr.length-1?'disabled':''} style="flex:1">próxima →</button>
+   </div>
+   ${corr
+     ? `<button class="big ghost" id="gDaVez" style="margin-top:8px">Voltar para a leitura da vez${daVez>=0?' ('+arr[daVez].ord+')':''}</button>`
+     : `<button class="big sec" id="gPula" style="margin-top:8px">Não deu para medir — pular esta</button>`}
+   ${l.pulou?`<button class="big ghost" id="gDespula" style="margin-top:8px">Desmarcar "não deu para medir"</button>`:''}
    <div class="mini" style="margin-top:6px">Os três números do visor do X6xtal, na ordem em que ele mostra (SP em mV · voltagem em mV · corrente em mA). Pular é melhor do que chutar.</div></div>`;
 }
 function renderGeo(f){ const p=$('#prox'); if(!p) return; const tmp=document.createElement('div'); tmp.innerHTML=cartaoGeo(f); p.replaceWith(tmp.firstElementChild); ligarGeo(f); }
 function atualizarTabelaGeo(f){ (f.dados.leituras||[]).forEach((l,i)=>{ for(const k of ['sp','mv','ma']){ const el=$(`#t_leituras_${i}_${k}`); if(el && document.activeElement!==el) el.value=l[k]==null?'':l[k]; } }); }
 function ligarGeo(f){
   if(!ehGeo(f.tipo) || f.status==='encerrada') return;
-  const ok=$('#gOk'); if(ok) ok.onclick=()=>{ const d=f.dados, i=proxGeo(d); if(i<0) return;
+  const d=f.dados, arr=d.leituras||[];
+  const irPara=(k)=>{ GEO_POS[f.id]=Math.max(0,Math.min(arr.length-1,k)); renderGeo(f); };
+  const ok=$('#gOk'); if(ok) ok.onclick=()=>{ const i=geoIndice(f); if(i<0) return;
     const mv=$('#g_mv').value.trim(), ma=$('#g_ma').value.trim();
     if(!mv || !ma) return toast('Digite o mV e o mA (ou toque em "não deu para medir")');
-    const l=d.leituras[i]; l.sp=$('#g_sp').value.trim(); l.mv=mv; l.ma=ma; delete l.pulou;
-    gravar(f); toast(`Leitura ${l.ord} anotada`); renderGeo(f); atualizarTabelaGeo(f); atualizarCalc(f); };
-  const pl=$('#gPula'); if(pl) pl.onclick=()=>{ const d=f.dados, i=proxGeo(d); if(i<0) return;
-    const l=d.leituras[i]; l.pulou=true; gravar(f); toast(`Leitura ${l.ord} marcada como não medida`); renderGeo(f); atualizarCalc(f);
+    const l=arr[i]; l.sp=$('#g_sp').value.trim(); l.mv=mv; l.ma=ma; delete l.pulou;
+    gravar(f);
+    if(geoCorrigindo(f)){ delete GEO_POS[f.id]; toast(`Leitura ${l.ord} corrigida`); }
+    else toast(`Leitura ${l.ord} anotada`);
+    renderGeo(f); atualizarTabelaGeo(f); atualizarCalc(f); };
+  const pl=$('#gPula'); if(pl) pl.onclick=()=>{ const i=geoIndice(f); if(i<0) return;
+    const l=arr[i]; l.pulou=true; gravar(f); toast(`Leitura ${l.ord} marcada como não medida`); renderGeo(f); atualizarCalc(f);
     barraDesfazer(`Leitura ${l.ord} pulada.`, ()=>{ delete l.pulou; gravar(f); renderGeo(f); atualizarCalc(f); }); };
+  /* voltar e avançar: corrigir sem caçar a linha na tabela de 55 */
+  const ant=$('#gAnt'); if(ant) ant.onclick=()=>irPara(geoIndice(f)-1);
+  const prx=$('#gProx'); if(prx) prx.onclick=()=>{ const k=geoIndice(f)+1;
+    const vez=proxGeo(d);
+    if(vez>=0 && k>=vez){ delete GEO_POS[f.id]; renderGeo(f); } else irPara(k); };
+  const vlt=$('#gVolta'); if(vlt) vlt.onclick=()=>irPara(arr.length-1);
+  const dvz=$('#gDaVez'); if(dvz) dvz.onclick=()=>{ delete GEO_POS[f.id]; renderGeo(f); };
+  const dsp=$('#gDespula'); if(dsp) dsp.onclick=()=>{ const i=geoIndice(f); if(i<0) return;
+    const l=arr[i]; delete l.pulou; gravar(f); toast(`Leitura ${l.ord} liberada para anotar`);
+    GEO_POS[f.id]=i; renderGeo(f); atualizarCalc(f); };
 }
 
 const FICHAS_DA_LINHA = { spt:['spt'], poco:['poco_perf','poco_teste','poco_entrega'], outorga:['poco_teste'], geofisica:['geof_cam','geof_sev'] };
