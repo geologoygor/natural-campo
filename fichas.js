@@ -314,6 +314,166 @@ function geoIndice(f){
   return (typeof p === 'number') ? p : proxGeo(f.dados);
 }
 function geoCorrigindo(f){ return typeof GEO_POS[f.id] === 'number'; }
+
+/* ============================================================
+   PONTOS DA LINHA — um toque por ponto, com o lugar dito na tela
+   Quem marca precisa saber ONDE ficar: o texto de cada botão diz o lugar.
+   Além de guardar, o cartão CALCULA o rumo pelas duas pontas (era o que
+   faltava no REL 113 — sem rumo o mapa sai com um ponto só) e CONFERE as
+   distâncias contra o comprimento da linha, ali, com a pessoa ainda no lugar.
+   ============================================================ */
+function coordDe(txt){
+  txt = String(txt || '');
+  const dec = txt.match(/Lat\s*(-?\d+[.,]\d+)\s*Lon\s*(-?\d+[.,]\d+)/i);
+  if (dec) return { lat: NUM(dec[1]), lon: NUM(dec[2]) };
+  const m = txt.match(/(\d+)\s*[°º]\s*(\d+)\s*['´′]\s*([\d.,]+)\s*["”″]?\s*([NSns])[\s,;·]*(\d+)\s*[°º]\s*(\d+)\s*['´′]\s*([\d.,]+)\s*["”″]?\s*([WOEwoe])/);
+  if (!m) return null;
+  const g=(a,b,c,h)=>{ const v=NUM(a)+NUM(b)/60+NUM(c)/3600; return /[SsWwOo]/.test(h)?-v:v; };
+  return { lat: g(m[1],m[2],m[3],m[4]), lon: g(m[5],m[6],m[7],m[8]) };
+}
+function metros(a, b){
+  if (!a || !b) return null;
+  const R=6371000, f1=a.lat*Math.PI/180, f2=b.lat*Math.PI/180;
+  const df=(b.lat-a.lat)*Math.PI/180, dl=(b.lon-a.lon)*Math.PI/180;
+  const h=Math.sin(df/2)**2 + Math.cos(f1)*Math.cos(f2)*Math.sin(dl/2)**2;
+  return 2*R*Math.asin(Math.min(1,Math.sqrt(h)));
+}
+function azimute(a, b){
+  if (!a || !b) return null;
+  const f1=a.lat*Math.PI/180, f2=b.lat*Math.PI/180, dl=(b.lon-a.lon)*Math.PI/180;
+  const y=Math.sin(dl)*Math.cos(f2), x=Math.cos(f1)*Math.sin(f2)-Math.sin(f1)*Math.cos(f2)*Math.cos(dl);
+  return (Math.atan2(y,x)*180/Math.PI + 360) % 360;
+}
+function difAng(a, b){ let d=Math.abs(a-b)%360; return d>180 ? 360-d : d; }
+function precisaoDe(txt){ const m=String(txt||'').match(/±\s*(\d+)\s*m/); return m ? +m[1] : null; }
+
+function PONTOS_LINHA(f){
+  const L = GEO.L, R = GEO.rem;
+  if (f.tipo === 'geof_sev') return [
+    { k:'c_centro', rot:'Centro da SEV',
+      onde:'Fique EM CIMA do centro — o ponto que o caminhamento indicou. É dele que A e B abrem para os dois lados.' }
+  ];
+  return [
+    { k:'c_b',   rot:`Remoto B (corrente)`,
+      onde:`Fique no eletrodo B: ${R} m ANTES da estaca 0, no prolongamento da linha.` },
+    { k:'c_ini', rot:'Estaca 0 — começo da linha',
+      onde:'Fique na primeira estaca da linha, onde o caminhamento começa.' },
+    { k:'c_fim', rot:`Estaca ${L} — fim da linha`,
+      onde:`Fique na última estaca, a ${L} m da estaca 0.` },
+    { k:'c_n',   rot:`Remoto N (potencial)`,
+      onde:`Fique no eletrodo N: ${R} m DEPOIS da estaca ${L}, no prolongamento da linha.` }
+  ];
+}
+/* Tolerância feita pela estatística do GPS, não por um número chutado.
+   O erro da DISTÂNCIA entre dois pontos não é a precisão de um: é a soma em
+   quadratura, sigma = raiz(a1^2 + a2^2). Com ±5 m em cada ponta isso dá 7 m, e
+   95 % dos casos caem em ~14 m — uma tolerância de 15 m reclamaria de 1 em
+   cada 20 linhas bem marcadas. Sob mata, a ±15 m, sigma vai a 21 m.
+   Por isso: tolerância = 2,5 sigma, com piso de 20 m para o fato de que
+   ninguém para exatamente em cima da estaca. E o aviso muda de tom conforme
+   o GPS do momento: a mesma diferença é conclusiva com GPS bom e não é com
+   GPS ruim. */
+const GPS_PADRAO = 8;               // quando a ficha não guardou a precisão
+function sigmaPar(a, b){
+  const s1 = a == null ? GPS_PADRAO : a, s2 = b == null ? GPS_PADRAO : b;
+  return Math.sqrt(s1*s1 + s2*s2);
+}
+function tolDist(sig){ return Math.max(20, 2.5*sig); }
+function conferirDist(rot, medido, esperado, a1, a2){
+  const sig = sigmaPar(a1, a2), tol = tolDist(sig), dif = Math.abs(medido - esperado);
+  const porPonto = Math.round(sig/1.41);
+  if (dif <= tol)
+    return { ok:true, t:`${rot}: ${medido.toFixed(0)} m contra ${esperado} m — confere (GPS ±${porPonto} m por ponto).` };
+  /* o tom segue QUANTAS VEZES o erro esperado, não a qualidade do GPS sozinha:
+     100 m de diferença continuam conclusivos mesmo com GPS de ±15 m */
+  const sigmas = dif / sig;
+  if (sigmas < 4)
+    return { ok:false, brando:true,
+      t:`${rot}: ${medido.toFixed(0)} m contra ${esperado} m — ${sigmas.toFixed(1)} vezes o erro esperado do GPS (±${porPonto} m por ponto). Pode ser só o aparelho, mas vale conferir a estaca antes de sair.` };
+  return { ok:false,
+    t:`${rot}: ${medido.toFixed(0)} m contra ${esperado} m. São ${sigmas.toFixed(1)} vezes o erro esperado do GPS (±${porPonto} m por ponto) — quase certo que um dos pontos foi marcado no lugar errado.` };
+}
+function conferirLinha(f){
+  const d=f.dados, L=GEO.L, R=GEO.rem;
+  const P = { b:coordDe(d.c_b), i:coordDe(d.c_ini), fim:coordDe(d.c_fim), n:coordDe(d.c_n) };
+  const A = { b:precisaoDe(d.c_b), i:precisaoDe(d.c_ini), fim:precisaoDe(d.c_fim), n:precisaoDe(d.c_n) };
+  const av=[], ok=[];
+  let az=null, azErr=null;
+  if (P.i && P.fim){
+    az = azimute(P.i, P.fim);
+    const dist = metros(P.i, P.fim);
+    /* incerteza do rumo: quanto o erro lateral vale em ângulo nessa base */
+    const sig = sigmaPar(A.i, A.fim);
+    azErr = Math.atan2(sig, Math.max(dist, 1))*180/Math.PI;
+    const r = conferirDist('As duas pontas', dist, L, A.i, A.fim);
+    (r.ok ? ok : av).push(r);
+  }
+  /* o ângulo tolerado também depende do GPS e do tamanho da base:
+     num trecho de 100 m, ±7 m de erro já valem 4° — e ±21 m valem 12° */
+  const tolAng = (sig, base) => Math.max(12, 2.5*Math.atan2(sig, Math.max(base,1))*180/Math.PI);
+  if (P.b && P.i){
+    const dist=metros(P.b,P.i);
+    const r = conferirDist('O remoto B até a estaca 0', dist, R, A.b, A.i);
+    (r.ok ? ok : av).push(r);
+    if (az!=null){ const sig=sigmaPar(A.b,A.i), t=tolAng(sig,dist), fora=difAng(azimute(P.b,P.i),az);
+      if (fora > t) av.push({ t:`O remoto B está ${fora.toFixed(0)}° fora do prolongamento da linha (o GPS aqui admite até ${t.toFixed(0)}°).` }); }
+  }
+  if (P.n && P.fim){
+    const dist=metros(P.fim,P.n);
+    const r = conferirDist(`O remoto N até a estaca ${L}`, dist, R, A.fim, A.n);
+    (r.ok ? ok : av).push(r);
+    if (az!=null){ const sig=sigmaPar(A.fim,A.n), t=tolAng(sig,dist), fora=difAng(azimute(P.fim,P.n),az);
+      if (fora > t) av.push({ t:`O remoto N está ${fora.toFixed(0)}° fora do prolongamento da linha (o GPS aqui admite até ${t.toFixed(0)}°).` }); }
+  }
+  return { az, azErr, av, ok };
+}
+function cartaoPontos(f){
+  const d=f.dados, pts=PONTOS_LINHA(f);
+  const feitos=pts.filter(x=>d[x.k]).length;
+  const c=conferirLinha(f);
+  const linhas = pts.map(x=>{
+    const tem=!!d[x.k], pr=precisaoDe(d[x.k]);
+    return `<div style="padding:10px 0;border-top:1px solid var(--line)">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:19px">${tem?'✅':'⬜'}</span>
+        <b style="flex:1">${esc(x.rot)}</b>
+        ${tem?`<span class="mini">±${pr!=null?pr:'?'} m</span>`:''}</div>
+      <div class="mini" style="margin:4px 0 8px 27px">${esc(x.onde)}</div>
+      <button class="big ${tem?'ghost':'sec'}" data-pt="${x.k}" style="margin-left:27px;width:calc(100% - 27px)">${tem?'Marcar de novo (estou aqui)':'Estou aqui — marcar'}</button>
+    </div>`;
+  }).join('');
+  const rumo = (c.az!=null)
+    ? `<div class="banner" style="background:var(--ok-bg);color:var(--green-2);margin-top:10px"><b>Rumo da linha: ${c.az.toFixed(0)}° ± ${Math.max(1,Math.round(c.azErr))}°</b> — calculado pelas duas pontas, já preenchido no campo do rumo.</div>`
+    : (f.tipo==='geof_cam' ? `<div class="nota" style="margin-top:10px">Marque as duas pontas e o rumo sai sozinho.</div>` : '');
+  return `<div class="card" id="pontos" style="border-left:5px solid var(--navy,#14284D)">
+    <h2>Pontos da linha — ${feitos} de ${pts.length}</h2>
+    <div class="nota">Marque cada ponto <b>estando em cima dele</b>. O GPS pega onde o celular está, não onde você aponta.</div>
+    ${linhas}
+    ${rumo}
+    ${c.ok.map(r=>`<div class="mini" style="color:var(--green-2)">✓ ${esc(r.t)}</div>`).join('')}
+    ${c.av.map(r=>`<div class="${r.brando?'nota':'erro'}" ${r.brando?'style="color:#8A5200"':''}>${r.brando?'':'⚠ '}${esc(r.t)}</div>`).join('')}
+  </div>`;
+}
+function ligarPontos(f){
+  if(!ehGeo(f.tipo) || f.status==='encerrada') return;
+  document.querySelectorAll('[data-pt]').forEach(b=>{ b.onclick=()=>{
+    iniciarGPS();
+    if(!S.pos){ toast('Procurando GPS… tente de novo em alguns segundos (céu aberto ajuda).',4000); return; }
+    const k=b.dataset.pt;
+    f.dados[k]=textoCoordFicha(S.pos);
+    /* rumo sai das duas pontas, sem ninguém ter de medir bússola */
+    const c=conferirLinha(f);
+    if(c.az!=null && f.tipo==='geof_cam') f.dados.azim=Math.round(c.az);
+    gravar(f);
+    const alvo=$('#f_'+k); if(alvo) alvo.value=f.dados[k];
+    const ax=$('#f_azim'); if(ax && f.dados.azim!=null) ax.value=f.dados.azim;
+    toast('Ponto marcado (±'+Math.round(S.pos.acc||0)+' m)');
+    const p=$('#pontos'); if(p){ const t=document.createElement('div'); t.innerHTML=cartaoPontos(f);
+      p.replaceWith(t.firstElementChild); ligarPontos(f); }
+    atualizarCalc(f);
+    GEO_SUG[f.id]=undefined;      /* coordenada nova: refaz a sugestão do mapa */
+  }; });
+}
 function cartaoGeo(f){
   const d=f.dados, arr=d.leituras||[];
   const corr=geoCorrigindo(f);
@@ -516,6 +676,7 @@ function desenharEditor(){
   $('#hTit').textContent=def.codigo+' · '+def.ident(d); $('#hSub').textContent=f.obraNome; $('#hBtn').classList.remove('hide'); $('#hBtn').textContent='Fichas';
   let h=`<div class="card" style="border-left:5px solid var(--green)"><h2>${esc(def.titulo)}</h2><div class="muted">${esc(def.sop)}${def.norma?' · '+esc(def.norma):''} · salva sozinha a cada toque${f.versao>1?` · versão ${f.versao}`:''}</div>${ro?'<div class="banner" style="background:var(--ok-bg);color:var(--green-2);margin:10px 0 0">Ficha encerrada: o PDF e os dados estão na fila de envio. Para corrigir, reabra — sai uma versão nova.</div>':''}</div>`;
   if(f.tipo==='poco_teste' && !ro) h+=cartaoLeitura(d);
+  if(ehGeo(f.tipo) && !ro) h+=cartaoPontos(f);
   if(ehGeo(f.tipo) && !ro) h+=cartaoGeo(f);
   def.blocos.forEach((b,bi)=>{
     if(b.grafico){ h+=cartaoGrafico(f,b); return; }
@@ -556,6 +717,7 @@ function ligarEditor(f){
   document.querySelectorAll('[data-gagua]').forEach(b=>b.onclick=()=>{ const [k,i]=b.dataset.gagua.split('.'); const tb=def.blocos.find(x=>x.tabela&&x.tabela.k===k).tabela; const l=f.dados[k][+i]; f.dados[tb.agua]=l.de||l.ate||''; gravar(f); desenharEditor(); toast(`"Água apareceu a" = ${f.dados[tb.agua]||'?'} m. Confira lá embaixo.`); });
   document.querySelectorAll('[data-gfoto]').forEach(b=>b.onclick=()=>{ const [k,i]=b.dataset.gfoto.split('.'); const tb=def.blocos.find(x=>x.tabela&&x.tabela.k===k).tabela; const l=f.dados[k][+i];
     CAM.extra={ fichaId:f.id, ficha:def.ident(f.dados), tabela:k, linha:+i, trecho:`${l.de||'?'} a ${l.ate||'?'} m` }; abrirCamera('amostra', `${tb.foto.replace(/^Foto d[ao] /,'').replace(/^./,x=>x.toUpperCase())} · ${def.ident(f.dados)} · ${l.de||'?'} a ${l.ate||'?'} m`); });
+  ligarPontos(f);
   repintarGeof(f);
   document.querySelectorAll('[data-figver]').forEach(x=>{ x.onclick=()=>verGrandeGeof(f, x.dataset.figver); });
   document.querySelectorAll('[data-terreno] [data-tv]').forEach(x=>{ x.onclick=async()=>{
