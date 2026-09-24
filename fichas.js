@@ -912,7 +912,7 @@ async function desenharFiguraGeof(f, tipo, cv, terrenoTmp){
   GEOF_NUM[f.id+'_sev']={sig, z};
   const alvo=(d.alvo_de!==''&&d.alvo_ate!==''&&d.alvo_de!=null&&d.alvo_ate!=null)
     ? {de:NUM(d.alvo_de), ate:NUM(d.alvo_ate)} : null;
-  const li=window.GEOF.lerSEV(z.rho, z.prof, terrenoId(d));
+  const li=window.GEOF.lerSEV(z.rho, z.prof, terrenoId(d), {arranjo:'schlumberger', xs:sd.x, obs:sd.obs});
   /* o bloco diz O QUE FAZER; os horizontes já vão nomeados na coluna do modelo,
      repetir a lista aqui empurrava a parte útil para fora da figura */
   const irm=camIrmao(f);
@@ -924,8 +924,11 @@ async function desenharFiguraGeof(f, tipo, cv, terrenoTmp){
   }
   if(!linhas.length){
     if(li.alvos.length){ const a=li.alvos[0];
+      /* base de campo = percentil 70 da equivalência, não a média nem a do
+         modelo: parar raso é poço seco, passar metros é só custo */
+      const base = (a.baseCampo != null) ? a.baseCampo : a.ate;
       linhas.push({ forte:true, cor:a.cor,
-        t:`Alvo: ${fmtN(Math.round(a.de))}–${a.ate==null?'fundo do ensaio':fmtN(Math.round(a.ate))+' m'} — ${a.classe} (${Math.round(a.rho)} Ω·m)` }); }
+        t:`Alvo: ${fmtN(Math.round(a.de))}–${base==null?'fundo do ensaio':fmtN(Math.round(base))+' m'} — ${a.classe} (${Math.round(a.rho)} Ω·m)` }); }
     else linhas.push({ forte:true, t:'Nenhum horizonte caiu na faixa de alvo deste terreno.' });
     if(li.base) linhas.push({ cor:li.base.cor, t:`Embasamento (rocha sã) a partir de ${fmtN(Math.round(li.base.de))} m` });
     linhas.push({ t:'Sem caminhamento ligado a esta SEV: a posição do poço não foi conferida.' });

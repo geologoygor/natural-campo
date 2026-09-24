@@ -689,14 +689,78 @@ function blocar(rho, prof, opt){
   return B.map(b => ({ de:b.de, ate:b.ate, rho:Math.exp(b.lr) }));
 }
 
-function lerSEV(rho, prof, terrenoId){
-  const T = TERRENOS[terrenoId] || TERRENOS.cristalino;
-  const h = [];
-  for (const k of blocar(rho, prof, { maxCam:5 })){
-    const c = classeDe(k.rho, T), ult = h[h.length-1];
-    if (ult && ult.classe === c.nome){ ult.ate = k.ate; ult.rho = (ult.rho+k.rho)/2; }
-    else h.push({ de:k.de, ate:k.ate, rho:k.rho, classe:c.nome, agua:c.agua, cor:c.cor });
+
+/* ---------- EQUIVALÊNCIA (Koefoed 1979) ----------
+   A SEV não separa espessura de resistividade numa camada fina: a curva fica
+   igual se a camada CONDUTIVA mantiver S = h/ρ, ou se a RESISTIVA mantiver
+   T = ρ·h. Medido no dado de teste: uma camada de 175 Ω·m com base em 49 m
+   tem gêmeas de 80 Ω·m com base em 35 m e de 250 Ω·m com base em 60 m, todas
+   errando menos de 1 % — o dado não escolhe entre elas.
+   Custa ~20 ms porque roda no modelo já blocado (5 camadas), contra os ~3 s
+   da inversão, que roda em 23. */
+function equivalencia(dados, bloco, i0, i1, opt){
+  opt = opt || {};
+  if (!dados || !dados.xs || !dados.obs) return null;
+  const tol = opt.tol != null ? opt.tol : 1.0;   // quanto o ajuste pode piorar, em pontos %
+  const passos = opt.passos || 13;
+  const xs = dados.xs, obs = dados.obs, arr = dados.arranjo || 'schlumberger';
+  const rho = bloco.map(b => b.rho);
+  const esp = bloco.map((b,i) => (b.ate == null ? Math.max(5, (b.de||0)*0.4) : b.ate - b.de));
+  const espInv = esp.slice(0, -1);               // a última camada é semi-infinita
+  const rms = m => { const c = Array.from(rhoA(arr, xs, m.r, m.e));
+    let s2 = 0; for (let i = 0; i < obs.length; i++){ const d = Math.log(obs[i]/c[i]); s2 += d*d; }
+    return 100*Math.sqrt(s2/obs.length); };
+  const base0 = rms({ r: rho, e: espInv });
+  /* condutiva ou resistiva em relação às vizinhas? */
+  const rAlvo = Math.exp(bloco.slice(i0, i1+1).reduce((a,b)=>a+Math.log(b.rho),0)/(i1-i0+1));
+  const viz = [];
+  if (i0 > 0) viz.push(bloco[i0-1].rho);
+  if (i1 < bloco.length-1) viz.push(bloco[i1+1].rho);
+  const condutiva = viz.length ? rAlvo < Math.min(...viz) : true;
+  const topo = bloco[i0].de;
+  const cabem = [];
+  for (let k = 0; k < passos; k++){
+    const f = Math.pow(3, -1 + 2*k/(passos-1));          // fator de 1/3 a 3, em log
+    const g = condutiva ? f : 1/f;                        // segura S (h∝ρ) ou T (h∝1/ρ)
+    const r2 = rho.slice(), e2 = espInv.slice();
+    let somaH = 0;
+    for (let i = i0; i <= i1; i++){
+      r2[i] = rho[i]*f;
+      if (i < e2.length){ e2[i] = esp[i]*g; somaH += e2[i]; } else somaH += esp[i]*g;
+    }
+    if (!(somaH > 0.3)) continue;
+    const err = rms({ r: r2, e: e2 });
+    if (err - base0 <= tol) cabem.push({ rho: rAlvo*f, base: topo + somaH, err });
   }
+  if (cabem.length < 2) return null;
+  const bMin = Math.min(...cabem.map(c=>c.base)), bMax = Math.max(...cabem.map(c=>c.base));
+  /* O NÚMERO QUE VAI PARA O CAMPO NÃO É A MÉDIA (decisão do Ygor, 24/09/2026).
+     O prejuízo é assimétrico: parar raso é poço seco, passar alguns metros é só
+     custo. Por isso o percentil 70 da faixa — e não o meio. A regra se ajusta
+     sozinha: faixa estreita, o número quase não sai do lugar; faixa larga, ele
+     afunda. NÃO trocar por média: é conservador de propósito, não é a melhor
+     estimativa (essa continua sendo a do modelo, guardada em baseModelo). */
+  const P_CAMPO = 0.70;
+  return {
+    tipo: condutiva ? 'condutiva' : 'resistiva',
+    rhoMin: Math.min(...cabem.map(c=>c.rho)), rhoMax: Math.max(...cabem.map(c=>c.rho)),
+    baseMin: bMin, baseMax: bMax,
+    baseCampo: bMin + P_CAMPO*(bMax - bMin),
+    percentil: P_CAMPO, modelos: cabem.length, rmsBase: base0
+  };
+}
+
+function lerSEV(rho, prof, terrenoId, dados){
+  const T = TERRENOS[terrenoId] || TERRENOS.cristalino;
+  const iv = blocar(rho, prof, { maxCam:5 });
+  /* nomeia cada bloco e junta vizinhos da mesma classe, guardando de quais
+     blocos cada horizonte veio — a equivalência precisa disso */
+  const h = [];
+  iv.forEach((k, idx) => {
+    const c = classeDe(k.rho, T), ult = h[h.length-1];
+    if (ult && ult.classe === c.nome){ ult.ate = k.ate; ult.rho = (ult.rho+k.rho)/2; ult.i1 = idx; }
+    else h.push({ de:k.de, ate:k.ate, rho:k.rho, classe:c.nome, agua:c.agua, cor:c.cor, i0:idx, i1:idx });
+  });
   /* o horizonte de cima nunca é alvo: ninguém loca poço no primeiro metro */
   if (h.length && h[0].de === 0 && h[0].ate != null && h[0].ate <= 10){
     h[0].classe = h[0].rho > 8000 ? 'crosta laterítica / cobertura' : 'solo / cobertura';
@@ -725,7 +789,21 @@ function lerSEV(rho, prof, terrenoId){
     if (k>=0) h[k].agua='sim';
   }
   const alvos = h.filter(x => x.agua === 'sim');
+  /* equivalência só no alvo: é a profundidade dele que vai para a mão da equipe */
+  if (alvos.length && dados){
+    const a = alvos[0];
+    const eq = equivalencia(dados, iv, a.i0, a.i1);
+    if (eq){
+      a.eq = eq;
+      a.baseModelo = a.ate;                 // melhor estimativa, a do modelo
+      a.baseCampo = eq.baseCampo;           // o que vai para a ficha (percentil 70)
+      const larg = eq.baseMax - eq.baseMin, esp = (a.ate == null ? 0 : a.ate - a.de);
+      a.firme = !(larg > Math.max(15, 0.8*esp));
+    }
+  }
   const avisos = [T.aviso, 'A primeira camada é mal resolvida: a menor abertura é AB/2 = 1,5 m.'];
+  if (alvos.length && alvos[0].eq && !alvos[0].firme)
+    avisos.push(`Profundidade pouco firme neste perfil: o dado admite a base do alvo entre ${fmtN(Math.round(alvos[0].eq.baseMin))} e ${fmtN(Math.round(alvos[0].eq.baseMax))} m. O número da ficha é o conservador, não o mais provável.`);
   if (!alvos.length) avisos.push('Nenhum horizonte caiu na faixa de alvo deste terreno.');
   for (const a of alvos) if (a.de > 50)
     avisos.push(`Alvo a ${fmtN(Math.round(a.de))} m: o CPRM aponta 70–80 % das fraturas produtoras acima de 50 m.`);
@@ -785,7 +863,12 @@ function lerCaminhamento(res, loc, terrenoId){
    existem, a leitura final usa cada um no que ele é melhor.                */
 function integrar(cam, sev){
   if (!cam || !sev) return null;
-  const fx = cam.faixas || [], al = (sev.alvos||[]).map(a=>({de:a.de, ate:a.ate==null?1e9:a.ate}));
+  /* a base que vai para a mão da equipe é a de campo (percentil 70 da
+     equivalência); a do modelo fica no JSON para o escritório */
+  const fx = cam.faixas || [], al = (sev.alvos||[]).map(a=>({
+    de: a.de,
+    ate: (a.baseCampo != null) ? a.baseCampo : (a.ate == null ? 1e9 : a.ate),
+    ateModelo: a.ate, faixa: a.eq ? [a.eq.baseMin, a.eq.baseMax] : null }));
   let inter = null;
   for (const f of fx) for (const a of al){
     const de = Math.max(f.de, a.de), ate = Math.min(f.ate, a.ate);
@@ -884,7 +967,7 @@ function sugerirTerreno(lat, lon){
 window.GEOF = {
   Kexato, processarCaminhamento, melhorEstaca, coberturaPoly,
   rhoA, zohdy, intervalos, blocar, figuraCaminhamento, figuraSEV,
-  TERRENOS, lerSEV, lerCaminhamento, integrar, FRASE_PADRAO,
+  TERRENOS, lerSEV, lerCaminhamento, integrar, equivalencia, FRASE_PADRAO,
   carregarHidrogeo, sugerirTerreno,
   NAVY, GREEN, GRAY, VERM
 };
