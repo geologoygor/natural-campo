@@ -219,9 +219,9 @@ DEF.geof_cam = {
      {k:'data', r:'Data', tipo:'date', pre:'hoje'}, {k:'inicio', r:'Início', tipo:'time', agora:true}, {k:'fim', r:'Fim', tipo:'time', agora:true},
      {k:'exec', r:'Quem levantou', tipo:'text', w:2, pre:'quem'},
      {k:'equip', r:'Equipamento', tipo:'text', w:2, ph:'Eletrorresistivímetro X6xtal 500'},
-     {k:'c_ini', r:'Coordenada da ESTACA 0', tipo:'gps', w:2}, {k:'c_fim', r:'Coordenada da ESTACA 200', tipo:'gps', w:2},
-     {k:'azim', r:'Rumo da linha (graus, da estaca 0 para a 200)', tipo:'num', w:2},
-     {k:'c_b', r:'Coordenada do remoto B (−100 m)', tipo:'gps', w:2}, {k:'c_n', r:'Coordenada do remoto N (+300 m)', tipo:'gps', w:2},
+     {k:'c_ini', r:'Coordenada da ESTACA 0', tipo:'lido', w:2}, {k:'c_fim', r:'Coordenada da ESTACA 200', tipo:'lido', w:2},
+     {k:'azim', r:'Rumo da linha (graus, da estaca 0 para a 200)', tipo:'lido', w:2, ph:'sai sozinho das duas pontas'},
+     {k:'c_b', r:'Coordenada do remoto B (−100 m)', tipo:'lido', w:2}, {k:'c_n', r:'Coordenada do remoto N (+300 m)', tipo:'lido', w:2},
      {k:'contato', r:'Resistência de contato / terreno (seco, molhado…)', tipo:'text', w:2}
    ]},
    { t:'2 · Como andar com os eletrodos', img:'COMO_ANDAR_CAMINHAMENTO.png',
@@ -269,7 +269,7 @@ DEF.geof_sev = {
      {k:'data', r:'Data', tipo:'date', pre:'hoje'}, {k:'inicio', r:'Início', tipo:'time', agora:true}, {k:'fim', r:'Fim', tipo:'time', agora:true},
      {k:'exec', r:'Quem levantou', tipo:'text', w:2, pre:'quem'},
      {k:'equip', r:'Equipamento', tipo:'text', w:2, ph:'Eletrorresistivímetro X6xtal 500'},
-     {k:'c_centro', r:'Coordenada do CENTRO', tipo:'gps', w:2}, {k:'estaca', r:'Estaca do centro (se estiver sobre a linha)', tipo:'text'},
+     {k:'c_centro', r:'Coordenada do CENTRO', tipo:'lido', w:2}, {k:'estaca', r:'Estaca do centro (se estiver sobre a linha)', tipo:'text'},
      {k:'azim', r:'Rumo da SEV (graus)', tipo:'num'},
      {k:'contato', r:'Terreno (seco, molhado…) e resistência de contato', tipo:'text', w:2}
    ]},
@@ -602,7 +602,7 @@ function campoHTML(c, v, ro){
   if(c.tipo==='sel') return `<div style="${span}">${lab}<select id="${id}" data-f="${c.k}" ${dis}>${c.op.map(o=>`<option ${o===v?'selected':''}>${esc(o)}</option>`).join('')}</select></div>`;
   if(c.tipo==='area') return `<div style="${span}">${lab}<textarea id="${id}" data-f="${c.k}" ${dis} placeholder="${esc(c.ph||'')}">${esc(v||'')}</textarea></div>`;
   if(c.tipo==='gps') return `<div style="${span}">${lab}<div class="row"><input id="${id}" data-f="${c.k}" value="${esc(v||'')}" ${dis} placeholder="toque em GPS"><button class="sec" data-gps="${c.k}" style="flex:0 0 auto" ${dis}>GPS</button></div></div>`;
-  const tp = c.tipo==='num'?'inputmode="decimal"':c.tipo==='int'?'inputmode="numeric"':'';
+  if(c.tipo==='lido') return `<div style="${span}">${lab}<input id="${id}" value="${esc(v==null?'':v)}" disabled placeholder="${esc(c.ph||'marque no cartão Pontos da linha, lá em cima')}" style="opacity:.85"></div>`; /* 'lido': dado único, nasce no cartão Pontos da linha (Estou aqui — marcar); aqui só se lê */  const tp = c.tipo==='num'?'inputmode="decimal"':c.tipo==='int'?'inputmode="numeric"':'';
   const type = c.tipo==='date'?'date':c.tipo==='time'?'time':'text';
   return `<div style="${span}">${lab}<div class="row"><input id="${id}" type="${type}" ${tp} data-f="${c.k}" value="${esc(v==null?'':v)}" placeholder="${esc(c.ph||'')}" ${dis}>${c.agora&&!ro?`<button class="sec" data-agora="${c.k}" style="flex:0 0 auto;padding:10px">agora</button>`:''}</div></div>`;
 }
