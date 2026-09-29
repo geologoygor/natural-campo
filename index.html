@@ -223,7 +223,7 @@ details[open] summary::after{content:"–"}
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.9.4';
+const APP_VERSAO = '1.9.5';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -983,7 +983,7 @@ function ligarOcorr(ob){
   // Botão "voltar": fecha a câmera/ficha, volta para a lista de obras e NUNCA sai do app
     try{ history.replaceState({t:'base'},''); history.pushState({t:'app'},''); }catch(e){}
   window.addEventListener('popstate',()=>{
-    if(VER.aberto){ fecharPDF(); return; }
+    if(window.FICHAS && FICHAS.fecharZoom && FICHAS.fecharZoom()) return; /* figura ampliada: o voltar só fecha ela */ if(VER.aberto){ fecharPDF(); return; }
     if($('#cam').classList.contains('on')){ fecharCamera(); return; }
     if(window.FICHAS && FICHAS.aberta()){ FICHAS.fechar(); return; }
     if(S.obraId){ S.obraId=null; LS.set('obraId',null); render(); window.scrollTo(0,0); try{ history.pushState({t:'app'},''); }catch(e){} return; }
