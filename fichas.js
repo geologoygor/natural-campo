@@ -681,7 +681,7 @@ function desenharEditor(){
   def.blocos.forEach((b,bi)=>{
     if(b.grafico){ h+=cartaoGrafico(f,b); return; }
     h+=`<div class="card"><h2>${esc(b.t)}</h2>${b.nota?`<div class="nota">${esc(b.nota)}</div>`:''}`;
-    if(b.img) h+=`<a href="${b.img}" target="_blank" rel="noopener"><img src="${b.img}" alt="${esc(b.t)}" style="width:100%;border:1px solid var(--line);border-radius:12px;margin-top:8px"></a><div class="mini">toque na figura para ver grande</div>`;
+    if(b.img) h+=`<img src="${b.img}" data-zoom="${b.img}" alt="${esc(b.t)}" style="width:100%;border:1px solid var(--line);border-radius:12px;margin-top:8px"><div class="mini">toque na figura para ampliar — abre por cima da ficha, com botão Fechar; nada se perde</div>`;
     if(b.campos) h+=`<div class="grid">`+b.campos.map(c=>campoHTML(c,d[c.k],ro)).join('')+`</div>`;
     if(b.tabela) h+=tabelaHTML(b.tabela,d,ro);
     h+=`</div>`; });
@@ -719,7 +719,7 @@ function ligarEditor(f){
     CAM.extra={ fichaId:f.id, ficha:def.ident(f.dados), tabela:k, linha:+i, trecho:`${l.de||'?'} a ${l.ate||'?'} m` }; abrirCamera('amostra', `${tb.foto.replace(/^Foto d[ao] /,'').replace(/^./,x=>x.toUpperCase())} · ${def.ident(f.dados)} · ${l.de||'?'} a ${l.ate||'?'} m`); });
   ligarPontos(f);
   repintarGeof(f);
-  document.querySelectorAll('[data-figver]').forEach(x=>{ x.onclick=()=>verGrandeGeof(f, x.dataset.figver); });
+  document.querySelectorAll('[data-figver]').forEach(x=>{ x.onclick=()=>verGrandeGeof(f, x.dataset.figver); }); document.querySelectorAll('[data-zoom]').forEach(x=>{ x.onclick=()=>verGrandeImg(x.dataset.zoom, x.alt); });
   document.querySelectorAll('[data-terreno] [data-tv]').forEach(x=>{ x.onclick=async()=>{
     const k=x.closest('[data-terreno]').dataset.terreno, tv=x.dataset.tv;
     if(f.dados.terreno===tv) return;
@@ -948,7 +948,7 @@ function repintarGeof(f){
     const src=GEOF_PIX[f.id+'_'+b.grafico], cv=$('#fig_'+b.grafico);
     if(src && cv){ cv.width=src.width; cv.height=src.height; cv.getContext('2d').drawImage(src,0,0); cv.style.display=''; } }
 }
-function verGrandeGeof(f,k){
+/* Figura de instrução ampliada DENTRO do app (antes abria numa aba nova e, no app instalado, não tinha como voltar no meio do levantamento). Zoom por pinça ou pelos botões; fecha no botão Fechar ou no voltar do celular. */ let ZOOM_OV=null; function fecharZoom(){ if(!ZOOM_OV) return false; ZOOM_OV.remove(); ZOOM_OV=null; return true; } function verGrandeImg(src, titulo){ if(ZOOM_OV) fecharZoom(); const ov=document.createElement('div'); ov.style.cssText='position:fixed;inset:0;background:#0B1220;z-index:9999;display:flex;flex-direction:column;touch-action:none'; ov.innerHTML=`<div style="padding:10px 14px;color:#fff;font:600 15px system-ui;display:flex;align-items:center;gap:10px"><button id="zX" style="background:#fff;color:#14284D;border:0;border-radius:8px;padding:9px 16px;font:700 15px system-ui">Fechar</button><span style="flex:1;opacity:.85;font-weight:400">${esc(titulo||'')} — pinça ou botões para o zoom; arraste para ver</span><button id="zMenos" style="background:#243B5C;color:#fff;border:0;border-radius:8px;width:42px;height:38px;font:700 22px system-ui">−</button><button id="zMais" style="background:#243B5C;color:#fff;border:0;border-radius:8px;width:42px;height:38px;font:700 22px system-ui">+</button></div><div id="zBox" style="flex:1;overflow:auto;-webkit-overflow-scrolling:touch"><img id="zImg" src="${src}" alt="" style="display:block;max-width:none;transform-origin:0 0"></div>`; document.body.appendChild(ov); ZOOM_OV=ov; const box=ov.querySelector('#zBox'), img=ov.querySelector('#zImg'); let esc0=1; const aplica=()=>{ img.style.width=(box.clientWidth*esc0)+'px'; }; img.onload=aplica; aplica(); const zoom=(fz,cx,cy)=>{ const n=Math.min(6,Math.max(1,esc0*fz)); if(n===esc0) return; const rx=(box.scrollLeft+(cx==null?box.clientWidth/2:cx))/esc0, ry=(box.scrollTop+(cy==null?box.clientHeight/2:cy))/esc0; esc0=n; aplica(); box.scrollLeft=rx*esc0-(cx==null?box.clientWidth/2:cx); box.scrollTop=ry*esc0-(cy==null?box.clientHeight/2:cy); }; ov.querySelector('#zMais').onclick=()=>zoom(1.5); ov.querySelector('#zMenos').onclick=()=>zoom(1/1.5); let d0=null, e0=1; box.addEventListener('touchstart',e=>{ if(e.touches.length===2){ d0=Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY); e0=esc0; } },{passive:true}); box.addEventListener('touchmove',e=>{ if(e.touches.length===2 && d0){ e.preventDefault(); const d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY); const alvo=e0*d/d0; const r=box.getBoundingClientRect(); zoom(alvo/esc0, (e.touches[0].clientX+e.touches[1].clientX)/2-r.left, (e.touches[0].clientY+e.touches[1].clientY)/2-r.top); } },{passive:false}); box.addEventListener('touchend',()=>{ d0=null; },{passive:true}); img.ondblclick=()=>zoom(esc0>1?1/esc0:2); ov.querySelector('#zX').onclick=()=>{ if(history.state&&history.state.t==='zoom') history.back(); else fecharZoom(); }; try{ history.pushState({t:'zoom'},''); }catch(e){} }function verGrandeGeof(f,k){
   const src=GEOF_PIX[f.id+'_'+k]; if(!src) return;
   const ov=document.createElement('div');
   ov.style.cssText='position:fixed;inset:0;background:#0B1220;z-index:9999;display:flex;flex-direction:column';
@@ -1332,5 +1332,5 @@ async function encerrar(f){
 
 window.FICHAS_DA_LINHA = FICHAS_DA_LINHA;
 function encerradasHoje(obraId){ const h=HOJE(); return todas().filter(f=>f.obraId===obraId && f.status==='encerrada' && f.encerradaEm && new Date(f.encerradaEm).toDateString()===new Date().toDateString()).length; }
-window.FICHAS = { encerradasHoje, secaoLista, ligarLista, abrir, fechar, aberta, desenharEditor, gerarPDF, DEF, _novaFicha:novaFicha, _pegar:pegar, _fig:desenharFiguraGeof };
+window.FICHAS = { encerradasHoje, secaoLista, ligarLista, abrir, fechar, aberta, fecharZoom, desenharEditor, gerarPDF, DEF, _novaFicha:novaFicha, _pegar:pegar, _fig:desenharFiguraGeof };
 })();
