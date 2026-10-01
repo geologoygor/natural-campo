@@ -200,7 +200,7 @@ const R_geo = l => { const v=NUM(l.mv), i=NUM(l.ma), sp=NUM(l.sp);
   return (v-(isNaN(sp)?0:sp))/i; };
 const RHO_geo = l => { const r=R_geo(l); return r===''?'':(l.K*r); };
 const COL_MEDIDA = [
-  {k:'sp', r:'SP (mV)', tipo:'num', w:.7}, {k:'mv', r:'mV com corrente', tipo:'num', w:.9}, {k:'ma', r:'mA', tipo:'num', w:.6},
+  {k:'sp', r:'SP (mV)', tipo:'num', neg:true, w:.7}, {k:'mv', r:'mV com corrente', tipo:'num', neg:true, w:.9}, {k:'ma', r:'mA', tipo:'num', neg:true, w:.6},
   {k:'R', r:'R (Ω)', tipo:'calc', w:.6, calc:l=>{ const r=R_geo(l); return r===''?'':r.toFixed(3).replace('.',','); }},
   {k:'rho', r:'ρa de campo (Ω·m)', tipo:'calc', w:.8, calc:l=>{ const r=RHO_geo(l); return r===''?'':String(Math.round(r)); }}
 ];
@@ -504,9 +504,9 @@ function cartaoGeo(f){
    <div style="font-size:19px;line-height:1.5;margin:8px 0">${alvo}</div>
    <div class="mini" ${l.emb?'style="color:#B9410F;font-weight:700"':''}>${esc(sub)}</div>
    <div class="gols" style="grid-template-columns:1fr 1fr 1fr;margin-top:10px">
-     <div class="gol"><div class="t">1 · SP</div><input class="g" inputmode="decimal" id="g_sp" value="${esc(l.sp||'')}"></div>
-     <div class="gol"><div class="t">2 · voltagem</div><input class="g" inputmode="decimal" id="g_mv" value="${esc(l.mv||'')}"></div>
-     <div class="gol"><div class="t">3 · corrente</div><input class="g" inputmode="decimal" id="g_ma" value="${esc(l.ma||'')}"></div>
+     <div class="gol"><div class="t">1 · SP</div><input class="g" inputmode="decimal" id="g_sp" value="${esc(l.sp||'')}"><button class="sec sinal" data-sinal="g_sp" type="button">± negativo</button></div>
+     <div class="gol"><div class="t">2 · voltagem</div><input class="g" inputmode="decimal" id="g_mv" value="${esc(l.mv||'')}"><button class="sec sinal" data-sinal="g_mv" type="button">± negativo</button></div>
+     <div class="gol"><div class="t">3 · corrente</div><input class="g" inputmode="decimal" id="g_ma" value="${esc(l.ma||'')}"><button class="sec sinal" data-sinal="g_ma" type="button">± negativo</button></div>
    </div>
    <button class="big green" id="gOk" style="margin-top:10px">${corr?'Salvar a correção':'Anotar e ir para a próxima'}</button>
    <div class="row" style="gap:8px;margin-top:8px">
@@ -517,7 +517,7 @@ function cartaoGeo(f){
      ? `<button class="big ghost" id="gDaVez" style="margin-top:8px">Voltar para a leitura da vez${daVez>=0?' ('+arr[daVez].ord+')':''}</button>`
      : `<button class="big sec" id="gPula" style="margin-top:8px">Não deu para medir — pular esta</button>`}
    ${l.pulou?`<button class="big ghost" id="gDespula" style="margin-top:8px">Desmarcar "não deu para medir"</button>`:''}
-   <div class="mini" style="margin-top:6px">Os três números do visor do X6xtal, na ordem em que ele mostra (SP em mV · voltagem em mV · corrente em mA). Pular é melhor do que chutar.</div></div>`;
+   <div class="mini" style="margin-top:6px">Os três números do visor do X6xtal, na ordem em que ele mostra (SP em mV · voltagem em mV · corrente em mA). Valor negativo no visor? Digite o número e toque em <b>± negativo</b>. Pular é melhor do que chutar.</div></div>`;
 }
 function renderGeo(f){ const p=$('#prox'); if(!p) return; const tmp=document.createElement('div'); tmp.innerHTML=cartaoGeo(f); p.replaceWith(tmp.firstElementChild); ligarGeo(f); }
 function atualizarTabelaGeo(f){ (f.dados.leituras||[]).forEach((l,i)=>{ for(const k of ['sp','mv','ma']){ const el=$(`#t_leituras_${i}_${k}`); if(el && document.activeElement!==el) el.value=l[k]==null?'':l[k]; } }); }
@@ -604,7 +604,7 @@ function campoHTML(c, v, ro){
   if(c.tipo==='gps') return `<div style="${span}">${lab}<div class="row"><input id="${id}" data-f="${c.k}" value="${esc(v||'')}" ${dis} placeholder="toque em GPS"><button class="sec" data-gps="${c.k}" style="flex:0 0 auto" ${dis}>GPS</button></div></div>`;
   if(c.tipo==='lido') return `<div style="${span}">${lab}<input id="${id}" value="${esc(v==null?'':v)}" disabled placeholder="${esc(c.ph||'marque no cartão Pontos da linha, lá em cima')}" style="opacity:.85"></div>`; /* 'lido': dado único, nasce no cartão Pontos da linha (Estou aqui — marcar); aqui só se lê */  const tp = c.tipo==='num'?'inputmode="decimal"':c.tipo==='int'?'inputmode="numeric"':'';
   const type = c.tipo==='date'?'date':c.tipo==='time'?'time':'text';
-  return `<div style="${span}">${lab}<div class="row"><input id="${id}" type="${type}" ${tp} data-f="${c.k}" value="${esc(v==null?'':v)}" placeholder="${esc(c.ph||'')}" ${dis}>${c.agora&&!ro?`<button class="sec" data-agora="${c.k}" style="flex:0 0 auto;padding:10px">agora</button>`:''}</div></div>`;
+  return `<div style="${span}">${lab}<div class="row"><input id="${id}" type="${type}" ${tp} data-f="${c.k}" value="${esc(v==null?'':v)}" placeholder="${esc(c.ph||'')}" ${dis}>${c.neg&&!ro?`<button class="sec sinal" data-sinal="${id}" type="button" style="flex:0 0 auto;padding:10px">±</button>`:''}${c.agora&&!ro?`<button class="sec" data-agora="${c.k}" style="flex:0 0 auto;padding:10px">agora</button>`:''}</div></div>`;
 }
 function tabelaHTML(tb, d, ro){
   const linhas=d[tb.k]||[];
@@ -622,7 +622,7 @@ function tabelaHTML(tb, d, ro){
           <textarea id="${id}" data-t="${tb.k}.${i}.${c.k}" style="min-height:54px;margin-top:6px" placeholder="os botões escrevem aqui; pode corrigir">${esc(l[c.k]||'')}</textarea>
           <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:6px">${i>0?`<button class="ghost" data-gidem="${tb.k}.${i}.${c.k}" style="flex:0 0 auto">Igual ao de cima</button>`:''}${tb.agua?`<button class="ghost" data-gagua="${tb.k}.${i}" style="flex:0 0 auto">💧 Água apareceu aqui</button>`:''}${tb.foto?`<button class="sec" data-gfoto="${tb.k}.${i}" style="flex:0 0 auto">📷 ${esc(tb.foto)}</button><span class="mini">${fotosDaLinha(ABERTA,tb.k,i).length||''}${fotosDaLinha(ABERTA,tb.k,i).length?' foto(s)':''}</span>`:''}</div>`; }
       else if(c.tipo==='area') inp=`<textarea id="${id}" data-t="${tb.k}.${i}.${c.k}" ${ro?'disabled':''} style="min-height:60px">${esc(l[c.k]||'')}</textarea>`;
-      else inp=`<div class="row"><input id="${id}" type="${c.tipo==='time'?'time':c.tipo==='date'?'date':'text'}" ${tp} data-t="${tb.k}.${i}.${c.k}" value="${esc(l[c.k]==null?'':l[c.k])}" ${ro?'disabled':''}>${c.agora&&!ro?`<button class="sec" data-tagora="${tb.k}.${i}.${c.k}" style="flex:0 0 auto;padding:8px">agora</button>`:''}</div>`;
+      else inp=`<div class="row"><input id="${id}" type="${c.tipo==='time'?'time':c.tipo==='date'?'date':'text'}" ${tp} data-t="${tb.k}.${i}.${c.k}" value="${esc(l[c.k]==null?'':l[c.k])}" ${ro?'disabled':''}>${c.neg&&!ro?`<button class="sec sinal" data-sinal="${id}" type="button" style="flex:0 0 auto;padding:8px 10px">±</button>`:''}${c.agora&&!ro?`<button class="sec" data-tagora="${tb.k}.${i}.${c.k}" style="flex:0 0 auto;padding:8px">agora</button>`:''}</div>`;
       h+=`<div style="${span}"><label for="${id}">${esc(c.r)}</label>${inp}</div>`; }
     h+=`</div></div>`; });
   if(!ro && tb.seq!=='fixo') h+=`<button class="big sec" data-add="${tb.k}">+ ${tb.seq==='metro'?'próximo metro':'nova linha'}</button>`;
@@ -1154,6 +1154,7 @@ function injetarCssSPT(){ if(document.getElementById('cssSPT')) return; const st
 .spt .gol{border:1.5px solid var(--line);border-radius:12px;padding:8px;text-align:center;background:#FAFBFC}
 .spt .gol .t{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
 .spt .gol input.g{font:700 30px system-ui;text-align:center;height:58px;padding:0;margin:4px 0}
+.spt .gol .sinal{width:100%;padding:6px 0;font:700 14px system-ui;margin-top:2px}
 .spt .gol .cm{display:flex;align-items:center;justify-content:center;gap:4px;font-size:12px;color:var(--muted)}
 .spt .gol .cm input{width:44px;height:34px;padding:2px;text-align:center;font-size:15px}
 .spt .sub{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:12px 0 6px}
@@ -1334,3 +1335,13 @@ window.FICHAS_DA_LINHA = FICHAS_DA_LINHA;
 function encerradasHoje(obraId){ const h=HOJE(); return todas().filter(f=>f.obraId===obraId && f.status==='encerrada' && f.encerradaEm && new Date(f.encerradaEm).toDateString()===new Date().toDateString()).length; }
 window.FICHAS = { encerradasHoje, secaoLista, ligarLista, abrir, fechar, aberta, fecharZoom, desenharEditor, gerarPDF, DEF, _novaFicha:novaFicha, _pegar:pegar, _fig:desenharFiguraGeof };
 })();
+
+/* ± : o teclado numérico do Android (inputmode decimal) não tem o sinal de menos.
+   O botão troca o sinal do número do campo e avisa o campo (input), para gravar igual a uma digitação. */
+document.addEventListener('click', e=>{ const b=e.target.closest('[data-sinal]'); if(!b) return; e.preventDefault();
+  const el=document.getElementById(b.dataset.sinal); if(!el||el.disabled) return;
+  let v=el.value.trim().replace(/^[−–]/,'-');
+  v = v.startsWith('-') ? v.slice(1) : (v ? '-'+v : '-');
+  el.value=v; el.dispatchEvent(new Event('input',{bubbles:true}));
+  if(navigator.vibrate) try{ navigator.vibrate(15); }catch(_){}
+});
