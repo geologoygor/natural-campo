@@ -260,7 +260,7 @@ button.mini{padding:8px 12px;font-size:14px;margin-top:6px}
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.13.0';
+const APP_VERSAO = '1.13.1';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -328,22 +328,45 @@ function fmtCoordCurta(p, fmt){
 }
 
 /* ---------------- GPS ---------------- */
-function iniciarGPS(){
-  if(!navigator.geolocation || S.watch) return;
-  S.watch = navigator.geolocation.watchPosition(g=>{
+function iniciarGPS(forcar){
+  if(!navigator.geolocation){ S.gpsErro={code:9}; atualizarGeo(); return; }
+  if(S.watch!=null && !forcar && !S.gpsErro) return;
+  /* v1.13.1: se o GPS deu erro (permissão negada, localização desligada, tempo esgotado), o watch
+     antigo morria calado e nenhum botão conseguia religar. Agora todo toque tenta de novo. */
+  if(S.watch!=null){ try{ navigator.geolocation.clearWatch(S.watch); }catch(_){} S.watch=null; }
+  const ok=g=>{ S.gpsErro=null;
     S.pos = {lat:g.coords.latitude, lon:g.coords.longitude, acc:g.coords.accuracy, alt:g.coords.altitude};
-    S.posEm = Date.now(); atualizarGeo();
-  }, e=>{ atualizarGeo(e.message); }, {enableHighAccuracy:true, maximumAge:5000, timeout:30000});
+    S.posEm = Date.now(); atualizarGeo(); };
+  const er=e=>{ S.gpsErro={code:e.code, msg:e.message}; atualizarGeo();
+    if(e.code===3){ /* só demorou: continua procurando sozinho */ setTimeout(()=>{ if(S.gpsErro&&S.gpsErro.code===3) iniciarGPS(true); }, 2000); }
+    else { try{ navigator.geolocation.clearWatch(S.watch); }catch(_){} S.watch=null; } };
+  /* pedido único dentro do toque: é o que faz o Android mostrar o "Permitir localização?" */
+  try{ navigator.geolocation.getCurrentPosition(ok, er, {enableHighAccuracy:true, maximumAge:0, timeout:20000}); }catch(_){}
+  S.watch = navigator.geolocation.watchPosition(ok, er, {enableHighAccuracy:true, maximumAge:5000, timeout:30000});
 }
+/* frase que o funcionário entende e consegue resolver sozinho */
+function textoErroGPS(){
+  const e=S.gpsErro; if(!e) return '';
+  if(e.code===1) return 'GPS BLOQUEADO para o app. Toque no cadeado ao lado do endereço (ou ⋮ > Configurações > Configurações do site > Localização) e escolha PERMITIR. Se continuar: Configurações do Android > Apps > Chrome > Permissões > Localização > Permitir, com "Usar localização precisa" LIGADO.';
+  if(e.code===2) return 'Localização do celular DESLIGADA. Puxe a barra de cima e ligue "Localização"; depois toque de novo.';
+  if(e.code===3) return 'GPS ainda procurando sinal… vá para céu aberto e espere alguns segundos.';
+  return 'Este navegador não dá GPS. Abra o app pelo Chrome.';
+}
+/* avisa já na abertura se o GPS está bloqueado, sem esperar o funcionário tentar tirar a foto */
+try{ navigator.permissions && navigator.permissions.query({name:'geolocation'}).then(st=>{
+  const ver=()=>{ if(st.state==='denied'){ S.gpsErro={code:1}; atualizarGeo(); } else if(S.gpsErro&&S.gpsErro.code===1){ iniciarGPS(true); } };
+  ver(); st.onchange=ver; }).catch(()=>{}); }catch(_){}
 /* coordenada só vale se for de agora: carro andou 60 km com o app em segundo plano e a
    posição velha saía carimbada na foto da obra seguinte */
 function posFresca(ms){ return (S.pos && S.posEm && Date.now()-S.posEm <= (ms||60000)) ? S.pos : null; }
-document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'){ if(S.posEm && Date.now()-S.posEm>60000) atualizarGeo(); if(navigator.onLine) enviarFila(); } });
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'){ if(S.gpsErro) iniciarGPS(true); if(S.posEm && Date.now()-S.posEm>60000) atualizarGeo(); if(navigator.onLine) enviarFila(); } });
 function atualizarGeo(err){
+  const ge=textoErroGPS();
+  const g0=$('#geoLive'); if(g0 && ge && !posFresca()) g0.textContent=ge;
   const el=$('#camGeo'); if(!el) return;
   if(posFresca()){ el.textContent = fmtCoord(S.pos, S.fmt) + `  ±${Math.round(S.pos.acc)} m`; }
-  else el.textContent = err ? 'GPS: '+err : (S.pos ? 'GPS desatualizado — procurando de novo…' : 'Procurando GPS…');
-  const g=$('#geoLive'); if(g) g.textContent = S.pos ? fmtCoord(S.pos,S.fmt)+`  ±${Math.round(S.pos.acc)} m` : 'Procurando GPS… (funciona sem internet; a céu aberto fixa mais rápido)';
+  else el.textContent = ge ? ge : (S.pos ? 'GPS desatualizado — procurando de novo…' : 'Procurando GPS…');
+  const g=$('#geoLive'); if(g && !(ge && !posFresca())) g.textContent = S.pos ? fmtCoord(S.pos,S.fmt)+`  ±${Math.round(S.pos.acc)} m` : 'Procurando GPS… (funciona sem internet; a céu aberto fixa mais rápido)';
 }
 
 /* ---------------- IndexedDB (fila de envio) ---------------- */

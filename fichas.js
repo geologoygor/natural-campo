@@ -596,8 +596,8 @@ function cartaoPontos(f){
 function ligarPontos(f){
   if(!ehGeo(f.tipo) || f.status==='encerrada') return;
   document.querySelectorAll('[data-pt]').forEach(b=>{ b.onclick=()=>{
-    iniciarGPS();
-    if(!posFresca(60000)){ toast(S.pos?'GPS desatualizado — espere fixar de novo e toque outra vez.':'Procurando GPS… tente de novo em alguns segundos (céu aberto ajuda).',4000); return; }
+    iniciarGPS(true);
+    if(!posFresca(60000)){ if(S.gpsErro&&S.gpsErro.code!==3) return toast(textoErroGPS(),9000); toast(S.pos?'GPS desatualizado — espere fixar de novo e toque outra vez.':'Procurando GPS… tente de novo em alguns segundos (céu aberto ajuda).',4000); return; }
     const k=b.dataset.pt;
     f.dados[k]=textoCoordFicha(S.pos);
     /* rumo sai das duas pontas, sem ninguém ter de medir bússola */
@@ -1036,7 +1036,7 @@ function ligarEditor(f){
   document.querySelectorAll('[data-t]').forEach(el=>{ el.oninput=el.onchange=()=>{ const [k,i,c]=el.dataset.t.split('.'); f.dados[k][+i][c]=el.value; salvar(); }; });
   document.querySelectorAll('[data-agora]').forEach(b=>b.onclick=()=>{ const k=b.dataset.agora; f.dados[k]=AGORA(); $('#f_'+k).value=f.dados[k]; salvar(); });
   document.querySelectorAll('[data-tagora]').forEach(b=>b.onclick=()=>{ const [k,i,c]=b.dataset.tagora.split('.'); f.dados[k][+i][c]=AGORA(); $(`#t_${k}_${i}_${c}`).value=f.dados[k][+i][c]; salvar(); });
-  document.querySelectorAll('[data-gps]').forEach(b=>b.onclick=()=>{ iniciarGPS(); const p=posFresca(60000); if(!p){ toast(S.pos?'GPS desatualizado — espere alguns segundos e toque de novo.':'Procurando GPS… tente de novo em alguns segundos (céu aberto ajuda).'); return; } const v=textoCoordFicha(p); f.dados[b.dataset.gps]=v; $('#f_'+b.dataset.gps).value=v; salvar(); toast('Coordenada preenchida'); });
+  document.querySelectorAll('[data-gps]').forEach(b=>b.onclick=()=>{ iniciarGPS(true); const p=posFresca(60000); if(!p){ if(S.gpsErro&&S.gpsErro.code!==3) return toast(textoErroGPS(),9000); toast(S.pos?'GPS desatualizado — espere alguns segundos e toque de novo.':'Procurando GPS… tente de novo em alguns segundos (céu aberto ajuda).'); return; } const v=textoCoordFicha(p); f.dados[b.dataset.gps]=v; $('#f_'+b.dataset.gps).value=v; salvar(); toast('Coordenada preenchida'); });
   document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>{ const tb=def.blocos.find(x=>x.tabela&&x.tabela.k===b.dataset.add).tabela; const arr=f.dados[tb.k]; let extra={};
       if(tb.seq==='metro'){ const u=arr[arr.length-1]; const de=u&&u.ate!==''&&!isNaN(NUM(u.ate))?NUM(u.ate):0; extra={de:String(de).replace('.',','), ate:String(de+1).replace('.',',')}; }
       else if(arr.length && arr[arr.length-1].ate!==undefined){ extra={de:arr[arr.length-1].ate||''}; }
