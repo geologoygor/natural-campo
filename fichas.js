@@ -3,6 +3,7 @@
    Mesmos campos das fichas de papel oficiais:
    FC-SPT v1.1 (SOP-017) · FC-POÇO Perfuração (SOP-008/021/023/024)
    FC-POÇO Teste de bombeamento (SOP-008/018) · FC-POÇO Entrega (SOP-020)
+   FC-POÇO Limpeza (SOP-043 — limpeza e manutenção de poço)
    Regra: o app vira a fonte; o papel fica de reserva. Nunca trava:
    só avisa o que falta. Campo em branco é permitido; inventado, não.
    ============================================================ */
@@ -185,6 +186,98 @@ const DEF = {
     if(!d.pend) a.push('Pendências em branco — se não houver, escreva "nenhum".');
     return a; }
  }
+};
+
+/* ============================================================
+   LIMPEZA E MANUTENÇÃO DE POÇO — SOP-043 v1.1 (07/10/2026)
+   A prova do serviço é o ANTES × DEPOIS: nível e vazão medidos antes de tirar a bomba
+   e de novo no teste até estabilizar. Vazão pelo balde: litros ÷ segundos × 3,6 = m³/h.
+   ============================================================ */
+const qBalde = (l, s) => { const L=NUM(l), T=NUM(s); return (L>0 && T>0) ? Math.round(L/T*3.6*100)/100 : NaN; };
+const fmtQ = v => isNaN(v) ? '' : String(v).replace('.',',');
+const qAntes = d => { const b=qBalde(d.q_ant_l,d.q_ant_s); return !isNaN(b)?b:NUM(d.q_ant); };
+const qDepois = d => { const b=qBalde(d.q_dep_l,d.q_dep_s); return !isNaN(b)?b:NUM(d.q_dep); };
+DEF.poco_limpeza = {
+  codigo:'FC-POÇO Limpeza', titulo:'Ficha de campo — Limpeza e manutenção de poço', sop:'SOP-043',
+  ident: d => d.poco || 'poço',
+  blocos: [
+   { t:'1 · O poço', campos:[
+     {k:'cliente', r:'Cliente / propriedade', tipo:'text', w:2, pre:'cliente'}, {k:'poco', r:'Poço (nº / identificação)', tipo:'text', ph:'P-01'}, {k:'mun', r:'Município / localidade', tipo:'text'},
+     {k:'coord', r:'Coordenada do poço', tipo:'gps', w:2}, {k:'data', r:'Data', tipo:'date', pre:'hoje'}, {k:'chegada', r:'Chegada', tipo:'time', agora:true, w:2},
+     {k:'equipe', r:'Equipe (comanda + ajudante)', tipo:'text', w:2, pre:'quem'},
+     {k:'diam', r:'Diâmetro do poço', tipo:'sel', op:['','4"','6"','8"','outro','não sei']}, {k:'prof_inf', r:'Profundidade informada (m)', tipo:'num'},
+     {k:'b_tipo', r:'Bomba que está no poço', tipo:'sel', op:['','Submersa','Injetora','Outra','Sem bomba']}, {k:'b_cv', r:'Potência (CV)', tipo:'text'},
+     {k:'b_marca', r:'Marca / modelo da bomba', tipo:'text', w:2}
+   ]},
+   { t:'2 · Antes de mexer no poço', nota:'Sem o número de antes não há como provar a melhora. Meça ANTES de retirar a bomba.', campos:[
+     {k:'frase', r:'A proposta diz que a limpeza recupera o poço, não aumenta o que o aquífero dá?', tipo:'sel', op:['','Sim, está na proposta','Não está — avisei o escritório','Não sei'], w:4},
+     {k:'rel_desde', r:'Desde quando tem o problema (relato do cliente)', tipo:'text', w:2, ph:'ex.: uns 3 meses'},
+     {k:'rel_antes', r:'Quanta água dava antes (relato)', tipo:'text', w:2, ph:'ex.: enchia a caixa de 1.000 L em 1 h'},
+     {k:'rel_sint', r:'O que mudou', tipo:'check', w:4, op:['Diminuiu a água','Água suja ou com areia','Bomba desliga sozinha','Bomba liga e não puxa','Cor ou cheiro estranho','Outro (escrever abaixo)']},
+     {k:'rel_txt', r:'Relato nas palavras do cliente', tipo:'area', w:4},
+     {k:'ne_ant', r:'Nível estático ANTES (m)', tipo:'num'}, {k:'ne_ant_h', r:'às', tipo:'time', agora:true, w:2},
+     {k:'prof_ant', r:'Profundidade sondada ANTES (m)', tipo:'num', w:2},
+     {k:'q_ant_l', r:'Vazão antes — balde (litros)', tipo:'num'}, {k:'q_ant_s', r:'encheu em (segundos)', tipo:'num'},
+     {k:'q_ant_c', r:'= vazão (m³/h)', tipo:'calc', calc:d=>fmtQ(qBalde(d.q_ant_l,d.q_ant_s))}, {k:'q_ant', r:'ou vazão medida de outro jeito (m³/h)', tipo:'num'},
+     {k:'nao_mediu', r:'Não deu para medir antes? por quê', tipo:'text', w:4, ph:'ex.: bomba queimada, não liga'}
+   ]},
+   { t:'3 · Retirada da bomba', nota:'Devagar, com o cabo de segurança preso e as emendas protegidas. Fotografe bomba, cabo e emendas ASSIM QUE SAÍREM (aba Fotos → Foto extra).', campos:[
+     {k:'seg', r:'Antes de puxar', tipo:'check', w:4, op:['Quadro desligado e confirmado SEM energia','Cabo de segurança preso','Emendas protegidas']},
+     {k:'ret_h', r:'Bomba fora às', tipo:'time', agora:true, w:2}, {k:'prof_b', r:'Bomba estava a (m)', tipo:'num'},
+     {k:'est_bomba', r:'Bomba ao sair', tipo:'sel', op:['','Boa','Danificada','Presa — não saiu (PAREI e avisei o Ygor)'], w:2},
+     {k:'est_cabo', r:'Cabo e emendas ao sair', tipo:'sel', op:['','Bons','Emendas ruins','Cabo danificado'], w:2},
+     {k:'est_obs', r:'O que viu de errado (mostrado ao cliente na hora)', tipo:'text', w:2},
+     {k:'fotos_ret', r:'Fotos ao sair', tipo:'check', w:4, op:['Bomba','Cabo','Emendas']}
+   ]},
+   { t:'4 · Limpeza', campos:[
+     {k:'metodo', r:'Como limpou', tipo:'check', w:4, op:['Compressor / air-lift','Escovação','Pistoneamento','Caçamba (bailer)','Outro']},
+     {k:'lim_ini', r:'Início', tipo:'time', agora:true, w:2}, {k:'lim_fim', r:'Fim', tipo:'time', agora:true, w:2},
+     {k:'agua_limpa', r:'Água saiu limpa às', tipo:'time', agora:true, w:2},
+     {k:'saiu', r:'O que saiu do poço', tipo:'check', w:4, op:['Areia','Lama / argila','Incrustação (ferro, crosta)','Raízes','Objetos / peças caídas','Só água turva']},
+     {k:'obstr', r:'Obstrução a (m)', tipo:'num'}, {k:'prof_dep', r:'Profundidade sondada DEPOIS (m)', tipo:'num'},
+     {k:'lim_obs', r:'Observações da limpeza', tipo:'area', w:4}
+   ]},
+   { t:'5 · Volta da bomba e elétrico', nota:'Conferir ANTES de ligar: problema elétrico na volta já aconteceu.', campos:[
+     {k:'volta', r:'Conferido antes de ligar', tipo:'check', w:4, op:['Emendas ruins refeitas','Fases conferidas','Quadro e proteção conferidos','Bomba de volta na mesma profundidade']},
+     {k:'prof_b2', r:'Bomba recolocada a (m)', tipo:'num'},
+     {k:'troca', r:'Trocou peça, bomba ou cabo?', tipo:'sel', op:['','Não','Sim — autorizado pelo Ygor'], w:2}, {k:'troca_q', r:'O que trocou', tipo:'text'}
+   ]},
+   { t:'6 · Teste até o nível estabilizar', nota:'Ligue a bomba e anote o nível e a vazão até o nível parar de descer. Toque em + para cada leitura.', campos:[
+     {k:'t_ini', r:'Bomba ligou às', tipo:'time', agora:true, w:2}, {k:'ne_dep', r:'Nível estático DEPOIS, antes de ligar (m)', tipo:'num', w:2}],
+     tabela:{k:'teste', seq:'livre', cols:[
+      {k:'h', r:'Hora', tipo:'time', w:.8, agora:true}, {k:'nd', r:'N.D. (m)', tipo:'num', w:1}, {k:'q', r:'Q (m³/h)', tipo:'num', w:1}]}},
+   { t:'7 · Resultado — antes × depois', campos:[
+     {k:'estab_h', r:'Nível estabilizou às', tipo:'time', agora:true, w:2}, {k:'nd_estab', r:'N.D. estabilizado (m)', tipo:'num'},
+     {k:'q_dep_l', r:'Vazão final — balde (litros)', tipo:'num'}, {k:'q_dep_s', r:'encheu em (segundos)', tipo:'num'},
+     {k:'q_dep_c', r:'= vazão final (m³/h)', tipo:'calc', calc:d=>fmtQ(qBalde(d.q_dep_l,d.q_dep_s))}, {k:'q_dep', r:'ou vazão final medida de outro jeito (m³/h)', tipo:'num'},
+     {k:'comp', r:'Vazão antes → depois', tipo:'calc', w:2, calc:d=>{ const a=qAntes(d), b=qDepois(d); if(isNaN(b)) return ''; if(isNaN(a)||a<=0) return `depois ${fmtQ(b)} m³/h (sem o antes)`; const p=Math.round((b-a)/a*100); return `${fmtQ(a)} → ${fmtQ(b)} m³/h (${p>=0?'+':''}${p}%)`; }},
+     {k:'mostrou', r:'Com o cliente', tipo:'check', w:4, op:['Mostrei funcionando, com os números de antes e depois']}
+   ]},
+   { t:'8 · Aceite do cliente (SOP-031)', campos:[
+     {k:'recebe', r:'Nome de quem recebe', tipo:'text', w:2},
+     {k:'quem_e', r:'Quem recebe é', tipo:'sel', op:['','O próprio cliente','Indicado pelo cliente por WhatsApp'], w:2},
+     {k:'pend', r:'Pedidos fora do escopo (a Natural orça à parte — não prometer). Se não houver, escreva "nenhum".', tipo:'area', w:4},
+     {k:'ass_recebe', r:'Assinatura de quem recebe', tipo:'ass', w:2}, {k:'ass_enc', r:'Assinatura do encarregado', tipo:'ass', w:2}
+   ]}
+  ],
+  nota:'Bomba presa, mexer no quadro do cliente, troca de bomba ou cabo e qualquer valor fora da proposta: PARE e avise o Ygor. Vazão não melhorou: anote os números, mostre ao cliente e avise — não prometa nova limpeza sem orçamento. Campo em branco é permitido; campo inventado, não.',
+  avisos: d => { const a=[]; const sem=v=>v===''||v==null;
+    if(sem(d.ne_ant) && !d.nao_mediu) a.push('Nível estático de ANTES em branco — sem ele não há como provar a melhora (SOP-043).');
+    if(isNaN(qAntes(d)) && !d.nao_mediu) a.push('Vazão de ANTES em branco (balde: litros e segundos).');
+    if(!(d.seg||[]).includes('Quadro desligado e confirmado SEM energia')) a.push('Quadro desligado e sem energia não confirmado.');
+    if((d.fotos_ret||[]).length<3) a.push('Faltam fotos de bomba, cabo e emendas ao sair do poço.');
+    if(!(d.saiu||[]).length) a.push('O que saiu do poço não foi anotado.');
+    if((d.volta||[]).length<3) a.push('Elétrico não conferido por inteiro antes de ligar (emendas, fases, quadro).');
+    if(/^Presa/.test(d.est_bomba||'')) a.push('Bomba presa: não force — avise o Ygor com foto antes de tentar de novo.');
+    if(/^Sim/.test(d.troca||'') && !d.troca_q) a.push('Trocou peça: escreva o que foi trocado.');
+    if(!(d.teste||[]).some(l=>!sem(l.nd))) a.push('Nenhuma leitura de nível no teste.');
+    if(sem(d.nd_estab)) a.push('N.D. estabilizado em branco.');
+    if(isNaN(qDepois(d))) a.push('Vazão final em branco.');
+    const qa=qAntes(d), qd=qDepois(d); if(!isNaN(qa)&&!isNaN(qd)&&qd<=qa) a.push('A vazão NÃO melhorou: anote, mostre ao cliente e avise o Ygor hoje.');
+    if(!(d.mostrou||[]).length) a.push('Não marcou que mostrou ao cliente funcionando, com antes e depois.');
+    if(!d.recebe || !d.ass_recebe) a.push('Sem nome e assinatura de quem recebe — o serviço fica sem aceite (SOP-031).');
+    if(!d.pend) a.push('Pedidos fora do escopo em branco — se não houver, escreva "nenhum".');
+    return a; }
 };
 
 /* ============================================================
@@ -682,7 +775,7 @@ function ligarGeo(f){
     GEO_POS[f.id]=i; renderGeo(f); atualizarCalc(f); };
 }
 
-const FICHAS_DA_LINHA = { spt:['spt'], poco:['poco_perf','poco_teste','poco_entrega'], outorga:['poco_teste'], geofisica:['geof_cam','geof_sev'] };
+const FICHAS_DA_LINHA = { spt:['spt'], poco:['poco_perf','poco_teste','poco_entrega'], outorga:['poco_teste'], geofisica:['geof_cam','geof_sev'], 'limpeza-poco':['poco_limpeza'] };
 
 function somaHora(h, min){ if(!h||!/^\d{1,2}:\d{2}$/.test(h)) return ''; const [a,b]=h.split(':').map(Number); const t=a*60+b+Number(min); const d=Math.floor(t/1440); const r=((t%1440)+1440)%1440; return String(Math.floor(r/60)).padStart(2,'0')+':'+String(r%60).padStart(2,'0')+(d?` (+${d}d)`:''); }
 
@@ -745,6 +838,7 @@ function campoHTML(c, v, ro){
   const id='f_'+c.k; const dis=ro?'disabled':''; const lab=c.r?`<label for="${id}">${esc(c.r)}</label>`:'';
   const span=`grid-column:span ${Math.min(c.w||1,4)}`;
   if(c.tipo==='check') return `<div style="${span}">${lab}${c.op.map((o,i)=>`<label class="chk" style="text-transform:none;letter-spacing:0;font-weight:400;font-size:15px;color:var(--ink);margin:0"><input type="checkbox" data-ck="${c.k}" value="${esc(o)}" ${(v||[]).includes(o)?'checked':''} ${dis}><span>${esc(o)}</span></label>`).join('')}</div>`;
+  if(c.tipo==='calc') return `<div style="${span}">${lab}<input id="${id}" data-calcf="${c.k}" value="${esc(v==null?'':v)}" disabled style="font-weight:700;opacity:.9"></div>`;
   if(c.tipo==='ass') return `<div style="${span}">${lab}<div class="ass" data-ass="${c.k}">${v?`<img src="${v}" alt="assinatura">`:'<span class="muted">Toque para assinar</span>'}</div></div>`;
   if(c.tipo==='sel') return `<div style="${span}">${lab}<select id="${id}" data-f="${c.k}" ${dis}>${c.op.map(o=>`<option ${o===v?'selected':''}>${esc(o)}</option>`).join('')}</select></div>`;
   if(c.tipo==='area') return `<div style="${span}">${lab}<textarea id="${id}" data-f="${c.k}" ${dis} placeholder="${esc(c.ph||'')}">${esc(v||'')}</textarea></div>`;
@@ -854,7 +948,7 @@ function desenharEditor(){
     if(b.grafico){ h+=cartaoGrafico(f,b); return; }
     h+=`<div class="card"><h2>${esc(b.t)}</h2>${b.nota?`<div class="nota">${esc(b.nota)}</div>`:''}`;
     if(b.img) h+=`<img src="${b.img}" data-zoom="${b.img}" alt="${esc(b.t)}" style="width:100%;border:1px solid var(--line);border-radius:12px;margin-top:8px"><div class="mini">toque na figura para ampliar — abre por cima da ficha, com botão Fechar; nada se perde</div>`;
-    if(b.campos) h+=`<div class="grid">`+b.campos.map(c=>campoHTML(c,d[c.k],ro)).join('')+`</div>`;
+    if(b.campos) h+=`<div class="grid">`+b.campos.map(c=>campoHTML(c,c.tipo==='calc'?c.calc(d):d[c.k],ro)).join('')+`</div>`;
     if(b.tabela) h+=tabelaHTML(b.tabela,d,ro);
     h+=`</div>`; });
   if(def.nota) h+=`<div class="card nota">${esc(def.nota)}</div>`;
@@ -942,6 +1036,7 @@ function ligarEditor(f){
 function atualizarCalc(f){
   const def=DEF[f.tipo]; const d=f.dados;
   def.blocos.filter(b=>b.tabela).forEach(b=>{ const tb=b.tabela; (d[tb.k]||[]).forEach((l,i)=>tb.cols.filter(c=>c.tipo==='calc').forEach(c=>{ const el=document.querySelector(`[data-calc="${tb.k}.${i}.${c.k}"]`); if(el) el.textContent=String(c.calc(l,d)); })); });
+  def.blocos.forEach(b=>(b.campos||[]).filter(c=>c.tipo==='calc').forEach(c=>{ const el=document.querySelector(`[data-calcf="${c.k}"]`); if(el) el.value=String(c.calc(d)); }));
   const box=$('#avisosBox'); if(box){ const av=def.avisos(d); box.innerHTML=`<h2>O que ainda falta</h2>${av.length?av.map(x=>`<div class="erro">${esc(x)}</div>`).join(''):'<div class="muted">Nada pendente.</div>'}<div class="nota">Nenhum aviso impede encerrar. Não mediu? Deixe em branco e escreva o porquê. Nunca invente.</div>`; }
   if(f.tipo==='poco_teste' && $('#prox') && !(document.activeElement&&document.activeElement.id==='ldv')) renderProx(f);
 }
@@ -1263,7 +1358,7 @@ async function gerarPDF(f){
   const garante=h=>{ if(y+h>H-110){ novaPag(); } };
   const quebra=(txt,larg,px,b)=>{ c.font=fonte(px,b); const ps=String(txt).split(/\s+/); const ls=[]; let l=''; for(const p of ps){ const t=l?l+' '+p:p; if(c.measureText(t).width>larg && l){ ls.push(l); l=p; } else l=t; } if(l) ls.push(l); return ls.length?ls:['']; };
   const titulo=t=>{ garante(60); c.fillStyle='#19A878'; c.fillRect(M,y+6,6,30); c.fillStyle='#113E6B'; c.font=fonte(22,true); c.fillText(t,M+16,y+30); y+=48; };
-  const valor=(cp,v)=>{ if(cp.tipo==='date' && /^\d{4}-\d{2}-\d{2}$/.test(v||'')) return v.split('-').reverse().join('/'); if(cp.tipo==='check') return (cp.op.map(o=>((v||[]).includes(o)?'☑ ':'☐ ')+o)).join('   '); return v==null||v===''?'—':String(v); };
+  const valor=(cp,v)=>{ if(cp.tipo==='calc'){ const r=cp.calc(d); return r===''||r==null?'—':String(r); } if(cp.tipo==='date' && /^\d{4}-\d{2}-\d{2}$/.test(v||'')) return v.split('-').reverse().join('/'); if(cp.tipo==='check') return (cp.op.map(o=>((v||[]).includes(o)?'☑ ':'☐ ')+o)).join('   '); return v==null||v===''?'—':String(v); };
   novaPag();
   for(const b of def.blocos){
     if(b.grafico){
@@ -1564,8 +1659,17 @@ async function encerrar(f){
 window.FICHAS_DA_LINHA = FICHAS_DA_LINHA;
 /* os três dados que NÃO se recuperam no poço (SOP-008): o app avisa, nunca trava */
 function pendenciasCriticas(obraId){
-  const ob=(S.pacote?.obras||[]).find(o=>o.id===obraId); if(!ob || !(ob.linhas||[]).includes('poco')) return [];
-  const fs=todas().filter(f=>f.obraId===obraId), perf=fs.filter(f=>f.tipo==='poco_perf'), tes=fs.filter(f=>f.tipo==='poco_teste'), out=[];
+  const ob=(S.pacote?.obras||[]).find(o=>o.id===obraId); if(!ob) return [];
+  const o=[];
+  if((ob.linhas||[]).includes('limpeza-poco')){ const lim=todas().filter(f=>f.obraId===obraId && f.tipo==='poco_limpeza');
+    const sem=v=>v===''||v==null;
+    if(!lim.length) o.push('Ficha de limpeza do poço não foi aberta no app (antes × depois)'); else {
+    if(!lim.some(f=>!sem(f.dados.ne_ant)||f.dados.nao_mediu)) o.push('Nível estático de ANTES da limpeza');
+    if(!lim.some(f=>!isNaN(qAntes(f.dados))||f.dados.nao_mediu)) o.push('Vazão de ANTES da limpeza');
+    if(!lim.some(f=>!sem(f.dados.nd_estab))) o.push('Nível estabilizado no teste depois da limpeza');
+    if(!lim.some(f=>!isNaN(qDepois(f.dados)))) o.push('Vazão final depois da limpeza'); } }
+  if(!(ob.linhas||[]).includes('poco')) return o;
+  const fs=todas().filter(f=>f.obraId===obraId), perf=fs.filter(f=>f.tipo==='poco_perf'), tes=fs.filter(f=>f.tipo==='poco_teste'), out=o;
   if(!perf.length) out.push('Ficha de perfuração não foi aberta no app (profundidade das camadas)');
   else if(!perf.some(f=>(f.dados.perfil||[]).some(l=>l.de!==''&&l.ate!==''&&l.de!=null&&l.ate!=null))) out.push('Perfil sem profundidade das camadas');
   if(!tes.length) out.push('Ficha do teste de bombeamento não foi aberta no app');

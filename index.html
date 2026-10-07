@@ -223,7 +223,7 @@ details[open] summary::after{content:"–"}
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.11.0';
+const APP_VERSAO = '1.12.0';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -756,7 +756,7 @@ function codMarco(v){ const t=String(v||'').toUpperCase().replace(/\s+/g,'').rep
 const ESSENCIAL={
   spt:[ ['Todos os furos até 12 m ou até o impenetrável, com o motivo da parada','SOP-017'], ['Amostras com o adesivo da Natural (obra, furo, profundidade, data)','SOP-017'], ['Furos tapados e área limpa','SOP-017'] ],
   poco:[ ['Minuto em que o nível estabilizou e em que voltou ao NE, anotados','SOP-008'], ['Deu rocha? Só avançou depois do sim do cliente por escrito','SOP-021'], ['Laje, tampa, selo e cercado prontos; local sem entulho','SOP-020'] ],
-  'limpeza-poco':[ ['Água saindo limpa, sem areia, com a hora anotada','SOP-020'], ['Local sem entulho','SOP-020'] ],
+  'limpeza-poco':[ ['Nível e vazão de ANTES anotados antes de tirar a bomba','SOP-043'], ['Fotos de bomba, cabo e emendas ao sair do poço','SOP-043'], ['Elétrico conferido (emendas, fases, quadro) antes de religar','SOP-043'], ['Teste até o nível estabilizar, com nível e vazão do fim anotados','SOP-043'], ['Cliente viu funcionando, com os números de antes e depois','SOP-043'] ],
   outorga:[ ['Poço conferido contra o processo (cliente, endereço, propriedade)','SOP-018'], ['Amostra de água coletada e entregue em até 24 h, com recibo','SOP-003'], ['Documentos do cliente pedidos (ou a falta anotada)','SOP-018'] ],
   agua:[ ['Frasco identificado na hora com o adesivo da Natural','SOP-003'], ['Amostra no gelo desde a coleta','SOP-003'], ['Entregue ao laboratório em até 24 h, com recibo','SOP-003'] ],
   georef:[ ['Todos os vértices e pontos do escopo levantados','SOP-016'], ['Equipamento conferido antes de ir embora','SOP-016'] ],
