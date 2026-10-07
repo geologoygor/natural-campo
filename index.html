@@ -102,6 +102,14 @@ details[open]>summary::after{content:"–"}
 .seg button{flex:1;border-radius:0;background:#fff;color:var(--navy);padding:10px}
 .seg button.on{background:var(--navy);color:#fff}
 /* tela inicial (v1.13): Hoje · Tarefas · Obras, cor por urgência */
+.desemp-n{font-size:54px;font-weight:800;line-height:1;letter-spacing:-.02em}
+.desemp-bar{height:10px;border-radius:6px;background:#E8ECF1;overflow:hidden;margin:10px 0 4px}.desemp-bar i{display:block;height:100%;border-radius:6px}
+.eixo{border-top:1px solid var(--line);padding:10px 0}.eixo:first-of-type{border-top:0}
+.eixo .eh{display:flex;justify-content:space-between;align-items:baseline;gap:8px}.eixo .eb{height:6px;border-radius:4px;background:#E8ECF1;overflow:hidden;margin:6px 0}.eixo .eb i{display:block;height:100%;background:var(--green)}
+.como{background:#F1F6FB;border-radius:10px;padding:8px 10px;margin-top:6px;font-size:14px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}.chips button{flex:0 0 auto;background:#fff;color:var(--navy);border:1.5px solid var(--line);padding:8px 12px;font-size:14px;border-radius:999px}.chips button.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+.item-av{border-top:1px solid var(--line);padding:9px 0}.item-av .ih{display:flex;gap:8px;align-items:center}.item-av .pct{flex:none;font-weight:800;min-width:70px;text-align:right}.item-av .pct.mudou{color:var(--green-2)}
+.item-av .ctl{display:flex;gap:6px;margin-top:8px}.item-av .ctl button{flex:1;padding:9px 4px;font-size:14px}
 .ini-nav{display:flex;gap:6px;margin-bottom:12px;position:sticky;top:-14px;z-index:10;background:var(--bg);padding:6px 0}
 .ini-nav button{flex:1;background:#fff;color:var(--navy);border:1.5px solid var(--line);padding:12px 6px;font-size:15px;border-radius:12px;display:flex;align-items:center;justify-content:center;gap:6px}
 .ini-nav button.on{background:var(--navy);color:#fff;border-color:var(--navy)}
@@ -260,7 +268,7 @@ button.mini{padding:8px 12px;font-size:14px;margin-top:6px}
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.14.0';
+const APP_VERSAO = '1.15.0';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -387,7 +395,7 @@ function pintarFila(){
   const daObra = S.obraId ? S.fila.filter(x=>x.obraId===S.obraId) : S.fila;
   const naFila=x=>x.status==='pendente'||x.status==='erro';
   const pend=daObra.filter(naFila), err=daObra.filter(x=>x.status==='erro'), esperando=daObra.filter(x=>x.status==='aguardando');
-  const outras = S.obraId ? S.fila.filter(x=>x.obraId!==S.obraId && naFila(x)).length : 0;
+  const outras = S.obraId ? S.fila.filter(x=>x.obraId && x.obraId!==S.obraId && naFila(x)).length : 0;
   const hojeEnv=daObra.filter(x=>x.status==='enviado' && (x.enviadoEm||'').slice(0,10)===hoje()).length;
   const t=$('#filaTxt'), b=$('#filaBtn');
   if(S.enviando){ t.innerHTML=`<b>Enviando…</b> ${pend.length} na fila`; b.disabled=true; return; }
@@ -643,7 +651,7 @@ async function enviarFila(){
       await DB.put(it); pintarFila();
       if(it.status==='erro' && !navigator.onLine) break;
     }
-  } finally { S.enviando=false; await recarregarFila(); try{ if(window.FICHAS && FICHAS.aliviarMemoria) FICHAS.aliviarMemoria(); }catch(e){} if(!(window.FICHAS && FICHAS.aberta())) render(); }
+  } finally { S.enviando=false; await recarregarFila(); setTimeout(relatarEstado, 1500); try{ if(window.FICHAS && FICHAS.aliviarMemoria) FICHAS.aliviarMemoria(); }catch(e){} if(!(window.FICHAS && FICHAS.aberta())) render(); }
 }
 async function baixarPacote(silencioso){
   if(!S.cfg.script){ if(!silencioso) toast('Configure a URL do robô em Ajustes'); return false; }
@@ -885,6 +893,126 @@ function ligarEnvios(ob){ const b=$('#envTentar'); if(b) b.onclick=async()=>{
   for(const x of S.fila.filter(x=>x.obraId===ob.id && x.status==='erro')){ x.status='pendente'; await DB.put(x); }
   await recarregarFila(); toast('Enviando…'); await enviarFila(); const r=problemasEnvio(ob).erro.length;
   toast(r?`${r} ainda não chegou. O motivo está na tela.`:'Tudo chegou ao Drive ✓',4000); }; }
+/* ---------- DESEMPENHO (v1.15.0) ----------
+ * É a régua do SOP-009, calculada pelo PAINEL (fonte única) e trazida na lista do app.
+ * O app não calcula nada: só mostra, em 0 a 10, com palavras que não pesam o ambiente.
+ * Sem ranking e sem a nota dos outros: aparece só quando a pessoa abre o próprio perfil. */
+function reguaMinha(){ const f=((S.pacote&&S.pacote.equipe)||[]).find(x=>x.id===S.quemId); return (f&&f.regua)||null; }
+function n10(r){ return Math.max(0,Math.min(10,Math.round((+r.nota||0))/10)); }
+function fmt1(x){ return (Math.round(x*10)/10).toFixed(1).replace('.',','); }
+function palavraNota(n){ return n>=9?'Referência':n>=7.5?'Sólido':n>=6?'Em formação':'Em desenvolvimento'; }
+function corNota(n){ return n>=9?'#137F5B':n>=7.5?'#2F6F8F':n>=6?'#9A6A12':'#B45309'; }
+function botaoDesemp(){ if(!S.quemId) return ''; const r=reguaMinha();
+  if(!r) return `<div><button class="ghost" id="verDesemp" style="padding:6px 0;font-size:14px">Meu desempenho ›</button></div>`;
+  if(!r.base) return `<div><button class="ghost" id="verDesemp" style="padding:6px 0;font-size:14px">Meu desempenho · ainda sem nota ›</button></div>`;
+  const n=n10(r); return `<div><button class="ghost" id="verDesemp" style="padding:6px 0;font-size:14px">Meu desempenho: <b style="color:${corNota(n)}">${fmt1(n)}</b> · ${palavraNota(n)} ›</button></div>`; }
+function telaPerfil(){
+  const r=reguaMinha(); const nome=S.quem||'';
+  let h=`<button class="ghost" id="perfilVoltar" style="padding:6px 0;margin-bottom:6px">← Voltar</button>`;
+  if(!r) return h+`<div class="card"><h2>Meu desempenho</h2><div class="muted">A sua régua ainda não chegou neste celular. Com internet, abra a aba Obras e toque em Atualizar lista. Se continuar sem aparecer, o escritório ainda não abriu o fechamento do mês.</div></div>`;
+  h+=`<div class="card"><div class="muted">${esc(nome)} · ${esc(r.mesRot||r.mes||'')}</div>`;
+  if(!r.base){
+    h+=`<h2 style="margin-top:6px">Ainda sem nota neste mês</h2><div class="nota">${esc(r.dica||'A nota aparece quando houver trabalho suficiente registrado no mês. Isso não é ruim — é só pouca informação ainda.')}</div></div>`;
+  } else {
+    const n=n10(r), c=corNota(n);
+    h+=`<div style="display:flex;align-items:baseline;gap:10px;margin-top:6px"><span class="desemp-n" style="color:${c}">${fmt1(n)}</span><span class="muted">de 10</span><b style="margin-left:auto;font-size:18px;color:${c}">${palavraNota(n)}</b></div>`+
+       `<div class="desemp-bar"><i style="width:${Math.max(3,n*10)}%;background:${c}"></i></div>`+
+       (r.resumo?`<div class="nota">${esc(r.resumo)}</div>`:'')+`</div>`;
+  }
+  const ex=(r.eixos||[]); const bem=ex.filter(e=>e.v>=0.8 && e.bem), mel=ex.filter(e=>e.v<0.8 && e.melhorar);
+  if(r.base && bem.length) h+=`<div class="card"><h2>👍 Onde você vai bem</h2>`+bem.map(e=>`<div class="eixo"><b>${esc(e.n)}</b><div>${esc(e.bem)}</div></div>`).join('')+`</div>`;
+  if(mel.length) h+=`<div class="card"><h2>🎯 Onde dá para crescer</h2>`+mel.map(e=>`<div class="eixo"><b>${esc(e.n)}</b><div>${esc(e.melhorar)}</div>${e.como?`<div class="como"><b>Como:</b> ${esc(e.como)}</div>`:''}</div>`).join('')+`</div>`;
+  if(r.ajuste && r.ajuste.motivo) h+=`<div class="card"><h2>💬 Palavra do Ygor</h2><div>${esc(r.ajuste.motivo)}</div>${+r.ajuste.v?`<div class="nota">${+r.ajuste.v>0?'Somou':'Tirou'} ${fmt1(Math.abs(+r.ajuste.v)/10)} ponto na nota deste mês.</div>`:''}</div>`;
+  if(r.base && ex.length) h+=`<details class="card"><summary><b>Como a nota é feita</b></summary><div class="nota">Cinco partes. Cada uma vale um pedaço da nota de 10.</div>`+
+     ex.map(e=>`<div class="eixo"><div class="eh"><b>${esc(e.n)}</b><span>${fmt1((+e.pts||0)/10)} de ${fmt1((+e.max||0)/10)}</span></div><div class="eb"><i style="width:${Math.round((+e.v||0)*100)}%"></i></div><div class="nota">${esc(e.oque||'')}</div></div>`).join('')+`</details>`;
+  h+=`<div class="nota" style="text-align:center">Esta nota é só sua: ninguém da equipe vê a dos outros e não existe ranking. Ela serve para a conversa do mês com o Ygor — para combinar um alvo, não para punir.${r.calcEm?`<br>Calculada pelo painel em ${esc(fmtData(r.calcEm))}.`:''}</div>`;
+  return h; }
+
+/* ---------- AVANÇO DO DIA (v1.15.0) ----------
+ * Obra longa não "termina" toda semana, mas anda todo dia. O encarregado diz, em 1 minuto:
+ * quem trabalhou, em quais itens do contrato e quanto cada um andou. Vira o RDO do dia no
+ * painel e conta na régua de quem conduz a obra (dia registrado = dia entregue). */
+const CLIMAS=['Sol','Nublado','Chuva leve','Chuva forte (parou)'];
+const SEM_OBRA=['Chuva','Feriado / folga','Falta de material','Cliente pediu para parar','Equipe em outra obra','Outro'];
+function mostraAvanco(ob){ if((ob.etapas||[]).length) return true; if((ob.linhas||[]).includes('obra-civil')) return true;
+  if(ob.inicio && ob.fimPrevisto){ const d=(new Date(ob.fimPrevisto)-new Date(ob.inicio))/864e5; if(d>10) return true; } return false; }
+function avKey(ob){ return 'av_'+ob.id+'_'+hoje(); }
+function avRasc(ob){ const r=LS.get(avKey(ob),null); if(r) return r;
+  const ult=LS.get('avPres_'+ob.id,{}); return {pres:Object.assign({},ult), it:{}, clima:'', txt:'', travou:'', sem:''}; }
+function avSalva(ob,r){ LS.set(avKey(ob),r); }
+function pctAtual(ob,e){ const loc=LS.get('avPct_'+ob.id,{}); return Math.max(+e.pct||0, +(loc[e.id]||0)); }
+function cartaoAvanco(ob){
+  const r=avRasc(ob); const et=ob.etapas||[]; const eq=((S.pacote&&S.pacote.equipe)||[]);
+  let h=`<div class="card"><h2>Avanço de hoje</h2>`;
+  if(r.enviadoEm) h+=`<div class="geo" style="color:var(--green);font-size:16px">✓ ${r.sem?'Dia sem serviço avisado':'Avanço de hoje enviado'} às ${esc(fmtData(r.enviadoEm).slice(11))}. Se mudou algo, corrija e envie de novo — vale o último.</div>`;
+  else h+=`<div class="nota">1 minuto no fim do dia. É o que mostra o quanto a obra andou — e conta como dia trabalhado para quem conduz.</div>`;
+  // quem trabalhou
+  const ord=eq.slice().sort((a,b)=>(r.pres[b.id]?1:0)-(r.pres[a.id]?1:0)||String(a.nome).localeCompare(String(b.nome)));
+  h+=`<h3>Quem trabalhou hoje nesta obra</h3><div class="chips">`+ord.map(f=>`<button data-pres="${esc(f.id)}" class="${r.pres[f.id]?'on':''}">${esc(nomeCurto(f.nome))}</button>`).join('')+`</div>`;
+  // itens
+  if(et.length){ let cap=null;
+    h+=`<h3 style="margin-top:14px">Quanto cada item andou</h3><div class="nota">Toque no item que foi trabalhado hoje e ajuste o quanto ele já está pronto.</div>`;
+    h+=et.map(e=>{ const a=pctAtual(ob,e), v=(r.it[e.id]!=null)?+r.it[e.id]:a, mudou=v!==a; let c='';
+      if(e.cap && e.cap!==cap){ cap=e.cap; c=`<div class="muted" style="font-size:12px;text-transform:uppercase;letter-spacing:.06em;margin-top:10px">${esc(e.cap)}</div>`; }
+      return c+`<div class="item-av" data-it="${esc(e.id)}"><div class="ih"><span style="flex:1">${esc(e.desc||'')}${e.qtd?` <span class="muted" style="font-size:12px">(${esc(String(e.qtd))} ${esc(e.un||'')})</span>`:''}</span><span class="pct ${mudou?'mudou':''}">${mudou?`${a}% → ${v}%`:`${a}%`}</span></div>`+
+        (r.aberto===e.id?`<div class="ctl"><button class="sec" data-d="-5">−5</button><button class="sec" data-d="5">+5</button><button class="sec" data-d="10">+10</button><button class="sec" data-d="25">+25</button><button class="green" data-d="100">Pronto</button></div>${mudou?`<button class="ghost" data-desf="1" style="font-size:13px">Desfazer (voltar a ${a}%)</button>`:''}`:'')+`</div>`; }).join('');
+  } else h+=`<div class="nota" style="margin-top:10px">O escritório ainda não cadastrou os itens do contrato desta obra. Por enquanto, escreva o que foi feito:</div>`;
+  h+=`<label style="margin-top:12px">${et.length?'Algo mais que foi feito (opcional)':'O que foi feito hoje'}</label><textarea id="avTxt" placeholder="Ex.: concretagem da laje da casa de bomba, 6 m³">${esc(r.txt||'')}</textarea>`;
+  h+=`<label>O que travou ou mudou (opcional)</label><textarea id="avTrav" placeholder="Ex.: faltou cimento à tarde; cliente pediu mudar a porta">${esc(r.travou||'')}</textarea>`;
+  h+=`<h3>Tempo</h3><div class="chips">`+CLIMAS.map(c=>`<button data-clima="${esc(c)}" class="${r.clima===c?'on':''}">${esc(c)}</button>`).join('')+`</div>`;
+  h+=`<button class="big green" id="avEnviar" style="margin-top:14px">${r.enviadoEm?'Enviar correção':'Enviar avanço de hoje'}</button>`;
+  h+=`<details style="margin-top:8px"><summary class="muted">Hoje não teve serviço nesta obra</summary><div class="chips" style="margin-top:8px">`+SEM_OBRA.map(m=>`<button data-sem="${esc(m)}" class="${r.sem===m?'on':''}">${esc(m)}</button>`).join('')+`</div><button class="big sec" id="avSem" style="margin-top:10px">Avisar que hoje não teve serviço</button><div class="nota">Dia avisado não conta contra ninguém.</div></details>`;
+  return h+`</div>`; }
+function ligarAvanco(ob){
+  if(!$('#avEnviar')) return; const r=avRasc(ob); const et=ob.etapas||[];
+  const salvar=()=>avSalva(ob,r); const redesenha=()=>{ salvar(); const y=window.scrollY; render(); window.scrollTo(0,y); };
+  document.querySelectorAll('[data-pres]').forEach(b=>b.onclick=()=>{ const id=b.dataset.pres; if(r.pres[id]) delete r.pres[id]; else r.pres[id]=1; b.classList.toggle('on'); salvar(); });
+  document.querySelectorAll('[data-clima]').forEach(b=>b.onclick=()=>{ r.clima=b.dataset.clima; document.querySelectorAll('[data-clima]').forEach(x=>x.classList.toggle('on',x===b)); salvar(); });
+  document.querySelectorAll('[data-sem]').forEach(b=>b.onclick=()=>{ r.sem=b.dataset.sem; document.querySelectorAll('[data-sem]').forEach(x=>x.classList.toggle('on',x===b)); salvar(); });
+  document.querySelectorAll('.item-av').forEach(d=>{ const id=d.dataset.it; const e=et.find(x=>x.id===id); if(!e) return;
+    d.querySelector('.ih').onclick=()=>{ r.aberto = r.aberto===id ? null : id; redesenha(); };
+    d.querySelectorAll('[data-d]').forEach(b=>b.onclick=()=>{ const a=pctAtual(ob,e); const cur=(r.it[id]!=null)?+r.it[id]:a; const dd=+b.dataset.d;
+      let v = dd===100 ? 100 : Math.max(a, Math.min(100, cur+dd)); r.it[id]=v; if(v===a) delete r.it[id]; redesenha(); });
+    const df=d.querySelector('[data-desf]'); if(df) df.onclick=()=>{ delete r.it[id]; redesenha(); }; });
+  $('#avTxt').oninput=e=>{ r.txt=e.target.value; salvar(); }; $('#avTrav').oninput=e=>{ r.travou=e.target.value; salvar(); };
+  const enviar=async(sem)=>{
+    const pres=Object.keys(r.pres); const eqs=((S.pacote&&S.pacote.equipe)||[]);
+    const itens=et.filter(e=>r.it[e.id]!=null && +r.it[e.id]!==pctAtual(ob,e)).map(e=>({id:e.id, desc:String(e.desc||'').slice(0,120), antes:pctAtual(ob,e), agora:+r.it[e.id]}));
+    if(sem){ if(!r.sem) return toast('Escolha o motivo de não ter tido serviço.',3500); }
+    else { if(!pres.length) return toast('Marque quem trabalhou hoje (pelo menos você).',3500);
+      if(!itens.length && !(r.txt||'').trim()) { if(et.length) { if(!confirm('Nenhum item andou hoje e nada foi escrito. Enviar assim mesmo?')) return; } else return toast('Escreva o que foi feito hoje.',3500); } }
+    const em=new Date().toISOString();
+    const reg={ tipo:'rdo_dia', obraId:ob.id, obra:ob.nome, data:hoje(), em, quem:S.quem, quemId:S.quemId||'', presentes:sem?[]:pres.map(id=>({id, nome:(eqs.find(f=>f.id===id)||{}).nome||id})),
+      clima:r.clima||'', itens:sem?[]:itens, texto:sem?'':(r.txt||'').trim(), travou:(r.travou||'').trim(), semServico:sem?r.sem:'', correcao:!!r.enviadoEm, app:APP_VERSAO };
+    const blob=new Blob([JSON.stringify(reg,null,1)],{type:'application/json'});
+    const extra={ tipo:'rdo_dia', data:reg.data, quemId:reg.quemId, presentes:pres.slice(0,40), clima:reg.clima, itens:reg.itens.slice(0,60).map(i=>({id:i.id,antes:i.antes,agora:i.agora})), texto:reg.texto.slice(0,1500), travou:reg.travou.slice(0,800), semServico:reg.semServico, correcao:reg.correcao };
+    await enfileirarArquivo(blob,'registro',`${agoraArq()}_AVANCO_DO_DIA_${slug(S.quem)}.json`, extra);
+    r.enviadoEm=em; if(!sem){ LS.set('avPres_'+ob.id, r.pres); const loc=LS.get('avPct_'+ob.id,{}); itens.forEach(i=>loc[i.id]=i.agora); LS.set('avPct_'+ob.id,loc); r.it={}; } else r.semEnviado=1;
+    r.aberto=null; avSalva(ob,r); render(); toast(sem?'Aviso de dia sem serviço na fila':'Avanço de hoje na fila',3000); };
+  $('#avEnviar').onclick=()=>enviar(false); $('#avSem').onclick=()=>enviar(true);
+}
+
+/* ---------- ESTADO DO APARELHO (v1.15.0) ----------
+ * Erro de envio ou arquivo parado ficava só no celular: o escritório não sabia.
+ * Agora o app manda um bilhete pequeno (JSON) ao robô dizendo o que está preso. Ele sobe
+ * na frente dos arquivos grandes (a fila manda os menores primeiro). Quando resolve, avisa também. */
+function problemasAparelho(){ const ag=Date.now();
+  return (S.fila||[]).filter(x=>x.obraId && (x.status==='erro' || ((x.status==='pendente'||x.status==='aguardando') && ag-new Date(x.criadoEm).getTime()>(x.status==='aguardando'?2:24)*36e5))); }
+async function relatarEstado(){
+  try{ if(!S.cfg.script || !S.quem) return; const pr=problemasAparelho(); const ult=LS.get('estadoUlt',{});
+    const chave=pr.length? pr.map(x=>x.id+':'+x.status).sort().join(',') : 'ok';
+    const velho=Date.now()-(+ult.em||0) > 6*36e5;
+    if(chave===ult.chave && !(pr.length && velho)) return;
+    if(chave==='ok' && !ult.chave) return; /* nunca teve problema: não manda nada */
+    LS.set('estadoUlt',{chave, em:Date.now()});
+    const itens=pr.slice(0,30).map(x=>({obraId:x.obraId, obra:x.obraNome, o:rotuloEnvio(x), nome:x.nome, st:x.status, erro:String(x.erro||'').slice(0,160), criadoEm:x.criadoEm, erroEm:x.erroEm||null}));
+    const obj={ tipo:'estado_aparelho', quem:S.quem, quemId:S.quemId||'', em:new Date().toISOString(), app:APP_VERSAO, online:navigator.onLine,
+      totais:{ erro:pr.filter(x=>x.status==='erro').length, parado:pr.filter(x=>x.status!=='erro').length, fila:(S.fila||[]).filter(x=>x.status!=='enviado').length }, itens, tudoCerto:!pr.length };
+    const blob=new Blob([JSON.stringify(obj,null,1)],{type:'application/json'});
+    await enfileirarArquivo(blob,'registro',`${agoraArq()}_ESTADO_APARELHO_${slug(S.quem)}.json`, { tipo:'estado_aparelho', quemId:obj.quemId, totais:obj.totais, itens:itens.slice(0,15), tudoCerto:obj.tudoCerto },
+      { obra:{ id:'', nome:'_ESTADO_DOS_APARELHOS', pastaId:null } });
+  }catch(e){ console.warn('estado', e); } }
+
 function render(){
   pintarFila(); // a barra da fila acompanha a obra aberta
   const m=$('#main'); const P=S.pacote; const ob=obraAtual();
@@ -905,7 +1033,7 @@ function nomeCurto(n){ const p=String(n||'').trim().split(/\s+/).filter(Boolean)
   return p.slice(0,2).map(cap).join(' '); }
 function cartaoQuem(){
   const eq=(S.pacote&&S.pacote.equipe)||[]; const trocando=S.trocandoQuem || !S.quem;
-  if(!trocando) return `<div class="card" style="display:flex;align-items:center;gap:10px"><div style="flex:1"><div class="muted" style="font-size:13px">Este aparelho está com</div><b style="font-size:19px">${esc(S.quem)}</b>${S.quemId?'':' <span class="chip w">de fora da equipe</span>'}</div><button class="sec" id="quemTrocar" style="flex:0 0 auto">Trocar</button></div>`;
+  if(!trocando) return `<div class="card" style="display:flex;align-items:center;gap:10px"><div style="flex:1"><div class="muted" style="font-size:13px">Este aparelho está com</div><b style="font-size:19px">${esc(S.quem)}</b>${S.quemId?'':' <span class="chip w">de fora da equipe</span>'}${botaoDesemp()}</div><button class="sec" id="quemTrocar" style="flex:0 0 auto">Trocar</button></div>`;
   let h=`<div class="card"><h2>Quem é você?</h2><div class="nota">Escolha uma vez. Fica gravado neste celular e vai no carimbo das fotos, no nome dos arquivos e nas fichas. Só muda se você tocar em Trocar.</div>`;
   if(eq.length) h+=`<div class="row" style="flex-wrap:wrap;gap:8px;margin-top:8px">`+eq.map(f=>`<button class="${S.quemId===f.id?'green':'sec'}" data-quem="${esc(f.id)}" style="flex:1 1 45%;min-height:52px">${esc(nomeCurto(f.nome))}</button>`).join('')+`</div>`;
   else h+=`<div class="muted" style="margin-top:6px">A lista da equipe ainda não chegou neste celular (toque em Atualizar lista com internet). Enquanto isso, escreva o nome:</div>`;
@@ -917,6 +1045,7 @@ function ligarQuem(){
   const fixa=(id,nome)=>{ S.quemId=id||''; S.quem=nome; LS.set('quemId',S.quemId); LS.set('quem',S.quem); S.trocandoQuem=false; render(); toast('Aparelho de '+nome); };
   document.querySelectorAll('[data-quem]').forEach(b=>b.onclick=()=>{ const f=((S.pacote&&S.pacote.equipe)||[]).find(x=>x.id===b.dataset.quem); if(f) fixa(f.id, nomeCurto(f.nome)); });
   const ok=$('#quemOk'); if(ok) ok.onclick=()=>{ const v=($('#quemOutro').value||'').trim(); if(v.split(/\s+/).length<2) return toast('Escreva primeiro e segundo nome'); fixa('', nomeCurto(v)); };
+  const vd=$('#verDesemp'); if(vd) vd.onclick=()=>{ S.verPerfil=true; render(); window.scrollTo(0,0); };
   const tr=$('#quemTrocar'); if(tr) tr.onclick=()=>{ if(!confirm('Trocar a pessoa deste aparelho? As próximas fotos e fichas saem no nome de quem você escolher.')) return; S.trocandoQuem=true; render(); };
   const ca=$('#quemCancela'); if(ca) ca.onclick=()=>{ S.trocandoQuem=false; render(); };
 }
@@ -947,6 +1076,7 @@ function telaInicio(){
        ios?`<div class="passos">1. Toque em <b>Compartilhar</b> (quadrado com seta para cima).<br>2. Escolha <b>Adicionar à Tela de Início</b>.<br>3. Abra pelo ícone <b>Campo Natural</b>.</div>`
           :`<div class="passos">1. Toque no menu <b>⋮</b> do navegador.<br>2. Escolha <b>Instalar app</b>.<br>3. Abra pelo ícone <b>Campo Natural</b>.</div>`)+`</details>`; }
   if(semScript) h+=`<div class="banner">O robô de campo ainda não está configurado neste aparelho. Abra <b>Ajustes</b> e cole a URL do robô. Sem ele o app funciona, mas nada sobe para o Drive.</div>`;
+  if(S.verPerfil && S.quemId) return telaPerfil();
   h+=cartaoQuem();
   if(S.trocandoQuem || !S.quem) return h; // primeiro escolhe quem é; o resto aparece depois
   const pend=S.fila.filter(x=>x.status!=='enviado');
@@ -1047,6 +1177,7 @@ function ligarAgenda(){
 }
 function abrirObraId(id){ if(!S.quem){ toast('Escolha quem você é primeiro'); return; } S.obraId=id; REC.blob=null; REC.ultimoId=null; REC.obraId=null; S.tab='roteiro'; LS.set('obraId',S.obraId); render(); window.scrollTo(0,0); iniciarGPS(); }
 function ligarInicio(){
+  ligarPerfil();
   const bi=$('#btInstalar'); if(bi) bi.onclick=async()=>{ const e=S.promptInstalar; S.promptInstalar=null; try{ e.prompt(); await e.userChoice; }catch(_){} render(); };
   ligarQuem(); ligarAgenda();
   const bu=$('#busca'); if(bu) bu.oninput=e=>{ const q=e.target.value.toLowerCase(); $('#lista').innerHTML=(S.pacote?.obras||[]).filter(o=>(o.nome+' '+(o.cliente||'')+' '+(o.servico||'')).toLowerCase().includes(q)).map(cartaoObra).join('')||'<div class="muted">Nada encontrado.</div>'; ligarObras(); };
@@ -1055,6 +1186,7 @@ function ligarInicio(){
   const aj=$('#ajustes'); if(aj) aj.onclick=telaAjustes;
 }
 
+function ligarPerfil(){ const v=$('#perfilVoltar'); if(v) v.onclick=()=>{ S.verPerfil=false; render(); window.scrollTo(0,0); }; }
 function ligarObras(){ document.querySelectorAll('.obra').forEach(b=>b.onclick=()=>{ if(!S.quem){ toast('Escolha quem você é primeiro'); window.scrollTo(0,0); return; } S.obraId=b.dataset.id; REC.blob=null; REC.ultimoId=null; REC.obraId=null; S.tab='roteiro'; LS.set('obraId',S.obraId); render(); window.scrollTo(0,0); iniciarGPS(); }); }
 function telaAjustes(){
   const m=$('#main'); $('#hTit').textContent='Ajustes'; $('#hBtn').classList.remove('hide'); $('#hBtn').textContent='Voltar';
@@ -1175,8 +1307,8 @@ const URLS_AUDIO={};
 function urlAudio(it){ if(!it||!it.blob) return null; return URLS_AUDIO[it.id]||(URLS_AUDIO[it.id]=URL.createObjectURL(it.blob)); }
 function audiosDeHoje(ob){ return (S.fila||[]).filter(x=>x.tipo==='audio' && x.obraId===ob.id && hojeISO(x.criadoEm)).length; }
 function telaDiario(ob){
-  const P=S.pacote; const gravando=!!REC.mr; const nAud=audiosDeHoje(ob); const cheio=nAud>=2; const meuAudio = REC.blob && REC.obraId===ob.id; // áudio de outra obra não aparece aqui
-  let h=`<div class="card"><h2>Diário de obra — 40 segundos</h2><div class="nota">Cinco frases, nesta ordem. O escritório transcreve e vira o registro do dia.</div>`;
+  const P=S.pacote; const avc = mostraAvanco(ob) ? cartaoAvanco(ob) : ''; const gravando=!!REC.mr; const nAud=audiosDeHoje(ob); const cheio=nAud>=2; const meuAudio = REC.blob && REC.obraId===ob.id; // áudio de outra obra não aparece aqui
+  let h=avc+`<div class="card"><h2>Diário de obra — 40 segundos</h2><div class="nota">Cinco frases, nesta ordem. O escritório transcreve e vira o registro do dia.</div>`;
   h+=(P.roteiroDiario||[]).map((f,i)=>`<div class="frase"><span>${i+1}</span><div>${esc(f)}</div></div>`).join('');
   h+=`<div class="timer" id="timer">${gravando?'00:00 / 00:40':'00:40'}</div><button class="rec ${gravando?'on':''}" id="rec" ${cheio&&!gravando?'disabled':''}>${gravando?'■':'●'}</button><div class="nota" style="text-align:center">${gravando?'Gravando… toque para parar':(cheio?'Os 2 áudios do dia já foram gravados':'Toque para gravar')}</div><div class="nota" style="text-align:center">${cheio?'Precisa falar mais? Apague um dos áudios na aba Fotos e grave de novo, ou escreva no campo de observação do Roteiro.':`Cabem 2 áudios por dia nesta obra (${nAud} de 2 gravados).`}</div>`;
   const it=audioDaVez(ob);
@@ -1190,6 +1322,7 @@ function telaDiario(ob){
   h+=`</div>`; return h;
 }
 function ligarDiario(ob){
+  ligarAvanco(ob);
   $('#rec').onclick=gravar;
   const d=$('#descartar'); if(d) d.onclick=async()=>{ const it=audioDaVez(ob); if(it && it.status!=='enviado'){ await DB.del(it.id); await recarregarFila(); toast('Áudio apagado'); } else if(it) toast('Esse já tinha sido enviado; o novo vai junto'); REC.blob=null; REC.ultimoId=null; render(); };
   const en=$('#audEnviar'); if(en) en.onclick=async()=>{ const it=audioDaVez(ob); if(!it) return; it.status='pendente'; it.erro=null; await DB.put(it); REC.ultimoId=it.id; await recarregarFila(); render();
@@ -1294,6 +1427,7 @@ function ligarOcorr(ob){
   $('#tgFmt').onclick=()=>{ S.fmt=S.fmt==='utm'?'geo':'utm'; LS.set('fmt',S.fmt); pintarToggles(); atualizarGeo(); };
   window.addEventListener('online',()=>{ pintarFila(); enviarFila(); }); window.addEventListener('offline',pintarFila);
   /* sinal fraco não dispara o evento "online" de novo: tenta sozinho a cada minuto enquanto houver pendente */
+  setTimeout(relatarEstado, 20000);
   setInterval(()=>{ if(navigator.onLine && !S.enviando && S.fila.some(x=>x.status==='pendente'||x.status==='erro')) enviarFila(); }, 60000);
   const ob=LS.get('obraId',null); if(ob && S.pacote?.obras.some(o=>o.id===ob)) S.obraId=ob;
   render(); if(S.obraId) iniciarGPS();
@@ -1303,6 +1437,7 @@ function ligarOcorr(ob){
     if(window.FICHAS && FICHAS.fecharZoom && FICHAS.fecharZoom()) return; /* figura ampliada: o voltar só fecha ela */ if(VER.aberto){ fecharPDF(); return; }
     if($('#cam').classList.contains('on')){ fecharCamera(); return; }
     if(window.FICHAS && FICHAS.aberta()){ FICHAS.fechar(); return; }
+    if(S.verPerfil){ S.verPerfil=false; render(); window.scrollTo(0,0); try{ history.pushState({t:'app'},''); }catch(e){} return; }
     if(S.obraId){ S.obraId=null; LS.set('obraId',null); render(); window.scrollTo(0,0); try{ history.pushState({t:'app'},''); }catch(e){} return; }
     toast('Você já está na lista de obras. Para sair, feche o app. Nada se perde: a fila fica guardada.',3500); try{ history.pushState({t:'app'},''); }catch(e){}
   });
