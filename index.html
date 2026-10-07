@@ -260,7 +260,7 @@ button.mini{padding:8px 12px;font-size:14px;margin-top:6px}
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.13.1';
+const APP_VERSAO = '1.14.0';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -635,11 +635,11 @@ async function enviarFila(){
         const corpo={ token:S.cfg.token, acao:'enviar', id:it.id, obraId:it.obraId, obraNome:it.obraNome, pastaId:it.pastaId, quem:it.quem, tipo:it.tipo, slot:it.slot, slotTitulo:it.slotTitulo, nome:it.nome, mime:it.mime, meta:it.meta, criadoEm:it.criadoEm, b64: await b64(it.blob) };
         const r=await fetch(S.cfg.script,{method:'POST',body:JSON.stringify(corpo),signal:ac.signal}); clearTimeout(lim);
         const j=await r.json().catch(()=>({ok:false,erro:'resposta inválida'}));
-        if(j.ok){ it.status='enviado'; it.enviadoEm=new Date().toISOString(); it.url=j.url||null; it.pasta=j.pasta||null; it.marco=j.marco||null; it.blob=null; it.erro=null; }
-        else { it.status='erro'; it.erro=j.erro||('HTTP '+r.status); }
+        if(j.ok){ it.status='enviado'; it.enviadoEm=new Date().toISOString(); it.url=j.url||null; it.pasta=j.pasta||null; it.marco=j.marco||null; it.transito=!!j.transito; it.blob=null; it.erro=null; it.erroEm=null; }
+        else { it.status='erro'; it.erro=j.erro||('HTTP '+r.status); it.erroEm=new Date().toISOString(); }
       }catch(e){ if(e instanceof TypeError || e.name==='AbortError' || !navigator.onLine){ it.status='pendente'; it.erro=null; await DB.put(it);
           if(grande && navigator.onLine) continue;   /* vídeo grande caiu no sinal fraco: os pequenos de trás ainda tentam */
-          break; } it.status='erro'; it.erro=String(e.message||e); }
+          break; } it.status='erro'; it.erro=String(e.message||e); it.erroEm=new Date().toISOString(); }
       await DB.put(it); pintarFila();
       if(it.status==='erro' && !navigator.onLine) break;
     }
@@ -842,17 +842,63 @@ function estadoChk(ob){ return LS.get('chk_'+ob.id+'_'+hoje(),{}); }
 function fotosDaObra(ob){ return S.fila.filter(x=>x.obraId===ob.id && (x.tipo==='foto'||x.tipo==='video') && !x.meta?.original); }
 
 /* ---------------- Telas ---------------- */
+/* ---------- ENVIOS (v1.14.0): o funcionário vê, na própria obra, o que chegou ao Drive e o que não chegou ----------
+ * "Chegou" = o Robô de Campo respondeu ok DEPOIS de criar o arquivo na pasta (devolve o link do Drive).
+ * Erro fica vermelho com o motivo em português e botão de tentar de novo; nada some sozinho. */
+function problemasEnvio(ob){ const da=S.fila.filter(x=>x.obraId===ob.id);
+  const dia=864e5, agora=Date.now();
+  return { erro: da.filter(x=>x.status==='erro'),
+    parado: da.filter(x=>(x.status==='pendente'||x.status==='aguardando') && agora-new Date(x.criadoEm).getTime()>dia) }; }
+function rotuloEnvio(x){ if(x.tipo==='ficha') return /\.json$/i.test(x.nome||'')?'Dados da ficha (para o relatório)':'Ficha preenchida (PDF)';
+  const t={foto:'Foto',video:'Vídeo',audio:'Áudio do diário',registro:'Registro',ficha:'Ficha',marco:'Marco',pdf:'Ficha (PDF)',json:'Dados da ficha'}[x.tipo]||x.tipo||'Arquivo';
+  const s=x.slotTitulo&&x.slotTitulo!==x.tipo?x.slotTitulo:'';
+  return t+(x.meta&&x.meta.original?' (original)':'')+(s?' · '+s:''); }
+function erroLegivel(e){ e=String(e||'');
+  if(/token/i.test(e)) return 'O app está com a chave do robô errada. Avise o escritório.';
+  if(/HTTP 5|Service|indispon|timeout|Tempo/i.test(e)) return 'O robô do escritório não respondeu a tempo. O app tenta de novo sozinho.';
+  if(/HTTP 4|permiss|Access|autoriz/i.test(e)) return 'O robô recusou o arquivo (permissão). Avise o escritório.';
+  if(/resposta inv/i.test(e)) return 'A internet cortou no meio do envio. O app tenta de novo sozinho.';
+  if(/grande|size|limit|tamanho/i.test(e)) return 'Arquivo grande demais para o robô. Avise o escritório.';
+  return 'Não chegou ao Drive. O app tenta de novo sozinho; se continuar, avise o escritório.'; }
+function telaEnvios(ob){
+  const da=S.fila.filter(x=>x.obraId===ob.id).sort((a,b)=>(b.enviadoEm||b.erroEm||b.criadoEm).localeCompare(a.enviadoEm||a.erroEm||a.criadoEm));
+  const err=da.filter(x=>x.status==='erro'), esp=da.filter(x=>x.status==='pendente'||x.status==='aguardando'), ok=da.filter(x=>x.status==='enviado');
+  const mini=x=> x.thumb?`<img src="${x.thumb}" alt="" style="width:46px;height:46px;object-fit:cover;border-radius:8px;flex:none">`:`<span style="width:46px;height:46px;border-radius:8px;background:#E8ECF1;display:flex;align-items:center;justify-content:center;flex:none;font-size:20px">${{foto:'📷',video:'🎬',audio:'🎙',registro:'📝'}[x.tipo]||'📄'}</span>`;
+  const linha=(x,corpo)=>`<div style="display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid #E8ECF1">${mini(x)}<div style="flex:1;min-width:0;font-size:14px"><b>${esc(rotuloEnvio(x))}</b><br>${corpo}</div></div>`;
+  let h='';
+  h+= err.length
+    ? `<div class="card" style="border:2px solid var(--err)"><h2 style="color:var(--err)">⚠ Não chegou ao Drive · ${err.length}</h2><div class="nota">Esses arquivos estão guardados no celular, não se perderam. Não apague o app nem limpe os dados.</div>`+
+      err.map(x=>linha(x,`<span style="color:var(--err)">${esc(erroLegivel(x.erro))}</span><br><small class="muted">feito ${esc(fmtData(x.criadoEm))}${x.erroEm?' · última tentativa '+esc(fmtData(x.erroEm).slice(11)):''} · ${esc(x.erro||'')}</small>`)).join('')+
+      `<button class="big" id="envTentar" style="margin-top:10px">Tentar enviar de novo agora</button></div>`
+    : (da.length?`<div class="card" style="background:var(--ok-bg)"><b style="color:var(--green-2)">✓ Nenhum erro de envio nesta obra.</b></div>`:'');
+  if(esp.length) h+=`<div class="card"><h2>Esperando para subir · ${esp.length}</h2><div class="nota">${navigator.onLine?'Sobe sozinho com o app aberto.':'Sem internet agora. Sobe sozinho quando voltar o sinal, com o app aberto.'}</div>`+
+      esp.map(x=>{ const hrs=(Date.now()-new Date(x.criadoEm).getTime())/36e5;
+        return linha(x, x.status==='aguardando'?'<span style="color:var(--err)">Áudio gravado e NÃO enviado: vá na aba Diário e toque em Enviar.</span>':`<span class="muted">feito ${esc(fmtData(x.criadoEm))}</span>${hrs>24?` <span class="chip e">parado há ${Math.floor(hrs/24)} dia(s)</span>`:''}`); }).join('')+`</div>`;
+  h+=`<div class="card"><h2>Chegou no Drive da empresa · ${ok.length}</h2>`+
+    (ok.length? ok.slice(0,60).map(x=>linha(x,`<span style="color:var(--green-2)">✓ ${esc(fmtData(x.enviadoEm))}</span>${x.transito?' <span class="chip w">pasta de entrada</span>':''}${x.url?` · <a href="${esc(x.url)}" target="_blank" rel="noopener">ver no Drive</a>`:''}`)).join('')
+      + (ok.length>60?`<div class="nota">Mostrando os 60 mais recentes de ${ok.length}.</div>`:'')
+      : `<div class="muted">Nada enviado desta obra ainda neste celular.</div>`)+
+    `<div class="nota">Só aparece aqui o que saiu DESTE celular. "Pasta de entrada" quer dizer que a obra ainda não tem pasta no Drive: o escritório move.</div></div>`;
+  return h; }
+function ligarEnvios(ob){ const b=$('#envTentar'); if(b) b.onclick=async()=>{
+  if(!navigator.onLine) return toast('Sem internet agora. Tente com sinal.',3500);
+  for(const x of S.fila.filter(x=>x.obraId===ob.id && x.status==='erro')){ x.status='pendente'; await DB.put(x); }
+  await recarregarFila(); toast('Enviando…'); await enviarFila(); const r=problemasEnvio(ob).erro.length;
+  toast(r?`${r} ainda não chegou. O motivo está na tela.`:'Tudo chegou ao Drive ✓',4000); }; }
 function render(){
   pintarFila(); // a barra da fila acompanha a obra aberta
   const m=$('#main'); const P=S.pacote; const ob=obraAtual();
   if(ob && window.FICHAS && FICHAS.aberta()){ FICHAS.desenharEditor(); return; }
   if(!ob){ $('#hTit').textContent='Campo'; $('#hSub').textContent='Natural Engenharia'; $('#hBtn').classList.add('hide'); m.innerHTML=telaInicio(); ligarInicio(); return; }
   $('#hTit').textContent=ob.nome; $('#hSub').textContent=(ob.cliente||'')+(ob.linhas?.length?' · '+ob.linhas.map(l=>P.linhas[l]?.nome||l).join(', '):''); $('#hBtn').classList.remove('hide'); $('#hBtn').textContent='Obras';
-  const tabs=[['roteiro','Roteiro'],['fotos','Fotos'],['diario','Diário'],['proc','Procedimentos'],['fichas','Fichas'],['ocorr','Ocorrência']];
-  let html=`<div class="tabs">${tabs.map(t=>`<button data-tab="${t[0]}" class="${S.tab===t[0]?'on':''}">${t[1]}</button>`).join('')}</div>`;
-  html+= {roteiro:telaRoteiro, fotos:telaFotos, diario:telaDiario, proc:telaProc, fichas:telaFichas, ocorr:telaOcorr}[S.tab](ob);
+  const pr=problemasEnvio(ob);
+  const tabs=[['roteiro','Roteiro'],['fotos','Fotos'],['diario','Diário'],['proc','Procedimentos'],['fichas','Fichas'],['ocorr','Ocorrência'],['envios', pr.erro.length?`Envios ⚠${pr.erro.length}`:'Envios']];
+  let html=`<div class="tabs">${tabs.map(t=>`<button data-tab="${t[0]}" class="${S.tab===t[0]?'on':''}" ${t[0]==='envios'&&pr.erro.length?'style="color:var(--err);font-weight:800"':''}>${t[1]}</button>`).join('')}</div>`;
+  if(S.tab!=='envios' && (pr.erro.length||pr.parado.length)) html+=`<button class="banner" id="vaiEnvios" style="display:block;width:100%;text-align:left;border:0;font-weight:700">⚠ ${pr.erro.length?`${pr.erro.length} arquivo(s) NÃO chegaram ao Drive da empresa.`:''} ${pr.parado.length?`${pr.parado.length} parado(s) no celular há mais de 1 dia.`:''} Toque para ver.</button>`;
+  html+= {roteiro:telaRoteiro, fotos:telaFotos, diario:telaDiario, proc:telaProc, fichas:telaFichas, ocorr:telaOcorr, envios:telaEnvios}[S.tab](ob);
   m.innerHTML=html; m.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{S.tab=b.dataset.tab; render(); window.scrollTo(0,0);});
-  ({roteiro:ligarRoteiro, fotos:ligarFotos, diario:ligarDiario, proc:()=>{}, fichas:ligarFichas, ocorr:ligarOcorr})[S.tab](ob);
+  ({roteiro:ligarRoteiro, fotos:ligarFotos, diario:ligarDiario, proc:()=>{}, fichas:ligarFichas, ocorr:ligarOcorr, envios:ligarEnvios})[S.tab](ob);
+  const ve=$('#vaiEnvios'); if(ve) ve.onclick=()=>{ S.tab='envios'; render(); window.scrollTo(0,0); };
 }
 /* ---------- quem está usando o aparelho: escolhe uma vez na lista da equipe e fica fixo ---------- */
 function nomeCurto(n){ const p=String(n||'').trim().split(/\s+/).filter(Boolean); const cap=w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase();
