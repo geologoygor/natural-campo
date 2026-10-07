@@ -35,7 +35,7 @@ const DEF = {
       {k:'g1', r:'1º golpes', tipo:'int', w:.55}, {k:'c1', r:'cm', tipo:'int', w:.45, pre:15},
       {k:'g2', r:'2º golpes', tipo:'int', w:.55}, {k:'c2', r:'cm', tipo:'int', w:.45, pre:15},
       {k:'g3', r:'3º golpes', tipo:'int', w:.55}, {k:'c3', r:'cm', tipo:'int', w:.45, pre:15},
-      {k:'n', r:'N SPT', tipo:'calc', w:.5, calc: l => (l.g2!==''&&l.g2!=null&&l.g3!==''&&l.g3!=null) ? (NUM(l.g2)+NUM(l.g3)) : ''},
+      {k:'n', r:'N SPT', tipo:'calc', w:.5, calc: l => nSPT(l)},
       {k:'desc', r:'Descrição do material — cor · areia/argila/silte · duro ou mole · seco ou úmido', tipo:'area', w:3},
       {k:'av', r:'Avanço', tipo:'sel', op:['','SPT','T','L'], w:.5},
       {k:'obs', r:'Obs. — perdeu água · desbarrancou', tipo:'text', w:1.4}, {k:'h', r:'Hora', tipo:'time', w:.6, agora:true}
@@ -55,6 +55,9 @@ const DEF = {
     if(!d.coord) a.push('Coordenada do furo em branco.');
     if(!g.length) a.push('Nenhuma linha de golpes registrada.');
     g.forEach((l,i)=>{ if(!impenetravel(l) && (l.g2===''||l.g3===''||l.g2==null||l.g3==null)) a.push(`Linha ${i+1} (${l.de||'?'}–${l.ate||'?'} m): falta golpe do 2º ou 3º trecho — N não calcula.`); if(!l.desc) a.push(`Linha ${i+1}: descrição do material em branco.`); });
+    g.forEach((l,i)=>{ if(nSPT(l)==='?') a.push(`Linha ${i+1}: golpe que não é número (escreva só o número de golpes e os cm no campo ao lado).`); });
+    if(/impenetr/.test(d.parou||'') && d.parou.includes('SPT') && !g.some(impenetravel)) a.push('Marcou "impenetrável (SPT)", mas nenhuma linha de golpes atende ao critério — confira os golpes e os cm.');
+    if(d.parou && !/impenetr/.test(d.parou) && g.length && impenetravel(g[g.length-1])) a.push('A última linha atende ao critério de impenetrável, mas o motivo da parada não diz isso.');
     if(!d.prof_final) a.push('Profundidade final em branco.');
     if(!d.parou) a.push('Motivo da parada em branco.');
     if(d.na_ini===''&&d.seco===''||(!d.na_ini&&!d.seco)) a.push('Nível d’água: nem "achou a" nem "seco até" preenchido.');
@@ -104,11 +107,19 @@ const DEF = {
   nota:'Não desmobilize sem: camadas, minuto da estabilização e minuto da recuperação (ficha do teste). Campo em branco é permitido; campo inventado, não.',
   avisos: d => { const a=[];
     if(!(d.perfil||[]).length) a.push('Perfil sem nenhuma camada — é dado que não se recupera.');
-    (d.perfil||[]).forEach((l,i)=>{ if(!l.mat) a.push(`Camada ${i+1} (${l.de||'?'}–${l.ate||'?'} m) sem descrição.`); });
+    const P=d.perfil||[];
+    P.forEach((l,i)=>{ if(!l.mat) a.push(`Camada ${i+1} (${l.de||'?'}–${l.ate||'?'} m) sem descrição.`);
+      const de=NUM(l.de), ate=NUM(l.ate);
+      if(isNaN(de)||isNaN(ate)) a.push(`Camada ${i+1}: "De" ou "Até" em branco — profundidade de camada não se recupera.`);
+      else if(ate<=de) a.push(`Camada ${i+1}: "Até" (${l.ate}) não é maior que "De" (${l.de}).`);
+      if(i>0){ const ant=NUM(P[i-1].ate); if(!isNaN(ant)&&!isNaN(de)&&Math.abs(ant-de)>0.05) a.push(`Entre a camada ${i} e a ${i+1} há ${de>ant?'buraco':'sobreposição'} (${P[i-1].ate} → ${l.de} m).`); } });
+    if(P.length && d.prof_final){ const ult=NUM(P[P.length-1].ate); if(!isNaN(ult) && Math.abs(ult-NUM(d.prof_final))>0.05) a.push(`A última camada termina em ${P[P.length-1].ate} m e a profundidade final é ${d.prof_final} m.`); }
     if(!d.coord) a.push('Coordenada do poço em branco.');
     if(!d.prof_final) a.push('Profundidade final em branco.');
     if(d.parou==='Rocha / precisa de compressor' && !d.autorizou) a.push('Parou em rocha e a autorização do cliente não foi registrada.');
     if(d.prof_final && d.prof_ref && NUM(d.prof_final)>NUM(d.prof_ref) && !d.autorizou) a.push('Passou da profundidade de referência sem autorização registrada.');
+    if(d.prof_final && d.prof_ref && NUM(d.prof_final)>NUM(d.prof_ref) && /^Não/.test(d.autorizou||'')) a.push('O cliente NÃO autorizou, mas a profundidade final passou da referência do contrato.');
+    if(d.aut_ate && d.prof_final && NUM(d.prof_final)>NUM(d.aut_ate)) a.push(`Perfurou até ${d.prof_final} m, além do autorizado (${d.aut_ate} m).`);
     return a; }
  },
  poco_teste: {
@@ -124,13 +135,14 @@ const DEF = {
    { t:'Bombeamento', nota:'Hora = hora de início + t. Anote só o que medir.', tabela:{k:'bomb', seq:'fixo', fixo:TEMPOS_B.map(t=>({t})), cols:[
       {k:'t', r:'t (min)', tipo:'fixo', w:.6}, {k:'h', r:'Hora', tipo:'calc', w:.8, calc:(l,d)=>somaHora(d.hini,l.t)},
       {k:'nd', r:'N.D. (m)', tipo:'num', w:1}, {k:'q', r:'Q (m³/h)', tipo:'num', w:1}]}},
-   { t:'Recuperação (anotar até voltar ao NE)', nota:'Começa quando a bomba desliga (início + 720 min). t/t\' = (720 + t\') / t\'.', tabela:{k:'rec', seq:'fixo', fixo:TEMPOS_B.map(t=>({t})), cols:[
-      {k:'t', r:'t\' (min)', tipo:'fixo', w:.6}, {k:'h', r:'Hora', tipo:'calc', w:.8, calc:(l,d)=>somaHora(d.hini,720+l.t)},
-      {k:'tt', r:'t/t\'', tipo:'calc', w:.7, calc:l=>((720+l.t)/l.t).toFixed(1).replace('.',',')},
+   { t:'Recuperação (anotar até voltar ao NE)', nota:'Começa quando a bomba desliga (início + 720 min, ou o minuto real em que ela parou). t/t\' = (tempo de bombeamento + t\') / t\'.', tabela:{k:'rec', seq:'fixo', fixo:TEMPOS_B.map(t=>({t})), cols:[
+      {k:'t', r:'t\' (min)', tipo:'fixo', w:.6}, {k:'h', r:'Hora', tipo:'calc', w:.8, calc:(l,d)=>somaHora(d.hini,tBomba(d)+l.t)},
+      {k:'tt', r:'t/t\'', tipo:'calc', w:.7, calc:(l,d)=>((tBomba(d)+l.t)/l.t).toFixed(1).replace('.',',')},
       {k:'nd', r:'N.D. (m)', tipo:'num', w:1}]}},
    { t:'Resultado', campos:[
      {k:'estab', r:'Minuto em que o nível estabilizou', tipo:'int'}, {k:'volta', r:'Minuto em que voltou ao NE', tipo:'int'}, {k:'ndf', r:'ND final (m)', tipo:'num'},
-     {k:'parou', r:'Parou antes de 720 min? minuto real e motivo', tipo:'text', w:3}]}
+     {k:'tp', r:'Bomba desligou no minuto (só se parou antes de 720)', tipo:'int'},
+     {k:'parou', r:'Parou antes de 720 min? motivo', tipo:'text', w:3}]}
   ],
   nota:'Bomba ligada 720 minutos completos, mesmo que estabilize antes. Parou antes (energia, bomba, cliente): registra o minuto real e avisa — não se completa a tabela. Campo em branco é permitido; campo inventado, não.',
   avisos: d => { const a=[];
@@ -138,6 +150,7 @@ const DEF = {
     if(!d.ne) a.push('NE em branco.');
     if(!d.estab) a.push('Minuto da estabilização em branco — é dado que não se recupera (SOP-008).');
     if(!d.volta) a.push('Minuto da recuperação (voltou ao NE) em branco — é dado que não se recupera (SOP-008).');
+    if(d.parou && !d.tp) a.push('Escreveu que a bomba parou antes, mas o minuto em que ela desligou está em branco — sem ele a recuperação sai com horário e t/t\' errados.');
     const nb=(d.bomb||[]).filter(l=>l.nd!==''&&l.nd!=null).length; if(nb<5) a.push(`Só ${nb} leitura(s) de ND no bombeamento.`);
     return a; }
  },
@@ -168,6 +181,7 @@ const DEF = {
     if(!d.ass_recebe) a.push('Sem assinatura de quem recebe — o poço fica "pronto, não entregue".');
     if(d.quem_e==='Indicado pelo cliente por WhatsApp' && !d.ind_data) a.push('Indicado por WhatsApp sem a data da indicação.');
     if(!(d.declara||[]).length) a.push('Declaração "recebi o poço funcionando" não marcada.');
+    if(d.__obraId) for(const p of pendenciasCriticas(d.__obraId)) a.push('Dado que não se recupera ainda faltando: '+p+'.');
     if(!d.pend) a.push('Pendências em branco — se não houver, escreva "nenhum".');
     return a; }
  }
@@ -179,14 +193,38 @@ const DEF = {
    SEV Schlumberger: AB/2 de 1,5 a 250 m, com duas embreagens → 24 leituras.
    K SEMPRE com a posição real dos remotos (fator exato), nunca 2·π·a.
    ============================================================ */
-const GEO = { a:20, L:200, rem:100 };
-function K_polopolo(A,M){ const B=-GEO.rem, N=GEO.L+GEO.rem;
+const GEO = { a:20, L:200, rem:100 };          // ficha antiga (antes da v1.10.0): geometria fixa
+const GEO_ESP = [15, 12, 10];                   // espaçamento dos eletrodos que se escolhe antes de começar (m)
+const GEO_REM = [100, 200, 300, 400];           // distância dos infinitos (remotos B e N) às pontas (m)
+const GEO_EST = 10;                             // a linha tem 10 espaçamentos = 11 estacas = 55 leituras
+/* geometria da ficha: a escolhida no começo do levantamento, ou a antiga fixa */
+function geoDe(d){ const a=NUM(d&&d.geo_a), r=NUM(d&&d.geo_rem);
+  if(a>0 && r>0) return { a, L:a*GEO_EST, rem:r };
+  return GEO; }
+function geoPendente(d){ return !!(d && d.geo_pendente); }
+function K_polopolo(A,M,g){ g=g||GEO; const B=-g.rem, N=g.L+g.rem;
   const s = 1/Math.abs(M-A) - 1/Math.abs(N-A) - 1/Math.abs(M-B) + 1/Math.abs(N-B);
   return 2*Math.PI/s; }
-const LEITURAS_CAM = (()=>{ const n=Math.round(GEO.L/GEO.a), out=[]; let o=1;
-  for(let k=1;k<=n;k++) for(let i=0;i+k<=n;i++){ const A=i*GEO.a, M=(i+k)*GEO.a;
-    out.push({ ord:o++, n:k, A, M, K:Math.round(K_polopolo(A,M)*10)/10, sp:'', mv:'', ma:'' }); }
-  return out; })();
+function leiturasCam(g){ const n=Math.round(g.L/g.a), out=[]; let o=1;
+  for(let k=1;k<=n;k++) for(let i=0;i+k<=n;i++){ const A=i*g.a, M=(i+k)*g.a;
+    out.push({ ord:o++, n:k, A, M, K:Math.round(K_polopolo(A,M,g)*10)/10, sp:'', mv:'', ma:'' }); }
+  return out; }
+const LEITURAS_CAM = leiturasCam(GEO);
+/* profundidade investigada: a tabela calibrada é para a = 20 m e escala com a geometria */
+/* Profundidade mediana de investigação (Edwards, 1977) com as posições REAIS de A, M, B e N.
+   Com a = 20 m e remotos a 100 m ela reproduz a tabela PROF_NIVEL (±1 m), que fica valendo
+   para a ficha antiga. A distância dos infinitos muda muito a profundidade: não dá para escalar só por a. */
+function zEdwards(A,M,B,N){ const pares=[[A,M,1],[A,N,-1],[B,M,-1],[B,N,1]];
+  const Sz=z=>pares.reduce((s,[p,q,sg])=>s+sg/Math.sqrt((p-q)*(p-q)+4*z*z),0); const S0=Sz(0);
+  let lo=0, hi=5000; for(let i=0;i<70;i++){ const m=(lo+hi)/2; if(1-Sz(m)/S0<0.5) lo=m; else hi=m; } return (lo+hi)/2; }
+const PROF_CACHE={};
+function profNivel(n, g){ g=g||GEO;
+  if(g.a===GEO.a && g.rem===GEO.rem && g.L===GEO.L) return PROF_NIVEL[n]||null;
+  const ch=g.a+'|'+g.rem; if(!PROF_CACHE[ch]){ const t={}, B=-g.rem, N=g.L+g.rem, k=Math.round(g.L/g.a);
+    for(let m=1;m<=k;m++){ const zs=[]; for(let i=0;i+m<=k;i++) zs.push(zEdwards(i*g.a,(i+m)*g.a,B,N));
+      zs.sort((u,v)=>u-v); const q=zs.length; t[m]=Math.round(q%2?zs[(q-1)/2]:(zs[q/2-1]+zs[q/2])/2); }
+    PROF_CACHE[ch]=t; }
+  return PROF_CACHE[ch][n]||null; }
 const PROF_NIVEL = {1:14,2:24,3:32,4:40,5:46,6:52,7:57,8:62,9:66,10:70}; // prof. mediana investigada (motor da Natural)
 const SEV_PARES = [[1.5,.5],[2,.5],[3,.5],[4,.5],[5,.5],[6,.5],[8,.5],[10,.5],[13,.5],[16,.5],[16,5],[20,5],[25,5],[32,5],[40,5],[50,5],[65,5],[80,5],[100,5],[100,25],[130,25],[160,25],[200,25],[250,25]];
 const LEITURAS_SEV = SEV_PARES.map((x,i)=>({ ord:i+1, ab2:x[0], mn2:x[1],
@@ -219,20 +257,22 @@ DEF.geof_cam = {
      {k:'data', r:'Data', tipo:'date', pre:'hoje'}, {k:'inicio', r:'Início', tipo:'time', agora:true}, {k:'fim', r:'Fim', tipo:'time', agora:true},
      {k:'exec', r:'Quem levantou', tipo:'text', w:2, pre:'quem'},
      {k:'equip', r:'Equipamento', tipo:'text', w:2, ph:'Eletrorresistivímetro X6xtal 500'},
-     {k:'c_ini', r:'Coordenada da ESTACA 0', tipo:'lido', w:2}, {k:'c_fim', r:'Coordenada da ESTACA 200', tipo:'lido', w:2},
-     {k:'azim', r:'Rumo da linha (graus, da estaca 0 para a 200)', tipo:'lido', w:2, ph:'sai sozinho das duas pontas'},
-     {k:'c_b', r:'Coordenada do remoto B (−100 m)', tipo:'lido', w:2}, {k:'c_n', r:'Coordenada do remoto N (+300 m)', tipo:'lido', w:2},
+     {k:'geo_a', r:'Espaçamento dos eletrodos — a (m)', tipo:'lido', ph:'escolhido no começo'}, {k:'geo_L', r:'Comprimento da linha (m)', tipo:'lido', ph:'10 × a'},
+     {k:'geo_rem', r:'Infinitos B e N — distância das pontas (m)', tipo:'lido', w:2, ph:'escolhido no começo'},
+     {k:'c_ini', r:'Coordenada da ESTACA 0', tipo:'lido', w:2}, {k:'c_fim', r:'Coordenada da ESTACA FINAL', tipo:'lido', w:2},
+     {k:'azim', r:'Rumo da linha (graus, da estaca 0 para a final)', tipo:'lido', w:2, ph:'sai sozinho das duas pontas'},
+     {k:'c_b', r:'Coordenada do remoto B (antes da estaca 0)', tipo:'lido', w:2}, {k:'c_n', r:'Coordenada do remoto N (depois da estaca final)', tipo:'lido', w:2},
      {k:'contato', r:'Resistência de contato / terreno (seco, molhado…)', tipo:'text', w:2}
    ]},
    { t:'2 · Como andar com os eletrodos', img:'COMO_ANDAR_CAMINHAMENTO.png',
-     nota:'B e N ficam cravados 100 m além de cada ponta e não saem do lugar. Só A e M andam. O par anda de estaca em estaca até o fim da linha; aí aumenta 20 m a distância entre os dois e volta para a estaca 0.' },
+     nota:'B e N ficam cravados além de cada ponta, na distância escolhida no começo, e não saem do lugar. Só A e M andam. O par anda de estaca em estaca até o fim da linha; aí aumenta um espaçamento (a) a distância entre os dois e volta para a estaca 0.' },
    { t:'3 · As 55 leituras', nota:'A ordem já está pronta: siga o cartão verde lá em cima. A tabela aqui embaixo serve para corrigir.',
      tabela:{ k:'leituras', seq:'fixo', fixo:LEITURAS_CAM,
        rot:(l)=>`<b>Leitura ${l.ord}</b><span class="chip">A na estaca ${l.A}</span><span class="chip">M na estaca ${l.M}</span><span class="chip">K = ${fmtN(l.K)} m</span>`,
        cols:[{k:'ord', r:'Leitura', tipo:'fixo', w:.4},{k:'n', r:'Nível', tipo:'fixo', w:.4},
              {k:'A', r:'A (estaca)', tipo:'fixo', w:.6},{k:'M', r:'M (estaca)', tipo:'fixo', w:.6},
              {k:'K', r:'K (m)', tipo:'fixo', w:.7}].concat(COL_MEDIDA) }},
-   { t:'4 · Resultado no campo', campos:[
+   { t:'4 · Resultado no campo', nota:'Faixa em branco = a do terreno. Preenchida, ela vale para a estaca, para a leitura de campo e para a SEV desta linha.', campos:[
      {k:'r_min', r:'Faixa de alvo — mínimo (Ω·m)', tipo:'num', pre:100}, {k:'r_max', r:'Faixa de alvo — máximo (Ω·m)', tipo:'num', pre:600},
      {k:'z_min', r:'Janela — de (m)', tipo:'num', pre:10}, {k:'z_max', r:'Janela — até (m)', tipo:'num', pre:70}
    ]},
@@ -250,7 +290,8 @@ DEF.geof_cam = {
   nota: NOTA_GEO,
   avisos: d => { const a=[];
     if(!d.c_ini) a.push('Coordenada da estaca 0 em branco.');
-    if(!d.c_fim) a.push('Coordenada da estaca 200 em branco — sem ela o mapa sai só com um ponto, sem o rumo da linha.');
+    if(geoPendente(d)) a.push('Espaçamento e infinitos ainda não escolhidos — escolha no cartão lá em cima antes de começar.');
+    if(!d.c_fim) a.push(`Coordenada da estaca final (${geoDe(d).L} m) em branco — sem ela o mapa sai só com um ponto, sem o rumo da linha.`);
     if(!d.azim) a.push('Rumo da linha em branco.');
     if(!d.c_b || !d.c_n) a.push('Coordenada de um dos remotos (B ou N) em branco.');
     const fa=faltamGeo(d); if(fa) a.push(`Faltam ${fa} das ${(d.leituras||[]).length} leituras.`);
@@ -280,13 +321,16 @@ DEF.geof_sev = {
        rot:(l)=>`<b>Leitura ${l.ord}</b><span class="chip">AB/2 = ${fmtN(l.ab2)} m</span><span class="chip">MN/2 = ${fmtN(l.mn2)} m</span><span class="chip">K = ${fmtN(l.K)} m</span>${l.emb?'<span class="chip w">embreagem</span>':''}`,
        cols:[{k:'ord', r:'Leitura', tipo:'fixo', w:.4},{k:'ab2', r:'AB/2 (m)', tipo:'fixo', w:.7},
              {k:'mn2', r:'MN/2 (m)', tipo:'fixo', w:.7},{k:'K', r:'K (m)', tipo:'fixo', w:.7}].concat(COL_MEDIDA) }},
-   { grafico:'sev', t:'4 · Curva de campo e modelo de camadas' },
-   { t:'5 · Leitura do geólogo', campos:[
+   { t:'4 · Faixa de alvo', nota:'Em branco = a faixa que o caminhamento desta linha usou; se ele também ficou em branco, a do terreno. Preencha só se quiser procurar outro alvo — a mesma faixa vale para o gráfico e para a leitura de campo.', campos:[
+     {k:'r_min', r:'Faixa de alvo — mínimo (Ω·m)', tipo:'num'}, {k:'r_max', r:'Faixa de alvo — máximo (Ω·m)', tipo:'num'}
+   ]},
+   { grafico:'sev', t:'5 · Curva de campo e modelo de camadas' },
+   { t:'6 · Leitura do geólogo', campos:[
      {k:'alvo_de', r:'Intervalo de interesse — de (m)', tipo:'num'}, {k:'alvo_ate', r:'até (m)', tipo:'num'},
      {k:'prof_rec', r:'Profundidade de perfuração recomendada (m)', tipo:'num', w:2},
      {k:'obs_int', r:'O que a curva mostrou', tipo:'area', w:4}
    ]},
-   { t:'6 · Antes de sair do campo', campos:[
+   { t:'7 · Antes de sair do campo', campos:[
      {k:'obs', r:'O que tem perto da SEV — cerca, linha de energia, tubulação metálica (com a distância)', tipo:'area', w:4},
      {k:'chk', r:'Conferência', tipo:'check', w:4, op:['As duas embreagens foram medidas duas vezes','A e B abriram igual dos dois lados até o fim','Coordenada do centro registrada','Fotos: centro, uma ponta e o equipamento ligado','Cabos recolhidos']}
    ]}
@@ -348,7 +392,7 @@ function difAng(a, b){ let d=Math.abs(a-b)%360; return d>180 ? 360-d : d; }
 function precisaoDe(txt){ const m=String(txt||'').match(/±\s*(\d+)\s*m/); return m ? +m[1] : null; }
 
 function PONTOS_LINHA(f){
-  const L = GEO.L, R = GEO.rem;
+  const g = geoDe(f.dados), L = g.L, R = g.rem;
   if (f.tipo === 'geof_sev') return [
     { k:'c_centro', rot:'Centro da SEV',
       onde:'Fique EM CIMA do centro — o ponto que o caminhamento indicou. É dele que A e B abrem para os dois lados.' }
@@ -394,7 +438,7 @@ function conferirDist(rot, medido, esperado, a1, a2){
     t:`${rot}: ${medido.toFixed(0)} m contra ${esperado} m. São ${sigmas.toFixed(1)} vezes o erro esperado do GPS (±${porPonto} m por ponto) — quase certo que um dos pontos foi marcado no lugar errado.` };
 }
 function conferirLinha(f){
-  const d=f.dados, L=GEO.L, R=GEO.rem;
+  const d=f.dados, g=geoDe(d), L=g.L, R=g.rem;
   const P = { b:coordDe(d.c_b), i:coordDe(d.c_ini), fim:coordDe(d.c_fim), n:coordDe(d.c_n) };
   const A = { b:precisaoDe(d.c_b), i:precisaoDe(d.c_ini), fim:precisaoDe(d.c_fim), n:precisaoDe(d.c_n) };
   const av=[], ok=[];
@@ -458,7 +502,7 @@ function ligarPontos(f){
   if(!ehGeo(f.tipo) || f.status==='encerrada') return;
   document.querySelectorAll('[data-pt]').forEach(b=>{ b.onclick=()=>{
     iniciarGPS();
-    if(!S.pos){ toast('Procurando GPS… tente de novo em alguns segundos (céu aberto ajuda).',4000); return; }
+    if(!posFresca(60000)){ toast(S.pos?'GPS desatualizado — espere fixar de novo e toque outra vez.':'Procurando GPS… tente de novo em alguns segundos (céu aberto ajuda).',4000); return; }
     const k=b.dataset.pt;
     f.dados[k]=textoCoordFicha(S.pos);
     /* rumo sai das duas pontas, sem ninguém ter de medir bússola */
@@ -493,7 +537,7 @@ function cartaoGeo(f){
     ? `A na <b>estaca ${l.A}</b> &nbsp;·&nbsp; M na <b>estaca ${l.M}</b>`
     : `A e B a <b>${fmtN(l.ab2)} m</b> do centro, cada um do seu lado &nbsp;·&nbsp; MN/2 = <b>${fmtN(l.mn2)} m</b>`;
   const sub = f.tipo==='geof_cam'
-    ? `nível ${l.n} · esta leitura enxerga ≈ ${PROF_NIVEL[l.n]} m`
+    ? `nível ${l.n} · esta leitura enxerga ≈ ${profNivel(l.n, geoDe(d))} m`
     : (l.emb ? 'EMBREAGEM — não mexa em A e B, troque só o MN e meça de novo' : `K = ${fmtN(l.K)} m`);
   const estado = l.pulou ? '<span class="chip w">estava marcada como não medida</span>'
                : (l.mv!==''&&l.mv!=null) ? '<span class="chip">já anotada</span>' : '';
@@ -518,6 +562,96 @@ function cartaoGeo(f){
      : `<button class="big sec" id="gPula" style="margin-top:8px">Não deu para medir — pular esta</button>`}
    ${l.pulou?`<button class="big ghost" id="gDespula" style="margin-top:8px">Desmarcar "não deu para medir"</button>`:''}
    <div class="mini" style="margin-top:6px">Os três números do visor do X6xtal, na ordem em que ele mostra (SP em mV · voltagem em mV · corrente em mA). Valor negativo no visor? Digite o número e toque em <b>± negativo</b>. Pular é melhor do que chutar.</div></div>`;
+}
+/* ---------- caminhamento: espaçamento e infinitos, escolhidos ANTES da primeira leitura ---------- */
+const GEO_ESC = {};   // escolha em andamento, por ficha (só vira dado quando confirma)
+function desenharEscolhaGeo(f){
+  const def=DEF[f.tipo], d=f.dados, e=GEO_ESC[f.id]||(GEO_ESC[f.id]={a:NUM(d._geo_a_ant)||null, rem:NUM(d._geo_rem_ant)||null});
+  $('#hTit').textContent=def.codigo+' · '+def.ident(d); $('#hSub').textContent=f.obraNome; $('#hBtn').classList.remove('hide'); $('#hBtn').textContent='Fichas';
+  injetarCssSPT();
+  const bt=(grupo,v,sel,txt,sub)=>`<button class="${sel?'green':'sec'}" data-gesc="${grupo}" data-v="${v}" style="flex:1 1 30%;min-height:64px;padding:8px"><b style="font-size:20px">${txt}</b>${sub?`<br><small>${sub}</small>`:''}</button>`;
+  let h=`<div class="card" style="border-left:5px solid var(--green)"><h2>Antes de começar: a linha</h2>
+    <div class="nota">Escolha o espaçamento dos eletrodos e a distância dos infinitos. A tabela das leituras e os K saem disso — depois da primeira leitura anotada não dá mais para trocar.</div></div>`;
+  h+=`<div class="card"><h2>1 · Espaçamento dos eletrodos (a)</h2><div class="row" style="gap:8px;flex-wrap:wrap">`+
+     GEO_ESP.map(a=>bt('a',a,e.a===a,a+' m',`linha de ${a*GEO_EST} m`)).join('')+
+     `</div><div class="mini" style="margin-top:6px">Menor espaçamento = mais detalhe perto da superfície, linha mais curta, enxerga menos fundo.</div></div>`;
+  h+=`<div class="card"><h2>2 · Infinitos — remotos B e N</h2><div class="row" style="gap:8px;flex-wrap:wrap">`+
+     GEO_REM.map(r=>bt('rem',r,e.rem===r,r+' m',e.a?`enxerga ≈ ${profNivel(10,{a:e.a,L:e.a*GEO_EST,rem:r})} m`:'além de cada ponta')).join('')+
+     `</div><div class="mini" style="margin-top:6px">B fica antes da estaca 0 e N depois da estaca final, nessa distância, no prolongamento da linha. Mais longe = enxerga mais fundo e o sinal das leituras fundas fica mais forte; com 100 m, erro de cravação dos remotos pesa mais no K.</div></div>`;
+  const pronto = e.a && e.rem;
+  h+= pronto
+    ? `<div class="card spt" style="border-left:5px solid var(--green)"><div style="font-size:17px;line-height:1.5">a = <b>${e.a} m</b> · linha de <b>${e.a*GEO_EST} m</b> (estacas 0 a ${e.a*GEO_EST}) · 55 leituras<br>B em <b>−${e.rem} m</b> · N em <b>+${e.a*GEO_EST+e.rem} m</b> · enxerga até ≈ <b>${profNivel(10,{a:e.a,L:e.a*GEO_EST,rem:e.rem})} m</b></div><button class="big green" id="gescOk" style="margin-top:10px">Começar o levantamento</button></div>`
+    : `<div class="card nota">Escolha as duas coisas para liberar o levantamento.</div>`;
+  h+=`<button class="big ghost" id="excluir" style="margin-top:8px;color:var(--err)">Excluir esta ficha</button>`;
+  $('#main').innerHTML=h;
+  document.querySelectorAll('[data-gesc]').forEach(b=>b.onclick=()=>{ e[b.dataset.gesc]=+b.dataset.v; desenharEscolhaGeo(f); });
+  const ok=$('#gescOk'); if(ok) ok.onclick=()=>{
+    const g={ a:e.a, L:e.a*GEO_EST, rem:e.rem };
+    d.geo_a=String(g.a); d.geo_rem=String(g.rem); d.geo_L=String(g.L); delete d.geo_pendente; delete d._geo_a_ant; delete d._geo_rem_ant;
+    d.leituras=leiturasCam(g);
+    /* a janela de profundidade padrão acompanha o que a linha enxerga */
+    if(d.z_min===''||d.z_min==null||d._z_auto) { d.z_min=String(Math.round(10*g.a/20)); d.z_max=String(profNivel(10,g)); d._z_auto=true; }
+    delete GEO_ESC[f.id]; delete GEO_POS[f.id]; gravar(f); toast(`Linha de ${g.L} m, a = ${g.a} m, infinitos a ${g.rem} m`); desenharEditor(); window.scrollTo(0,0); };
+  const exc=$('#excluir'); if(exc) exc.onclick=()=>{ const copia=JSON.parse(JSON.stringify(f)); remover(f.id); fechar();
+    barraDesfazer('Ficha excluída.', ()=>{ gravar(copia); render(); toast('Ficha de volta'); }, 12000); };
+}
+function cartaoLinhaGeo(f){
+  const d=f.dados, g=geoDe(d), feitas=(d.leituras||[]).filter(l=>(l.mv!==''&&l.mv!=null)||l.pulou).length;
+  return `<div class="card" style="border-left:5px solid var(--navy,#113E6B)"><h2>A linha</h2><div style="font-size:16px;line-height:1.5">a = <b>${g.a} m</b> · linha de <b>${g.L} m</b> · infinitos a <b>${g.rem} m</b> (B em −${g.rem}, N em +${g.L+g.rem})</div>`+
+    (feitas ? `<div class="mini">Já tem leitura anotada: a geometria ficou fixa nesta ficha. Para outra geometria, abra outra ficha.</div>`
+            : `<button class="sec" id="gTroca" style="margin-top:8px">Trocar espaçamento ou infinitos</button>`)+`</div>`;
+}
+/* ---------- figura "Como andar com os eletrodos" desenhada pela geometria da ficha ----------
+   Mesmo desenho da figura padrão (COMO_ANDAR_CAMINHAMENTO.png), com os números da linha escolhida:
+   espaçamento, comprimento, infinitos, A–M de cada rodada e quanto cada leitura enxerga. */
+const FIG_ANDAR={};
+function figuraComoAndar(g){
+  const ch=g.a+'|'+g.rem; if(FIG_ANDAR[ch]) return FIG_ANDAR[ch];
+  const W=1320, H=1140, cv=document.createElement('canvas'); cv.width=W; cv.height=H; const c=cv.getContext('2d');
+  const NAVY='#14385C', LAR='#C8510A', AZ='#1F6FAE', VERDE='#1E7A4C', CINZA='#6B7280', TRILHO='#DDCBB2', EST='#D7DEE6';
+  const F=(w,s)=>`${w} ${s}px Arial, Helvetica, sans-serif`;
+  const L=g.L, a=g.a, R=g.rem, n=Math.round(L/a);
+  const xB=172, x0=238, xL=924, xN=990, X=i=>x0+(xL-x0)*i/n;
+  const txt=(s,x,y,font,cor,al)=>{ c.font=font; c.fillStyle=cor; c.textAlign=al||'left'; c.fillText(s,x,y); };
+  const bola=(x,y,r,cor,letra,corL)=>{ c.beginPath(); c.arc(x,y,r,0,2*Math.PI); c.fillStyle=cor; c.fill(); if(letra) txt(letra,x,y+r*0.38,F('700',r*1.05),corL||'#fff','center'); };
+  const seta=(xa,xb,y,cor)=>{ c.strokeStyle=cor; c.lineWidth=1.4; c.beginPath(); c.moveTo(xa,y); c.lineTo(xb,y); c.stroke();
+    for(const [x,d] of [[xa,1],[xb,-1]]){ c.beginPath(); c.moveTo(x,y); c.lineTo(x+7*d,y-4); c.lineTo(x+7*d,y+4); c.closePath(); c.fillStyle=cor; c.fill(); } };
+  const trilho=(y)=>{ c.fillStyle=TRILHO; c.fillRect(139,y,884,9); };
+  const sec=(num,tit,y)=>{ bola(79,y,22,NAVY,String(num)); txt(tit,121,y+8,F('700',19),NAVY); };
+  c.fillStyle='#fff'; c.fillRect(0,0,W,H);
+  txt('CAMINHAMENTO ELÉTRICO — COMO ANDAR COM OS ELETRODOS',W/2,35,F('700',26),NAVY,'center');
+  txt(`linha de ${L} m  ·  uma estaca a cada ${a} m  ·  infinitos a ${R} m  ·  55 leituras`,W/2,68,F('400',16),CINZA,'center');
+  /* 1 · montar */
+  sec(1,'MONTAR E NÃO MEXER MAIS',114);
+  trilho(182); for(let i=0;i<=n;i++){ bola(X(i),169,9,EST); if(i%2===0) txt(String(i*a),X(i),152,F('400',11),'#555','center'); }
+  bola(xB,169,16,'#555','B'); bola(xN,169,16,'#555','N');
+  txt(`${R} m`,(xB+x0)/2,206,F('700',13),CINZA,'center'); txt(`${L} m  (a linha)`,(x0+xL)/2,206,F('700',13),CINZA,'center'); txt(`${R} m`,(xL+xN)/2,206,F('700',13),CINZA,'center');
+  seta(xB,x0,217,CINZA); seta(x0,xL,217,CINZA); seta(xL,xN,217,CINZA);
+  txt(`${L+2*R} m de corredor em linha reta`,(xB+xN)/2,254,F('700',14),NAVY,'center'); seta(xB,xN,265,NAVY);
+  txt(`B e N ficam cravados ${R} m além de cada ponta e NÃO saem do lugar o dia inteiro.`,660,296,F('400',15),'#333','center');
+  /* 2 · quem anda */
+  sec(2,'SÓ DOIS ELETRODOS ANDAM',365);
+  bola(290,413,15,LAR,'A'); txt('manda a corrente',333,419,F('400',16),'#333'); bola(686,413,15,AZ,'M'); txt('lê a voltagem',729,419,F('400',16),'#333');
+  /* 3 · como o par caminha */
+  sec(3,'COMO O PAR A–M CAMINHA',463);
+  const linhaLeit=(y,rot,iA,iM,cotaAcima)=>{
+    txt(rot,13,y+6,F('700',14),NAVY); trilho(y+14);
+    for(let i=0;i<=n;i++) if(i!==iA && i!==iM) bola(X(i),y,8,EST);
+    bola(xB,y,9,'#BFBFBF','B'); bola(xN,y,9,'#BFBFBF','N');
+    bola(X(iA),y,15,LAR,'A'); bola(X(iM),y,15,AZ,'M');
+    txt(`estaca ${iA*a}`,X(iA),y-21,F('700',11),LAR,'center'); txt(`estaca ${iM*a}`,X(iM),y-21,F('700',11),AZ,'center');
+    const am=(iM-iA)*a; seta(X(iA),X(iM),y-45,NAVY); txt(`A–M = ${am} m`,(X(iA)+X(iM))/2,y-58,F('700',13),NAVY,'center');
+    txt(`A–M = ${am} m`,1030,y-7,F('700',13),NAVY); txt(`enxerga ≈ ${profNivel(iM-iA,g)} m`,1030,y+22,F('700',13),VERDE);
+  };
+  linhaLeit(556,'leitura 1',0,1); linhaLeit(659,'leitura 2',1,2); linhaLeit(761,'leitura 10',n-1,n);
+  txt('acabou a linha  →  AFASTA o M mais uma estaca  →  VOLTA para a estaca 0',660,817,F('700',16),'#B5410C','center');
+  linhaLeit(898,'leitura 11',0,2); linhaLeit(1001,'leitura 55',0,n);
+  /* a regra */
+  c.fillStyle='#FFF4E2'; c.strokeStyle='#E3963E'; c.lineWidth=2; c.beginPath(); c.roundRect?c.roundRect(98,1036,1124,80,14):c.rect(98,1036,1124,80); c.fill(); c.stroke();
+  txt(`A REGRA:  o par A–M anda junto, de estaca em estaca, até o fim da linha. Quando acaba, aumenta ${a} m a distância`,660,1070,F('700',15),NAVY,'center');
+  txt(`entre os dois e recomeça da estaca 0.   São ${n} rodadas (${a}, ${2*a}, ${3*a} … ${L} m entre A e M) e 55 leituras no total.`,660,1095,F('700',15),NAVY,'center');
+  txt('NATURAL ENGENHARIA',660,1132,F('700',11),'#AAA','center');
+  return (FIG_ANDAR[ch]=cv.toDataURL('image/png'));
 }
 function renderGeo(f){ const p=$('#prox'); if(!p) return; const tmp=document.createElement('div'); tmp.innerHTML=cartaoGeo(f); p.replaceWith(tmp.firstElementChild); ligarGeo(f); }
 function atualizarTabelaGeo(f){ (f.dados.leituras||[]).forEach((l,i)=>{ for(const k of ['sp','mv','ma']){ const el=$(`#t_leituras_${i}_${k}`); if(el && document.activeElement!==el) el.value=l[k]==null?'':l[k]; } }); }
@@ -557,7 +691,19 @@ const K='fichas_v1';
 function todas(){ try{ return JSON.parse(localStorage.getItem('nc_'+K)||'[]'); }catch(e){ return []; } }
 function salvarTodas(a){ try{ localStorage.setItem('nc_'+K, JSON.stringify(a)); return true; }catch(e){ toast('Memória do celular cheia: envie a fila e apague fichas antigas.',5000); return false; } }
 function pegar(id){ return todas().find(f=>f.id===id); }
-function gravar(f){ const a=todas(); const i=a.findIndex(x=>x.id===f.id); f.atualizadoEm=new Date().toISOString(); if(i<0) a.push(f); else a[i]=f; salvarTodas(a); }
+function gravar(f){ const a=todas(); const i=a.findIndex(x=>x.id===f.id); f.atualizadoEm=new Date().toISOString(); if(i<0) a.push(f); else a[i]=f;
+  const ok=salvarTodas(a); faixaMemoria(!ok); return ok; }
+/* faixa vermelha FIXA enquanto a ficha não estiver gravada no celular (memória cheia): toast de 5 s ninguém vê,
+   e tudo que for digitado depois some se o app fechar */
+function faixaMemoria(mostra){ let el=document.getElementById('faixaMem');
+  if(!mostra){ if(el) el.remove(); return; }
+  if(!el){ el=document.createElement('div'); el.id='faixaMem'; el.style.cssText='position:fixed;left:0;right:0;top:0;z-index:9998;background:#B42318;color:#fff;padding:12px 14px;font:700 15px system-ui;text-align:center';
+    el.textContent='A FICHA NÃO ESTÁ SENDO SALVA: memória do celular cheia. Não feche o app. Envie a fila (precisa de sinal) e apague fichas antigas já enviadas.'; document.body.appendChild(el); } }
+/* fichas encerradas e já enviadas não precisam guardar as assinaturas (estão no PDF que subiu): libera memória */
+function aliviarMemoria(){ try{ const env=new Set((S.fila||[]).filter(x=>x.status==='enviado'&&x.tipo==='ficha').map(x=>x.meta&&x.meta.extra&&x.meta.extra.fichaId));
+  const a=todas(); let mudou=false;
+  for(const f of a) if(f.status==='encerrada' && env.has(f.id)) for(const [k,v] of Object.entries(f.dados)) if(typeof v==='string' && v.startsWith('data:image')){ f.dados[k]='[assinatura no PDF enviado]'; mudou=true; }
+  if(mudou) salvarTodas(a); }catch(e){} }
 function remover(id){ salvarTodas(todas().filter(f=>f.id!==id)); }
 
 let ABERTA=null; // id da ficha em edição
@@ -567,6 +713,7 @@ function novaFicha(tipo, ob){
   for(const b of def.blocos){ for(const c of (b.campos||[])){
       if(c.pre==='hoje') d[c.k]=HOJE(); else if(c.pre==='obra') d[c.k]=ob.nome; else if(c.pre==='cliente') d[c.k]=ob.cliente||ob.nome; else if(c.pre==='quem') d[c.k]=S.quem||''; else d[c.k]= c.tipo==='check'?[]:''; }
     if(b.tabela){ const tb=b.tabela; d[tb.k] = tb.seq==='fixo' ? tb.fixo.map(x=>Object.assign({},x)) : []; } }
+  if(tipo==='geof_cam'){ d.leituras=[]; d.geo_pendente=true; d.geo_a=''; d.geo_rem=''; d.geo_L=''; }
   if(tipo==='spt'){ const n=todas().filter(f=>f.obraId===ob.id&&f.tipo==='spt').length+1; d.furo=String(n).padStart(2,'0'); d.golpes=[linhaVazia(def.blocos[1].tabela, {de:0,ate:1})]; }
   const f={ id:'FC'+Date.now().toString(36)+Math.random().toString(36).slice(2,5), tipo, obraId:ob.id, obraNome:ob.nome, versao:1, status:'rascunho', criadoEm:new Date().toISOString(), por:S.quem||'', dados:d };
   gravar(f); return f;
@@ -629,26 +776,42 @@ function tabelaHTML(tb, d, ro){
   if(tb.seq==='fixo') h+=`<button class="ghost" data-mostra="${tb.k}">mostrar/ocultar linhas vazias</button>`;
   return h+`</div>`;
 }
+/* tempo de bombeamento: 720 min, ou o minuto real em que a bomba desligou (queda de energia é comum) */
+function tBomba(d){ const v=NUM(d&&d.tp); return (v>0 && v<720) ? v : 720; }
+/* tolerância de atraso da leitura: meio minuto no começo, 10 % do tempo depois — leitura dos 60 min feita
+   aos 60,6 não pode cair na linha dos 70 (antes caía, e a leitura certa dos 70 apagava a dos 60) */
+const tolT = t => Math.max(0.5, 0.1*t);
 function leituraDaVez(d){ // qual linha da tabela é a leitura de agora
   if(!d.hini||!/^\d{1,2}:\d{2}$/.test(d.hini)) return null;
   const [a,b]=d.hini.split(':').map(Number); const agora=new Date(); const ini=new Date(); ini.setHours(a,b,0,0); if(ini>agora) ini.setDate(ini.getDate()-1);
-  const min=(agora-ini)/60000;
-  if(min<=720+0.5){ const i=TEMPOS_B.findIndex(t=>t>=min-0.5); if(i>=0) return {tab:'bomb', i, t:TEMPOS_B[i], hora:somaHora(d.hini,TEMPOS_B[i]), min}; }
-  const i=TEMPOS_B.findIndex(t=>720+t>=min-0.5); if(i>=0) return {tab:'rec', i, t:TEMPOS_B[i], hora:somaHora(d.hini,720+TEMPOS_B[i]), min};
+  const min=(agora-ini)/60000, T=tBomba(d);
+  const vazio=(tab,i)=>{ const l=(d[tab]||[])[i]; return !l || l.nd===''||l.nd==null; };
+  if(min<=T+0.5){ let i=TEMPOS_B.findIndex((t,k)=>t<=T && min<=t+tolT(t) && vazio('bomb',k)); if(i<0) i=TEMPOS_B.findIndex(t=>t<=T && min<=t+tolT(t));
+    if(i>=0) return {tab:'bomb', i, t:TEMPOS_B[i], hora:somaHora(d.hini,TEMPOS_B[i]), min}; }
+  const mr=min-T; let i=TEMPOS_B.findIndex((t,k)=>mr<=t+tolT(t) && vazio('rec',k)); if(i<0) i=TEMPOS_B.findIndex(t=>mr<=t+tolT(t));
+  if(i>=0) return {tab:'rec', i, t:TEMPOS_B[i], hora:somaHora(d.hini,T+TEMPOS_B[i]), min};
   return {fim:true, min}; }
 function cartaoLeitura(d){
   if(!d.hini) return `<div class="card spt" id="prox" style="border-left:5px solid var(--green)"><h2>Leitura da vez</h2><div class="nota">Quando a bomba ligar, toque aqui:</div><button class="big green" data-agora="hini">Bomba ligou agora</button></div>`;
-  const L=leituraDaVez(d); if(!L||L.fim) return `<div class="card" id="prox"><h2>Teste encerrado</h2><div class="nota">Passou de 720 + 720 min.</div></div>`;
+  const L=leituraDaVez(d); if(!L||L.fim) return `<div class="card" id="prox"><h2>Teste encerrado</h2><div class="nota">Passou de ${tBomba(d)} + 720 min.</div></div>`;
   const nome=L.tab==='bomb'?`Bombeamento · t = ${L.t} min`:`Recuperação · t' = ${L.t} min`; const v=(d[L.tab][L.i]||{}).nd||'';
   return `<div class="card spt" id="prox" style="border-left:5px solid var(--green)"><h2>Leitura da vez</h2><div class="mini">${esc(nome)} · às <b>${esc(L.hora)}</b> · agora ${Math.floor(L.min)} min de teste</div>
    <div class="gols" style="grid-template-columns:2fr 1fr;margin-top:8px"><div class="gol"><div class="t">N.D. (m)</div><input class="g" inputmode="decimal" id="ldv" value="${esc(v)}" placeholder="nível"></div>
-   <div class="gol"><div class="t">&nbsp;</div><button class="green" id="ldvOk" style="height:58px;width:100%">Anotar</button></div></div>
-   <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:6px"><button class="sec" data-marca="estab" style="flex:1 1 45%">Nível estabilizou agora</button><button class="sec" data-marca="volta" style="flex:1 1 45%">Voltou ao NE agora</button></div>
+   <div class="gol"><div class="t">&nbsp;</div><button class="green" id="ldvOk" data-slot="${L.tab}:${L.i}:${L.t}" style="height:58px;width:100%">Anotar</button></div></div>
+   <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:6px">${L.tab==='bomb'?`<button class="sec" data-marca="estab" style="flex:1 1 45%">Nível estabilizou agora</button><button class="sec" data-marca="tp" style="flex:1 1 45%">Bomba desligou agora (antes dos 720)</button>`:`<button class="sec" data-marca="volta" style="flex:1 1 45%">Voltou ao NE agora</button>`}</div>
    <div class="mini" style="margin-top:6px">A tabela completa continua lá embaixo, para corrigir qualquer leitura.</div></div>`; }
 function ligarProx(f){
-  const lo=$('#ldvOk'); if(lo) lo.onclick=()=>{ const L=leituraDaVez(f.dados); const v=$('#ldv').value.trim(); if(!L||L.fim||!v) return toast('Digite o nível');
+  const lo=$('#ldvOk'); if(lo) lo.onclick=()=>{ const v=$('#ldv').value.trim(); if(!v) return toast('Digite o nível');
+    /* grava na linha que o CARTÃO mostrava, não na que o relógio acha agora */
+    const [tab,ii,tt]=String(lo.dataset.slot||'').split(':'); const L={tab, i:+ii, t:+tt}; if(!f.dados[L.tab]||!f.dados[L.tab][L.i]) return;
     f.dados[L.tab][L.i].nd=v; gravar(f); toast(`Anotado: ${L.tab==='bomb'?'t':'t\''} = ${L.t} min → ${v} m`); renderProx(f); atualizarTabelaTeste(f); };
-  document.querySelectorAll('[data-marca]').forEach(b=>b.onclick=()=>{ const L=leituraDaVez(f.dados); if(!L) return; const k=b.dataset.marca; f.dados[k]=String(Math.round(L.tab==='rec'&&k==='volta'?L.min-720:L.min)); gravar(f); const e=$('#f_'+k); if(e) e.value=f.dados[k]; renderProx(f); toast(k==='estab'?`Estabilizou no minuto ${f.dados[k]}`:`Voltou ao NE no minuto ${f.dados[k]} da recuperação`); });
+  document.querySelectorAll('[data-marca]').forEach(b=>b.onclick=()=>{ const L=leituraDaVez(f.dados); if(!L||L.fim) return; const k=b.dataset.marca;
+    if((k==='estab'||k==='tp') && L.tab!=='bomb') return toast('Isso só vale durante o bombeamento.');
+    if(k==='volta' && L.tab!=='rec') return toast('Isso só vale na recuperação, depois que a bomba desligou.');
+    const val = String(Math.round(k==='volta' ? L.min-tBomba(f.dados) : L.min));
+    if(f.dados[k] && f.dados[k]!==val && !confirm(`Já está anotado o minuto ${f.dados[k]}. Trocar por ${val}?`)) return;
+    f.dados[k]=val; gravar(f); const e=$('#f_'+k); if(e) e.value=f.dados[k]; renderProx(f); atualizarCalc(f);
+    toast(k==='estab'?`Estabilizou no minuto ${val}`:k==='tp'?`Bomba desligou no minuto ${val}: a recuperação conta daqui`:`Voltou ao NE no minuto ${val} da recuperação`); });
   const hb=document.querySelector('#prox [data-agora="hini"]'); if(hb) hb.onclick=()=>{ f.dados.hini=AGORA(); const e=$('#f_hini'); if(e) e.value=f.dados.hini; gravar(f); renderProx(f); desenharTabelasHora(f); };
 }
 function renderProx(f){ const p=$('#prox'); if(!p) return; const tmp=document.createElement('div'); tmp.innerHTML=cartaoLeitura(f.dados); p.replaceWith(tmp.firstElementChild); ligarProx(f); }
@@ -669,16 +832,25 @@ function desenharEditor(){
     if(GEO_SUG[f.id]===undefined){ GEO_SUG[f.id]=null;
       sugestaoGeo(f).then(()=>{ if(ABERTA===f.id) desenharEditor(); }); }
   }
+  if(f.tipo==='geof_cam' && !geoPendente(f.dados) && !f.dados.geo_a){   /* ficha antiga: grava a geometria fixa que ela usou */
+    f.dados.geo_a=String(GEO.a); f.dados.geo_rem=String(GEO.rem); f.dados.geo_L=String(GEO.L); gravar(f); }
+  if(f.tipo==='geof_cam' && geoPendente(f.dados) && f.status!=='encerrada') return desenharEscolhaGeo(f);
   if(f.tipo==='spt' && f.status!=='encerrada') return desenharSPT(f);
-  if(f.status!=='encerrada' && S.pos){ let mudou=false; for(const b of DEF[f.tipo].blocos) for(const c of (b.campos||[])) if(c.tipo==='gps' && !f.dados[c.k]){ f.dados[c.k]=textoCoordFicha(S.pos); mudou=true; } if(mudou) gravar(f); }
+  const gpsBom = (typeof posFresca==='function') ? posFresca(60000) : null;
+  if(f.status!=='encerrada' && gpsBom && (gpsBom.acc||99)<=15){ let mudou=false; for(const b of DEF[f.tipo].blocos) for(const c of (b.campos||[])) if(c.tipo==='gps' && !f.dados[c.k]){ f.dados[c.k]=textoCoordFicha(gpsBom); mudou=true; } if(mudou) gravar(f); }
+  if(f.tipo==='poco_entrega') f.dados.__obraId=f.obraId;
   if(f.status!=='encerrada') injetarCssSPT();
   const def=DEF[f.tipo]; const d=f.dados; const ro=f.status==='encerrada';
   $('#hTit').textContent=def.codigo+' · '+def.ident(d); $('#hSub').textContent=f.obraNome; $('#hBtn').classList.remove('hide'); $('#hBtn').textContent='Fichas';
   let h=`<div class="card" style="border-left:5px solid var(--green)"><h2>${esc(def.titulo)}</h2><div class="muted">${esc(def.sop)}${def.norma?' · '+esc(def.norma):''} · salva sozinha a cada toque${f.versao>1?` · versão ${f.versao}`:''}</div>${ro?'<div class="banner" style="background:var(--ok-bg);color:var(--green-2);margin:10px 0 0">Ficha encerrada: o PDF e os dados estão na fila de envio. Para corrigir, reabra — sai uma versão nova.</div>':''}</div>`;
   if(f.tipo==='poco_teste' && !ro) h+=cartaoLeitura(d);
+  if(f.tipo==='geof_cam' && !ro) h+=cartaoLinhaGeo(f);
   if(ehGeo(f.tipo) && !ro) h+=cartaoPontos(f);
   if(ehGeo(f.tipo) && !ro) h+=cartaoGeo(f);
-  def.blocos.forEach((b,bi)=>{
+  def.blocos.forEach((b0,bi)=>{
+    let b=b0;
+    if(f.tipo==='geof_cam' && b0.img==='COMO_ANDAR_CAMINHAMENTO.png'){ const g=geoDe(d);
+      b=Object.assign({},b0,{ img:figuraComoAndar(g), nota:`B e N ficam cravados ${g.rem} m além de cada ponta e não saem do lugar. Só A e M andam. O par anda de estaca em estaca até o fim da linha (estaca ${g.L}); aí aumenta ${g.a} m a distância entre os dois e volta para a estaca 0.` }); }
     if(b.grafico){ h+=cartaoGrafico(f,b); return; }
     h+=`<div class="card"><h2>${esc(b.t)}</h2>${b.nota?`<div class="nota">${esc(b.nota)}</div>`:''}`;
     if(b.img) h+=`<img src="${b.img}" data-zoom="${b.img}" alt="${esc(b.t)}" style="width:100%;border:1px solid var(--line);border-radius:12px;margin-top:8px"><div class="mini">toque na figura para ampliar — abre por cima da ficha, com botão Fechar; nada se perde</div>`;
@@ -700,7 +872,7 @@ function ligarEditor(f){
   document.querySelectorAll('[data-t]').forEach(el=>{ el.oninput=el.onchange=()=>{ const [k,i,c]=el.dataset.t.split('.'); f.dados[k][+i][c]=el.value; salvar(); }; });
   document.querySelectorAll('[data-agora]').forEach(b=>b.onclick=()=>{ const k=b.dataset.agora; f.dados[k]=AGORA(); $('#f_'+k).value=f.dados[k]; salvar(); });
   document.querySelectorAll('[data-tagora]').forEach(b=>b.onclick=()=>{ const [k,i,c]=b.dataset.tagora.split('.'); f.dados[k][+i][c]=AGORA(); $(`#t_${k}_${i}_${c}`).value=f.dados[k][+i][c]; salvar(); });
-  document.querySelectorAll('[data-gps]').forEach(b=>b.onclick=()=>{ iniciarGPS(); if(!S.pos){ toast('Procurando GPS… tente de novo em alguns segundos (céu aberto ajuda).'); return; } const v=textoCoordFicha(S.pos); f.dados[b.dataset.gps]=v; $('#f_'+b.dataset.gps).value=v; salvar(); toast('Coordenada preenchida'); });
+  document.querySelectorAll('[data-gps]').forEach(b=>b.onclick=()=>{ iniciarGPS(); const p=posFresca(60000); if(!p){ toast(S.pos?'GPS desatualizado — espere alguns segundos e toque de novo.':'Procurando GPS… tente de novo em alguns segundos (céu aberto ajuda).'); return; } const v=textoCoordFicha(p); f.dados[b.dataset.gps]=v; $('#f_'+b.dataset.gps).value=v; salvar(); toast('Coordenada preenchida'); });
   document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>{ const tb=def.blocos.find(x=>x.tabela&&x.tabela.k===b.dataset.add).tabela; const arr=f.dados[tb.k]; let extra={};
       if(tb.seq==='metro'){ const u=arr[arr.length-1]; const de=u&&u.ate!==''&&!isNaN(NUM(u.ate))?NUM(u.ate):0; extra={de:String(de).replace('.',','), ate:String(de+1).replace('.',',')}; }
       else if(arr.length && arr[arr.length-1].ate!==undefined){ extra={de:arr[arr.length-1].ate||''}; }
@@ -728,20 +900,29 @@ function ligarEditor(f){
       const off=document.createElement('canvas'); off.width=1240; off.height=1000;
       try{ const r=await desenharFiguraGeof(f, k, off);
            if(r){ GEOF_CACHE[f.id+'_'+k]=r; GEOF_PIX[f.id+'_'+k]=off; f.dados['_fig_'+k]=r;
-                  if(k==='cam' && r.estaca!=null) f.dados.estaca_final=r.estaca; gravar(f); } }
+                  if(k==='cam' && r.estaca!=null && !r.fraca && (f.dados.estaca_final===''||f.dados.estaca_final==null)) f.dados.estaca_final=r.estaca; gravar(f); } }
       catch(e){ toast('Não consegui refazer: '+e.message,4000); }
     }
     desenharEditor();
   }; });
   document.querySelectorAll('[data-fig]').forEach(x=>{ x.onclick=async()=>{
-    const k=x.dataset.fig, txt=x.textContent; x.disabled=true; x.textContent='Calculando…';
+    const k=x.dataset.fig, txt=x.textContent;
+    { const arr=f.dados.leituras||[], falta=arr.filter(l=>!l.pulou && (l.mv===''||l.mv==null||l.ma===''||l.ma==null)), pul=arr.filter(l=>l.pulou);
+      if(falta.length || pul.length){
+        const fundo = k==='cam' ? [...new Set(falta.map(l=>l.n))].sort((a,b)=>b-a).slice(0,3) : [];
+        const msg = `GRÁFICO PARCIAL\n\n${arr.length-falta.length-pul.length} de ${arr.length} leituras medidas`+(falta.length?` · ${falta.length} ainda em branco`:'')+(pul.length?` · ${pul.length} marcada(s) como "não deu para medir"`:'')+
+          (k==='cam'&&fundo.length?`\nFaltam leituras do nível ${fundo.join(', ')} — ${fundo[0]>=7?'a parte mais funda da figura fica sem dado.':'a figura fica com buraco.'}`:'')+
+          (k==='sev'&&falta.some(l=>l.ab2>=100)?'\nFaltam as aberturas maiores: o fundo do perfil não é visto.':'')+
+          `\n\nA estaca e as profundidades podem MUDAR quando completar. Use só como indicação provisória.\n\nGerar assim mesmo?`;
+        if(!confirm(msg)) return; } }
+    x.disabled=true; x.textContent='Calculando…';
     try{
       const off=document.createElement('canvas'); off.width=1240; off.height=1000;
       const r=await desenharFiguraGeof(f, k, off);
       if(r && r.semTerreno) toast('Escolha o terreno primeiro.',4000);
       else if(!r) toast(k==='cam'?'Precisa de pelo menos 4 leituras anotadas.':'Precisa de pelo menos 6 leituras anotadas.',4000);
       else if(!r.semTerreno) { GEOF_CACHE[f.id+'_'+k]=r; GEOF_PIX[f.id+'_'+k]=off; f.dados['_fig_'+k]=r;
-             if(k==='cam' && r.estaca!=null && (f.dados.estaca_final===''||f.dados.estaca_final==null)) f.dados.estaca_final=r.estaca;
+             if(k==='cam' && r.estaca!=null && !r.fraca && (f.dados.estaca_final===''||f.dados.estaca_final==null)) f.dados.estaca_final=r.estaca;
              gravar(f); desenharEditor();
              const el=$('#fig_'+k); if(el) el.scrollIntoView({block:'center'}); return; }
     }catch(e){ toast('Não consegui gerar: '+e.message,5000); }
@@ -753,6 +934,9 @@ function ligarEditor(f){
   const rea=$('#reabrir'); if(rea) rea.onclick=()=>{ f.status='rascunho'; f.versao=(f.versao||1)+1; gravar(f); desenharEditor(); toast('Reaberta: versão '+f.versao); };
   const pv=$('#pdfver'); if(pv) pv.onclick=async()=>{ const b=await gerarPDF(f); verPDF({ titulo:`${def.codigo} · ${def.ident(f.dados)}`, paginas:b._paginas, nome:`${def.codigo.replace(/\s+/g,'-')}_${slug(def.ident(f.dados))}_v${f.versao||1}.pdf`, pdf:async()=>b }); }; // mostra dentro do app
   ligarProx(f); ligarGeo(f);
+  const gt=$('#gTroca'); if(gt) gt.onclick=()=>{ const d=f.dados;
+    if((d.leituras||[]).some(l=>(l.mv!==''&&l.mv!=null)||l.pulou)) return toast('Já tem leitura anotada: abra outra ficha para outra geometria.',4000);
+    d._geo_a_ant=d.geo_a; d._geo_rem_ant=d.geo_rem; d.geo_pendente=true; d.leituras=[]; gravar(f); desenharEditor(); };
   if(f.tipo==='poco_teste' && f.status!=='encerrada'){ clearInterval(window.__proxT); window.__proxT=setInterval(()=>{ const p=$('#prox'); if(!p||!aberta()){ clearInterval(window.__proxT); return; } if(document.activeElement && document.activeElement.id==='ldv') return; renderProx(f); },20000); }
 }
 function atualizarCalc(f){
@@ -790,10 +974,12 @@ function assinar(k, pronto){
    relatório continua saindo do motor completo, no escritório.
    ============================================================ */
 let GEOF_CACHE = {}, GEOF_PIX = {}, GEOF_NUM = {};
-function assinatura(d){ let n=0, v=0;
-  for(const l of (d.leituras||[])){ if(l.pulou||l.mv===''||l.mv==null) continue;
-    n++; v += (NUM(l.mv)||0)*0.001 + (NUM(l.ma)||0) + (NUM(l.sp)||0)*0.01; }
-  return n+':'+v.toFixed(4); }
+/* impressão digital de tudo que muda o gráfico: leituras na ordem, geometria, faixa, janela e terreno.
+   A soma ponderada antiga não via leitura trocada de linha — o gráfico ficava velho. */
+function assinatura(d){ let h=2166136261;
+  const s=JSON.stringify([(d.leituras||[]).map(l=>[l.ord,l.pulou?1:0,l.sp,l.mv,l.ma]), d.geo_a, d.geo_rem, d.r_min, d.r_max, d.z_min, d.z_max, d.terreno]);
+  for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619); }
+  return (h>>>0).toString(36)+':'+s.length; }
 /* O terreno NUNCA é assumido. Vem, nesta ordem:
      1. da obra (o escritório decidiu, viaja no campo.json e fica em cache)
      2. do botão, no campo
@@ -835,28 +1021,34 @@ async function sugestaoGeo(f){
 function faixaAlvo(d){ const T=window.GEOF.TERRENOS[terrenoId(d)||'cristalino'];
   return { rMin:(d.r_min===''||d.r_min==null)?T.alvo.rMin:NUM(d.r_min),
            rMax:(d.r_max===''||d.r_max==null)?T.alvo.rMax:NUM(d.r_max) }; }
+function faixaDigitada(d){ const a=NUM(d&&d.r_min), b=NUM(d&&d.r_max);
+  return (isFinite(a) && isFinite(b) && b>a) ? { rMin:a, rMax:b } : null; }
+function faixaDaSev(f){ const p=faixaDigitada(f.dados); if(p) return { ...p, origem:'SEV' };
+  const c=camIrmao(f), q=c?faixaDigitada(c.dados):null; return q ? { ...q, origem:'caminhamento '+(c.dados.linha_id||'') } : null; }
 /* acha o caminhamento que deu origem a esta SEV, para integrar as duas */
 function camIrmao(f){
   const d=f.dados;
   const c=todas().filter(x=>x.tipo==='geof_cam' && x.obraId===f.obraId
             && x.dados && x.dados._fig_cam && x.dados._fig_cam.leitura);
   if(!c.length) return null;
-  const est=NUM(d.estaca);
-  const iguais=isFinite(est)? c.filter(x=>Math.abs(NUM(x.dados._fig_cam.leitura.estaca)-est)<1e-6) : [];
-  const lista=iguais.length?iguais:c;
-  lista.sort((a,b)=>a.criadoEm<b.criadoEm?1:-1);
-  return lista[0];
+  const est=NUM(String(d.estaca||'').replace(/[^0-9.,-]/g,''));
+  c.sort((a,b)=>a.criadoEm<b.criadoEm?1:-1);
+  if(!isFinite(est)) return c[0];          /* SEV sem estaca anotada: o caminhamento mais recente da obra */
+  const perto=c.filter(x=>{ const e=NUM(x.dados.estaca_final); const alvo=isFinite(e)?e:NUM(x.dados._fig_cam.leitura.estaca);
+    return Math.abs(alvo-est) <= 0.5*geoDe(x.dados).a + 1e-6; });
+  return perto.length ? perto[0] : null;   /* anotou estaca e nenhuma linha bate: não integra com a linha errada */
 }
 function geoValidas(d){ return (d.leituras||[]).filter(l=>!l.pulou && l.mv!==''&&l.mv!=null&&l.ma!==''&&l.ma!=null&&NUM(l.ma)!==0); }
 function geoResCam(d, fid){
   const sig=assinatura(d), ch=GEOF_NUM[fid+'_cam'];
   if(ch && ch.sig===sig) return ch.res;
   const L=geoValidas(d); if(L.length<4) return null;
-  const res = window.GEOF.processarCaminhamento({a:GEO.a, Bx:-GEO.rem, Nx:GEO.L+GEO.rem},
+  const g = geoDe(d);
+  const res = window.GEOF.processarCaminhamento({a:g.a, Bx:-g.rem, Nx:g.L+g.rem},
     L.map(l=>({fixo:l.A, movel:l.M, sp:NUM(l.sp)||0, mv:NUM(l.mv), ma:NUM(l.ma)})));
   /* profundidade do eixo: a mediana investigada calibrada no motor da Natural
-     (PROF_NIVEL), que é o que o ensaio realmente enxerga — não a pseudoprofundidade */
-  for(const pt of res.pontos){ const z=PROF_NIVEL[pt.n]; if(z) pt.z=z; }
+     (PROF_NIVEL, feita para a = 20 m e escalada para o espaçamento da ficha) */
+  for(const pt of res.pontos){ const z=profNivel(pt.n, g); if(z) pt.z=z; }
   GEOF_NUM[fid+'_cam']={sig, res};
   return res;
 }
@@ -870,9 +1062,24 @@ function geoSev(d){
   const L=geoValidas(d), por={};
   for(const l of L){ const r=R_geo(l); if(r==='') continue;
     const v=Math.abs(l.K*r); if(!(v>0)) continue; (por[l.ab2]=por[l.ab2]||[]).push(v); }
-  const ab=Object.keys(por).map(Number).sort((u,v)=>u-v);
-  /* na embreagem há duas leituras no mesmo AB/2: média das duas */
-  return { x:ab, obs:ab.map(k=>por[k].reduce((u,v)=>u+v,0)/por[k].length) };
+  /* EMENDA das embreagens: cada troca de MN cria um degrau na curva. O trecho com o MN novo é
+     multiplicado pela razão medida na embreagem (MN antigo / MN novo), acumulando — a média das
+     duas leituras deixava o degrau no resto da curva e mudava a profundidade do alvo. */
+  const val=l=>{ const r=R_geo(l); if(r==='') return null; const v=Math.abs(l.K*r); return v>0?v:null; };
+  const mns=[...new Set((d.leituras||[]).map(l=>l.mn2))].sort((u,v)=>u-v);
+  const fator={}, emendas=[]; fator[mns[0]]=1;
+  for(let s=1;s<mns.length;s++){
+    const vel=L.filter(l=>l.mn2===mns[s-1]), nov=L.filter(l=>l.mn2===mns[s]);
+    const par=nov.map(n=>[vel.find(v=>v.ab2===n.ab2), n]).find(([v,n])=>v && val(v) && val(n));
+    const fz = par ? val(par[0])/val(par[1]) : 1;
+    fator[mns[s]] = fator[mns[s-1]] * fz;
+    if(par) emendas.push({ ab2:par[1].ab2, fator:+fz.toFixed(3) });
+  }
+  const por2={};
+  for(const l of L){ const v=val(l); if(v==null) continue;
+    (por2[l.ab2]=por2[l.ab2]||[]).push(v*(fator[l.mn2]||1)); }
+  const ab=Object.keys(por2).map(Number).sort((u,v)=>u-v);
+  return { x:ab, obs:ab.map(k=>por2[k].reduce((u,v)=>u+v,0)/por2[k].length), emendas };
 }
 async function desenharFiguraGeof(f, tipo, cv, terrenoTmp){
   const d = terrenoTmp ? Object.assign({}, f.dados, {terreno:terrenoTmp}) : f.dados;
@@ -882,10 +1089,13 @@ async function desenharFiguraGeof(f, tipo, cv, terrenoTmp){
   if(tipo==='cam'){
     const res=geoResCam(d, f.id); if(!res) return null;
     const loc=geoLocCam(d,res);
-    const li=window.GEOF.lerCaminhamento(res, loc, terrenoId(d));
+    const li=window.GEOF.lerCaminhamento(res, loc, terrenoId(d), faixaAlvo(d));
     const linhas=[];
     if(li){
-      linhas.push({ t:`Marcar o poço na ESTACA ${fmtN(li.estaca)} m da linha`, forte:true });
+      const fraca = !li.faixas.length || !loc || !loc.melhor || loc.melhor.nota < 0.25;
+      linhas.push(fraca
+        ? { t:`O caminhamento NÃO achou zona favorável — a estaca ${fmtN(li.estaca)} m é só a menos ruim da linha`, forte:true }
+        : { t:`Marcar o poço na ESTACA ${fmtN(li.estaca)} m da linha`, forte:true });
       if(li.faixas.length){
         const f=li.faixas.map(x=>`${fmtN(Math.round(x.de))}–${fmtN(Math.round(x.ate))} m`).join(' e ');
         linhas.push({ t: li.tipo==='poroso'
@@ -901,7 +1111,8 @@ async function desenharFiguraGeof(f, tipo, cv, terrenoTmp){
       leitura: li ? { titulo:'LEITURA DE CAMPO — onde furar', linhas, avisos: (li.avisos||[]).concat(loc?loc.avisos:[]) } : null,
       subtitulo:'Indicação preliminar de campo · a figura do relatório sai do motor no escritório' });
     const nB=loc&&loc.melhor?loc.melhor.nota:0, nS=loc&&loc.segundo?loc.segundo.nota:0;
-    return { estaca: loc&&loc.melhor?loc.melhor.x:null, nota:+nB.toFixed(3),
+    const parcial = res.qc.total < (d.leituras||[]).length;
+    return { estaca: loc&&loc.melhor?loc.melhor.x:null, nota:+nB.toFixed(3), fraca: !li || !li.faixas.length || nB < 0.25, parcial,
              vantagem: nB>0?+(100*(1-nS/nB)).toFixed(0):null,
              segunda: loc&&loc.segundo?loc.segundo.x:null, leitura: li,
              usadas:res.qc.usadas, total:res.qc.total, avisos: loc?loc.avisos:[] };
@@ -912,7 +1123,13 @@ async function desenharFiguraGeof(f, tipo, cv, terrenoTmp){
   GEOF_NUM[f.id+'_sev']={sig, z};
   const alvo=(d.alvo_de!==''&&d.alvo_ate!==''&&d.alvo_de!=null&&d.alvo_ate!=null)
     ? {de:NUM(d.alvo_de), ate:NUM(d.alvo_ate)} : null;
-  const li=window.GEOF.lerSEV(z.rho, z.prof, terrenoId(d), {arranjo:'schlumberger', xs:sd.x, obs:sd.obs});
+  const fx=faixaDaSev(f);
+  const li=window.GEOF.lerSEV(z.rho, z.prof, terrenoId(d), {arranjo:'schlumberger', xs:sd.x, obs:sd.obs, faixa:fx});
+  if(fx) li.avisos.unshift(`Faixa de alvo ${fmtN(fx.rMin)}–${fmtN(fx.rMax)} Ω·m (da ${fx.origem}), no lugar da faixa do terreno.`);
+  for(const em of (sd.emendas||[])) if(Math.abs(em.fator-1)>0.15)
+    li.avisos.push(`Embreagem em AB/2 = ${fmtN(em.ab2)} m: o trecho seguinte foi corrigido em ${Math.round((em.fator-1)*100)} %. Degrau grande: confira se A e B ficaram parados.`);
+  if(!camIrmao(f) && String(d.estaca||'').trim() && todas().some(x=>x.tipo==='geof_cam'&&x.obraId===f.obraId))
+    li.avisos.push('A estaca anotada nesta SEV não bate com a estaca escolhida em nenhum caminhamento da obra: a SEV não foi integrada.');
   /* o bloco diz O QUE FAZER; os horizontes já vão nomeados na coluna do modelo,
      repetir a lista aqui empurrava a parte útil para fora da figura */
   const irm=camIrmao(f);
@@ -1038,7 +1255,7 @@ async function gerarPDF(f){
     c.fillStyle='#19A878'; c.font=fonte(20,true); c.fillText(`${def.codigo} · ${def.sop} · ${def.ident(d)}${f.versao>1?' · v'+f.versao:''}`,W-M,M+50);
     c.textAlign='left'; c.fillStyle='#19A878'; c.fillRect(M,M+70,W-2*M,3);
     c.fillStyle='#5B6570'; c.font=fonte(17); c.fillText(`Obra: ${f.obraNome}`,M,M+100);
-    c.fillText(`Preenchida no app de campo por ${f.por||'—'} · encerrada em ${fmtData(new Date())} · ficha ${f.id}`,M,M+124);
+    c.fillText(`Preenchida no app de campo por ${f.por||'—'} · ${f.encerradaEm?'encerrada em '+fmtData(new Date(f.encerradaEm)):'gerada em '+fmtData(new Date())} · ficha ${f.id}${f.versao>1?' · v'+f.versao:''}`,M,M+124);
     y=M+150; };
   const rodape=()=>{ paginas.forEach((p,i)=>{ const x=p.getContext('2d'); x.fillStyle='#D9DEE5'; x.fillRect(M,H-90,W-2*M,1); x.fillStyle='#8A94A0'; x.font=fonte(15); x.textAlign='center';
       x.fillText('NATURAL ENGENHARIA · R. Lírio do Vale, 24 – Andar 01, Sala F08 – Aparecida, Boa Vista/RR · (95) 98109-5431 · naturalengenhariarr@gmail.com',W/2,H-62);
@@ -1138,7 +1355,18 @@ function montarDesc(sel){ // sel: {tipos:[], cor:'', umid:''}
 function fotosDaLinha(fid,tk,i){ return (S.fila||[]).filter(x=>x.tipo==='foto' && !x.meta?.original && x.meta?.extra?.fichaId===fid && x.meta?.extra?.tabela===tk && x.meta?.extra?.linha===i); }
 function fotosDoMetro(f,i){ return (S.fila||[]).filter(x=>x.tipo==='foto' && !x.meta?.original && x.meta?.extra?.fichaId===f.id && x.meta?.extra?.linha===i); }
 function trechoTxt(l){ const de=NUM(l.de); if(isNaN(de)) return `${l.de||'?'} a ${l.ate||'?'} m`; return `${String(de.toFixed(2)).replace('.',',')} a ${String((de+0.45).toFixed(2)).replace('.',',')} m`; }
-function impenetravel(l){ for(const [g,c] of [['g1','c1'],['g2','c2'],['g3','c3']]){ const G=NUM(l[g]), C=NUM(l[c]); if(!isNaN(G)&&!isNaN(C)&&G>=30&&C<15) return true; } return false; }
+/* impenetrável pelos critérios escritos na própria ficha: 30 golpes sem entrar 15 cm num trecho,
+   50 golpes sem entrar 30 cm somando trechos, ou 10 golpes sem descer nada */
+function impenetravel(l){ const v=k=>NUM(l[k]); let G=0, C=0;
+  for(const [g,c] of [['g1','c1'],['g2','c2'],['g3','c3']]){ const gg=v(g), cc=v(c); if(isNaN(gg)||isNaN(cc)) continue;
+    if(gg>=30 && cc<15) return true; if(gg>=10 && cc===0) return true; G+=gg; C+=cc; if(G>=50 && C<30) return true; }
+  return false; }
+/* N = 2º + 3º trechos. Penetração menor que 30 cm sai como golpes/penetração (ex.: 50/23), como manda a NBR 6484;
+   número mal digitado ("2O", "30/10") sai "?" e vira aviso — antes saía NaN no PDF */
+function nSPT(l){ if(l.g2===''||l.g2==null||l.g3===''||l.g3==null) return '';
+  const g2=NUM(l.g2), g3=NUM(l.g3); if(isNaN(g2)||isNaN(g3)) return '?';
+  const c2=NUM(l.c2), c3=NUM(l.c3), pen=(isNaN(c2)?15:c2)+(isNaN(c3)?15:c3);
+  return pen<30 ? `${g2+g3}/${pen}` : (g2+g3); }
 function injetarCssSPT(){ if(document.getElementById('cssSPT')) return; const st=document.createElement('style'); st.id='cssSPT'; st.textContent=`
 .spt .mcard{border:2px solid var(--line);border-radius:14px;padding:12px;margin-bottom:12px;background:#fff}
 .spt .mcard.ok{border-color:var(--green)}
@@ -1183,7 +1411,7 @@ function desenharSPT(f){
   const def=DEF.spt; const d=f.dados; const tb=def.blocos[1].tabela; const g=d.golpes||(d.golpes=[]);
   d.folha=`1 de ${Math.max(1,Math.ceil(g.length/12))}`;
   g.forEach((l,i)=>{ if(l.am===''||l.am==null) l.am=String(i+1); }); // amostra nº = nº do metro (pode trocar)
-  if(!d.coord && S.pos){ d.coord=textoCoordFicha(S.pos); gravar(f); }
+  { const p=(typeof posFresca==='function')?posFresca(60000):null; if(!d.coord && p && (p.acc||99)<=15){ d.coord=textoCoordFicha(p); gravar(f); } }
   $('#hTit').textContent=def.codigo+' · '+def.ident(d); $('#hSub').textContent=f.obraNome; $('#hBtn').classList.remove('hide'); $('#hBtn').textContent='Fichas';
   const inp=(k,ph,modo)=>`<input id="f_${k}" data-f="${k}" value="${esc(d[k]==null?'':d[k])}" placeholder="${esc(ph||'')}" ${modo==='num'?'inputmode="decimal"':''}>`;
   let h=`<div class="spt">`;
@@ -1310,30 +1538,41 @@ function confirmarForaDoPadrao(av){ // duas confirmacoes, deixando claro que vai
 async function encerrar(f){
   const def=DEF[f.tipo]; const av=def.avisos(f.dados);
   if(av.length){ const vai=await confirmarForaDoPadrao(av); if(!vai){ const bx=$('#avisosBox'); if(bx) bx.scrollIntoView({block:'center'}); return; } f.foraDoPadrao=true; gravar(f); }
+  else if(f.foraDoPadrao){ f.foraDoPadrao=false; gravar(f); }   /* versão corrigida e completa não carrega o selo da anterior */
   $('#encerrar').disabled=true; $('#encerrar').textContent='Gerando PDF…';
   try{
-    const ob=(S.pacote?.obras||[]).find(o=>o.id===f.obraId) || {id:f.obraId,nome:f.obraNome};
+    const ob=(S.pacote?.obras||[]).find(o=>o.id===f.obraId) || {id:f.obraId,nome:f.obraNome,pastaId:null};
     const prevObra=S.obraId; S.obraId=ob.id;
     const base=`${HOJE()}_${def.codigo.replace(/\s+/g,'-')}_${slug(def.ident(f.dados))}${f.versao>1?'_v'+f.versao:''}`;
     if(f.tipo==='spt'){ (f.dados.golpes||[]).forEach((l,i)=>{ l.fotos=fotosDoMetro(f,i).map(x=>x.nome); }); gravar(f); }
-    for(const b of def.blocos){ if(!b.grafico || GEOF_PIX[f.id+'_'+b.grafico]) continue;
+    for(const b of def.blocos){ if(!b.grafico) continue;
       const g=document.createElement('canvas'); g.width=1240; g.height=1000;
       try{ const r=await desenharFiguraGeof(f, b.grafico, g);
            if(r){ f.dados['_fig_'+b.grafico]=r; GEOF_PIX[f.id+'_'+b.grafico]=g; GEOF_CACHE[f.id+'_'+b.grafico]=r; } }catch(e){} }
     gravar(f);
     const pdf=await gerarPDF(f);
-    await enfileirarArquivo(pdf,'ficha',base+'.pdf',{fichaId:f.id,tipo:f.tipo,versao:f.versao,avisos:av});
+    await enfileirarArquivo(pdf,'ficha',base+'.pdf',{fichaId:f.id,tipo:f.tipo,versao:f.versao,avisos:av},{obra:ob});
     const dados=new Blob([JSON.stringify({app:'campo',fichaId:f.id,tipo:f.tipo,codigo:def.codigo,sop:def.sop,versao:f.versao,obraId:f.obraId,obra:f.obraNome,por:f.por,criadoEm:f.criadoEm,encerradoEm:new Date().toISOString(),avisos:av,foraDoPadrao:!!f.foraDoPadrao,dados:Object.fromEntries(Object.entries(f.dados).map(([k,v])=>[k, (typeof v==='string'&&v.startsWith('data:image'))?'[assinatura no PDF]':v]))},null,1)],{type:'application/json'});
-    await enfileirarArquivo(dados,'ficha',base+'.json',{fichaId:f.id,tipo:f.tipo,versao:f.versao});
+    await enfileirarArquivo(dados,'ficha',base+'.json',{fichaId:f.id,tipo:f.tipo,versao:f.versao},{obra:ob});
     S.obraId=prevObra;
-    f.status='encerrada'; f.encerradaEm=new Date().toISOString(); gravar(f);
+    f.status='encerrada'; f.encerradaEm=new Date().toISOString();
+    if(!gravar(f)) toast('PDF na fila, mas a ficha não foi marcada como encerrada (memória cheia). Não encerre de novo.',8000);
     toast('Ficha encerrada: PDF e dados na fila de envio',3500); desenharEditor();
   }catch(e){ toast('Não consegui gerar o PDF: '+e.message,5000); $('#encerrar').disabled=false; $('#encerrar').textContent='Encerrar ficha e enviar'; }
 }
 
 window.FICHAS_DA_LINHA = FICHAS_DA_LINHA;
+/* os três dados que NÃO se recuperam no poço (SOP-008): o app avisa, nunca trava */
+function pendenciasCriticas(obraId){
+  const ob=(S.pacote?.obras||[]).find(o=>o.id===obraId); if(!ob || !(ob.linhas||[]).includes('poco')) return [];
+  const fs=todas().filter(f=>f.obraId===obraId), perf=fs.filter(f=>f.tipo==='poco_perf'), tes=fs.filter(f=>f.tipo==='poco_teste'), out=[];
+  if(!perf.length) out.push('Ficha de perfuração não foi aberta no app (profundidade das camadas)');
+  else if(!perf.some(f=>(f.dados.perfil||[]).some(l=>l.de!==''&&l.ate!==''&&l.de!=null&&l.ate!=null))) out.push('Perfil sem profundidade das camadas');
+  if(!tes.length) out.push('Ficha do teste de bombeamento não foi aberta no app');
+  else { if(!tes.some(f=>f.dados.estab)) out.push('Minuto em que o nível estabilizou'); if(!tes.some(f=>f.dados.volta)) out.push('Minuto em que o nível voltou ao NE'); }
+  return out; }
 function encerradasHoje(obraId){ const h=HOJE(); return todas().filter(f=>f.obraId===obraId && f.status==='encerrada' && f.encerradaEm && new Date(f.encerradaEm).toDateString()===new Date().toDateString()).length; }
-window.FICHAS = { encerradasHoje, secaoLista, ligarLista, abrir, fechar, aberta, fecharZoom, desenharEditor, gerarPDF, DEF, _novaFicha:novaFicha, _pegar:pegar, _fig:desenharFiguraGeof };
+window.FICHAS = { aliviarMemoria, pendenciasCriticas, encerradasHoje, secaoLista, ligarLista, abrir, fechar, aberta, fecharZoom, desenharEditor, gerarPDF, DEF, _novaFicha:novaFicha, _pegar:pegar, _fig:desenharFiguraGeof };
 })();
 
 /* ± : o teclado numérico do Android (inputmode decimal) não tem o sinal de menos.

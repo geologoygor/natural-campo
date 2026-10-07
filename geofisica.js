@@ -190,21 +190,35 @@ function processarCaminhamento(cfg, leituras){
     if (r.rho*s < 0) r.sit = 'sinal invertido';
     else if (!isFinite(r.rhoAbs) || r.rhoAbs <= 0) r.sit = 'valor impossível';
   }
-  /* discrepante em relação à vizinhança (mesmo nível, ±1,5a) — critério do motor */
+  /* discrepante em relação à vizinhança (mesmo nível, ±1,5a) — critério do motor.
+     MAS fratura estreita e forte também destoa da vizinhança: no polo-polo ela aparece em TODAS as leituras
+     em que A ou M ficou em cima dela (o "braço" do V). Erro de leitura aparece isolado. Então:
+       - braço confirma (2+ leituras com o mesmo eletrodo destoando no mesmo sentido) -> é dado, fica;
+       - destoa da vizinhança E do próprio braço, sem apoio -> erro, sai;
+       - no meio do caminho -> fica, marcado como SUSPEITA (entra no gráfico e vai avisado). */
   const ok0 = brutos.filter(r => r.sit === 'ok');
+  const mediana = v => { const s = v.slice().sort((p,q)=>p-q); return s[Math.floor(s.length/2)]; };
   for (const r of ok0){
     const viz = ok0.filter(q => q !== r && Math.abs(q.n-r.n) <= 1 && Math.abs(q.x-r.x) <= 1.5*a).map(q => q.rhoAbs);
-    if (viz.length >= 3){
-      const m = viz.slice().sort((p,q)=>p-q)[Math.floor(viz.length/2)];
-      const f = r.rhoAbs/m;
-      if (f > 4 || f < 0.25) r.sit = 'fora da vizinhança';
-    }
+    r.fViz = viz.length >= 3 ? r.rhoAbs/mediana(viz) : 1;
+  }
+  for (const r of ok0){
+    const f = r.fViz; if (!(f > 4 || f < 0.25)) continue;
+    const alto = f > 4;
+    const braco = ok0.filter(q => q !== r && (q.A === r.A || q.M === r.M || q.A === r.M || q.M === r.A));
+    const apoio = braco.filter(q => alto ? q.fViz > 2 : q.fViz < 0.5).length;
+    const fBr = braco.length >= 2 ? r.rhoAbs/mediana(braco.map(q => q.rhoAbs)) : f;
+    if (apoio >= 2) continue;                                        /* o braço confirma: é a fratura */
+    if ((fBr > 4 || fBr < 0.25) && apoio === 0) r.sit = 'fora da vizinhança';   /* isolada: erro de leitura */
+    else r.suspeita = true;                                          /* na dúvida, fica e avisa */
   }
   const pontos = brutos.filter(r => r.sit === 'ok');
+  const susp = pontos.filter(r => r.suspeita);
   const niveis = [...new Set(pontos.map(r => r.n))].sort((p,q)=>p-q);
   const avisos = [];
   const desc = brutos.length - pontos.length;
   if (desc) avisos.push(`${desc} de ${brutos.length} leituras fora do padrão (não entram no gráfico).`);
+  if (susp.length) avisos.push(`${susp.length} leitura(s) SUSPEITA(S), mantidas no gráfico: destoam da vizinhança, mas não dá para dizer se é erro ou fratura estreita (A/M: ${susp.slice(0,4).map(r=>r.A+'/'+r.M).join(', ')}${susp.length>4?'…':''}). Se der, meça de novo.`);
   if (Bx == null || Nx == null) avisos.push('Posição dos eletrodos remotos em branco: K sai aproximado.');
   else {
     const xs = pontos.map(r => r.x), x0 = Math.min(...pontos.map(r=>r.A)), x1 = Math.max(...pontos.map(r=>r.M));
@@ -396,7 +410,14 @@ function blocoLeitura(c, W, y, alt, titulo, linhas, avisos){
     if (l.cor){ c.fillStyle = l.cor; c.fillRect(X+16, yy-11, 12, 12); }
     c.fillStyle = l.forte ? NAVY : '#1B2430';
     c.font = (l.forte ? '700 ' : '400 ') + '16px Arial, Helvetica, sans-serif';
-    c.fillText(l.t, X+(l.cor?36:16), yy);
+    const x0 = X+(l.cor?36:16), larg = ((avisos && avisos.length) ? COL : LW) - (x0-X) - 14;
+    let ln = '';
+    for (const w of String(l.t).split(/\s+/)){
+      const tt = ln ? ln+' '+w : w;
+      if (ln && c.measureText(tt).width > larg){ if (yy > y+alt-26) break; c.fillText(ln, x0, yy); yy += 20; ln = w; }
+      else ln = tt;
+    }
+    if (ln && yy <= y+alt-26) c.fillText(ln, x0, yy);
     yy += 23;
   }
   if (avisos && avisos.length){
@@ -761,6 +782,10 @@ function lerSEV(rho, prof, terrenoId, dados){
     if (ult && ult.classe === c.nome){ ult.ate = k.ate; ult.rho = (ult.rho+k.rho)/2; ult.i1 = idx; }
     else h.push({ de:k.de, ate:k.ate, rho:k.rho, classe:c.nome, agua:c.agua, cor:c.cor, i0:idx, i1:idx });
   });
+  /* faixa digitada pelo geólogo (na SEV ou no caminhamento da linha): manda no que é alvo,
+     do mesmo jeito que manda na escolha da estaca do caminhamento */
+  const FX = dados && dados.faixa && isFinite(dados.faixa.rMin) && isFinite(dados.faixa.rMax) ? dados.faixa : null;
+  if (FX) for (const x of h) x.agua = (x.rho >= FX.rMin && x.rho <= FX.rMax) ? 'sim' : 'nao';
   /* o horizonte de cima nunca é alvo: ninguém loca poço no primeiro metro */
   if (h.length && h[0].de === 0 && h[0].ate != null && h[0].ate <= 10){
     h[0].classe = h[0].rho > 8000 ? 'crosta laterítica / cobertura' : 'solo / cobertura';
@@ -783,7 +808,7 @@ function lerSEV(rho, prof, terrenoId, dados){
     let k=-1;
     for (let i=0;i<h.length;i++){
       if (/cobertura/.test(h[i].classe)) continue;
-      if (classeDe(h[i].rho, T).agua === 'nao') continue;
+      if (FX ? (h[i].rho < FX.rMin || h[i].rho > FX.rMax) : classeDe(h[i].rho, T).agua === 'nao') continue;
       if (k<0 || melhorQue(h[i].rho, h[k].rho)) k=i;
     }
     if (k>=0) h[k].agua='sim';
@@ -814,9 +839,12 @@ function lerSEV(rho, prof, terrenoId, dados){
            avisos, aquifero:T.aquifero };
 }
 
-function lerCaminhamento(res, loc, terrenoId){
+function lerCaminhamento(res, loc, terrenoId, faixa){
   if (!loc || !loc.melhor) return null;
-  const T = TERRENOS[terrenoId] || TERRENOS.cristalino;
+  const T0 = TERRENOS[terrenoId] || TERRENOS.cristalino;
+  /* a faixa que o técnico ajustou na ficha vale aqui também — a mesma que escolheu a estaca */
+  const T = (faixa && isFinite(faixa.rMin) && isFinite(faixa.rMax))
+    ? Object.assign({}, T0, { alvo: Object.assign({}, T0.alvo, { rMin: faixa.rMin, rMax: faixa.rMax }) }) : T0;
   const b = loc.melhor, a = res.a;
   const col = res.pontos.filter(p => Math.abs(p.x-b.x) <= 0.75*a).sort((u,v)=>u.z-v.z);
   /* passo = distância típica entre níveis. Tirar de col[1]-col[0] dá ZERO quando
@@ -845,7 +873,8 @@ function lerCaminhamento(res, loc, terrenoId){
      alargar, uma faixa de um nível só sai com largura zero e nunca cruza com a SEV */
   for (const f of faixas){ f.de = Math.max(0, f.de - passo/2); f.ate = f.ate + passo/2; }
   const continuidade = tot ? dentroN/tot : 0;
-  const tipo = continuidade >= 0.6 ? 'poroso' : continuidade <= 0.35 ? 'fratura' : 'indefinido';
+  /* nos níveis fundos o polo-polo tem 1 ou 2 pontos: '100 % da linha' de 1 estaca não é camada */
+  const tipo = tot < 4 ? 'indefinido' : continuidade >= 0.6 ? 'poroso' : continuidade <= 0.35 ? 'fratura' : 'indefinido';
   const avisos = [T.aviso];
   if (tipo === 'poroso') avisos.push('A zona atravessa quase toda a linha: comporta-se como CAMADA (aquífero poroso), não como fratura. Aí a posição lateral importa menos — o que manda é a profundidade.');
   if (tipo === 'indefinido') avisos.push('Não dá para dizer se é fratura ou camada: larga demais para uma, curta demais para a outra. O escritório decide com a inversão.');

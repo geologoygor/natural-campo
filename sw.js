@@ -1,7 +1,8 @@
 /* Campo · Natural Engenharia — service worker
    Rede primeiro (pega sempre a versão nova e os SOPs atualizados);
    sem internet, usa a cópia guardada no celular. */
-const V = 'campo-v1.9.6';
+const V = 'campo-v1.10.0';
+const ESPERA_REDE = 4000; // sinal fraco: depois de 4 s abre a cópia do celular em vez de tela branca
 const FONTES = 'campo-fontes'; // não muda de versão: a fonte baixada uma vez fica
 const SHELL = ['./', 'index.html', 'fichas.js', 'geofisica.js', 'manifest.webmanifest', 'logo-white.png', 'logo-color.png', 'icon-192.png', 'icon-512.png', 'campo.json', 'hidrogeo.json', 'COMO_ANDAR_CAMINHAMENTO.png', 'COMO_ABRIR_SEV.png'];
 const PAPEL = ['papel_FC-SPT.pdf', 'papel_FC-POCO-teste-entrega.pdf', 'papel_FC-POCO-completa.pdf', 'papel_FC-SPT_p1.jpg', 'papel_FC-POCO-completa_p1.jpg', 'papel_FC-POCO-completa_p2.jpg', 'papel_FC-POCO-completa_p3.jpg']; // fichas de papel para imprimir sem internet
@@ -12,7 +13,9 @@ async function guardarFontes() {
     const r = await fetch(FONTE_CSS); if (!r.ok) return; const css = await r.clone().text(); await c.put(FONTE_CSS, r);
     const urls = [...css.matchAll(/url\((https:[^)]+)\)/g)].map(m => m[1]);
     await Promise.all(urls.map(u => fetch(u).then(x => x.ok && c.put(u, x)).catch(() => {}))); } catch (e) {} }
-self.addEventListener('install', e => { e.waitUntil(caches.open(V).then(c => c.addAll(SHELL).catch(() => {})
+/* instalação SEM engolir erro: se a versão nova não baixou inteira (sinal ruim), ela não assume e a antiga
+   continua valendo — antes ela assumia, apagava o cache velho e o app não abria mais sem internet */
+self.addEventListener('install', e => { e.waitUntil(caches.open(V).then(c => c.addAll(SHELL)
   .then(() => Promise.all(PAPEL.map(p => c.add(p).catch(() => {}))))).then(guardarFontes).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== V && k !== FONTES).map(k => caches.delete(k)))).then(guardarFontes).then(() => self.clients.claim())); });
 self.addEventListener('fetch', e => {
@@ -22,10 +25,14 @@ self.addEventListener('fetch', e => {
     e.respondWith(caches.open(FONTES).then(c => c.match(e.request).then(hit => hit || fetch(e.request).then(r => { if (r.ok || r.type === 'opaque') c.put(e.request, r.clone()); return r; }))));
     return; }
   if (u.origin !== location.origin) return; // robô e Drive passam direto
-  e.respondWith(
-    fetch(e.request.url, { cache: 'no-cache' }).then(r => { // no-cache: confere com o servidor, não usa a cópia de 10 min do navegador
+  const doCache = () => caches.match(e.request, { ignoreSearch: true }).then(hit => hit || caches.match('index.html'));
+  const daRede = fetch(e.request.url, { cache: 'no-cache' }).then(r => { // no-cache: confere com o servidor, não usa a cópia de 10 min do navegador
       if (r.ok) { const cp = r.clone(); caches.open(V).then(c => c.put(e.request, cp)); }
       return r;
-    }).catch(() => caches.match(e.request, { ignoreSearch: true }).then(hit => hit || caches.match('index.html')))
-  );
+    });
+  e.respondWith(new Promise(ok => {
+    let feito = false; const fim = r => { if (!feito && r) { feito = true; ok(r); } };
+    const t = setTimeout(() => doCache().then(hit => { if (hit) fim(hit); }), ESPERA_REDE);
+    daRede.then(r => { clearTimeout(t); fim(r); }).catch(() => { clearTimeout(t); doCache().then(hit => fim(hit || Response.error())); });
+  }));
 });

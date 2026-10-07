@@ -223,7 +223,7 @@ details[open] summary::after{content:"–"}
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.9.6';
+const APP_VERSAO = '1.10.0';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -240,6 +240,7 @@ const S = {
   cfg: (function(){ const c = Object.assign({}, CFG_PADRAO, LS.get('cfg', {})); if(!c.script) c.script = CFG_PADRAO.script; return c; })(),
   pacote: LS.get('pacote', null),
   quem: LS.get('quem', ''),
+  quemId: LS.get('quemId', ''),          // id do funcionário no painel (FU...): base para a agenda individual
   fmt: LS.get('fmt', 'utm'),          // 'geo' | 'utm'
   marca: LS.get('marca', true),       // marca d'água da empresa nas fotos
   original: LS.get('original', true), // envia também o arquivo original sem carimbo
@@ -297,10 +298,14 @@ function iniciarGPS(){
     S.posEm = Date.now(); atualizarGeo();
   }, e=>{ atualizarGeo(e.message); }, {enableHighAccuracy:true, maximumAge:5000, timeout:30000});
 }
+/* coordenada só vale se for de agora: carro andou 60 km com o app em segundo plano e a
+   posição velha saía carimbada na foto da obra seguinte */
+function posFresca(ms){ return (S.pos && S.posEm && Date.now()-S.posEm <= (ms||60000)) ? S.pos : null; }
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'){ if(S.posEm && Date.now()-S.posEm>60000) atualizarGeo(); if(navigator.onLine) enviarFila(); } });
 function atualizarGeo(err){
   const el=$('#camGeo'); if(!el) return;
-  if(S.pos){ el.textContent = fmtCoord(S.pos, S.fmt) + `  ±${Math.round(S.pos.acc)} m`; }
-  else el.textContent = err ? 'GPS: '+err : 'Procurando GPS…';
+  if(posFresca()){ el.textContent = fmtCoord(S.pos, S.fmt) + `  ±${Math.round(S.pos.acc)} m`; }
+  else el.textContent = err ? 'GPS: '+err : (S.pos ? 'GPS desatualizado — procurando de novo…' : 'Procurando GPS…');
   const g=$('#geoLive'); if(g) g.textContent = S.pos ? fmtCoord(S.pos,S.fmt)+`  ±${Math.round(S.pos.acc)} m` : 'Procurando GPS… (funciona sem internet; a céu aberto fixa mais rápido)';
 }
 
@@ -320,13 +325,14 @@ async function recarregarFila(){ S.fila = (await DB.all()).sort((a,b)=>a.criadoE
 function pintarFila(){
   // dentro de uma obra, a barra mostra só o que é DESTA obra (o resto sobe igual, em silêncio)
   const daObra = S.obraId ? S.fila.filter(x=>x.obraId===S.obraId) : S.fila;
-  const pend=daObra.filter(x=>x.status!=='enviado'), err=daObra.filter(x=>x.status==='erro');
-  const outras = S.obraId ? S.fila.filter(x=>x.obraId!==S.obraId && x.status!=='enviado').length : 0;
+  const naFila=x=>x.status==='pendente'||x.status==='erro';
+  const pend=daObra.filter(naFila), err=daObra.filter(x=>x.status==='erro'), esperando=daObra.filter(x=>x.status==='aguardando');
+  const outras = S.obraId ? S.fila.filter(x=>x.obraId!==S.obraId && naFila(x)).length : 0;
   const hojeEnv=daObra.filter(x=>x.status==='enviado' && (x.enviadoEm||'').slice(0,10)===hoje()).length;
   const t=$('#filaTxt'), b=$('#filaBtn');
   if(S.enviando){ t.innerHTML=`<b>Enviando…</b> ${pend.length} na fila`; b.disabled=true; return; }
   b.disabled = pend.length===0 && outras===0;
-  const nota = outras? ` · <span class="muted">${outras} de outras obras</span>`:'';
+  const nota = (outras? ` · <span class="muted">${outras} de outras obras</span>`:'') + (esperando.length? `<br><span style="color:var(--err);font-weight:700">🎙 ${esperando.length} áudio gravado e NÃO enviado — aba Diário, botão Enviar</span>`:'');
   if(pend.length===0) t.innerHTML = `<b>${hojeEnv? (S.obraId?'Tudo enviado desta obra.':'Tudo enviado.') : (S.obraId?'Nada na fila desta obra.':'Nada na fila.')}</b> ${hojeEnv? hojeEnv+' arquivo(s) hoje.':''} ${navigator.onLine?'':'Sem internet.'}${nota}`;
   else t.innerHTML = `<b>${pend.length} na fila${S.obraId?' desta obra':''}</b>${err.length?` · <span style="color:var(--err)">${err.length} com erro</span>`:''} · ${navigator.onLine?'com internet':'sem internet — sobe sozinho depois'}${nota}`;
 }
@@ -500,14 +506,22 @@ async function redimensionar(bmp, max){
 
 /* ---------------- Fila: criar item ---------------- */
 function obraAtual(){ return (S.pacote?.obras||[]).find(o=>o.id===S.obraId); }
+/* grava na fila do celular; memória cheia NÃO pode passar calada */
+async function guardar(o){ try{ await DB.put(o); }
+  catch(e){ toast('MEMÓRIA DO CELULAR CHEIA — este arquivo NÃO foi guardado. Envie a fila (precisa de sinal) ou libere espaço no celular.',9000); throw e; } }
+const sufixo = id => '_'+String(id).slice(-4);   /* dois arquivos no mesmo segundo não podem ter o mesmo nome */
+const p2 = n => String(n).padStart(2,'0');
+const carimboArq = d => `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
 async function enfileirarFoto(blobOriginal, opts){
   // opts: {slot, slotTitulo, fonte:'camera'|'galeria', dataOrig, gpsOrig, extra}
   const ob=obraAtual(); if(!ob) return toast('Escolha a obra primeiro');
   let pos=null, fonte=null, data=new Date();
-  if(opts.fonte==='camera'){ pos=S.pos; fonte=pos?'aparelho':null; }
-  else { if(opts.gpsOrig){ pos={lat:opts.gpsOrig.lat,lon:opts.gpsOrig.lon,alt:opts.gpsOrig.alt,acc:null}; fonte='foto'; }
-         else if(S.pos){ pos=S.pos; fonte='aparelho-tardio'; }
-         if(opts.dataOrig){ const m=/^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/.exec(opts.dataOrig); if(m) data=new Date(+m[1],m[2]-1,+m[3],+m[4],+m[5],+m[6]); } }
+  if(opts.fonte==='camera'){ pos=posFresca(); fonte=pos?'aparelho':null; }
+  else { if(opts.dataOrig){ const m=/^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/.exec(opts.dataOrig); if(m) data=new Date(+m[1],m[2]-1,+m[3],+m[4],+m[5],+m[6]); }
+         if(opts.gpsOrig){ pos={lat:opts.gpsOrig.lat,lon:opts.gpsOrig.lon,alt:opts.gpsOrig.alt,acc:null}; fonte='foto'; }
+         /* foto da galeria sem GPS: a posição do celular só serve se ele está AGORA no lugar e a foto é de agora há pouco;
+            senão a foto de ontem ganhava a coordenada do escritório */
+         else if(posFresca() && Math.abs(Date.now()-data.getTime()) <= 2*3600e3){ pos=S.pos; fonte='aparelho-tardio'; } }
   const daGal = opts.fonte==='galeria';
   const limite = daGal ? (S.cfg.maxLadoGaleria||4096) : S.cfg.maxLado;
   const qual   = daGal ? (S.cfg.qualidadeGaleria||0.96) : S.cfg.qualidade;
@@ -515,24 +529,31 @@ async function enfileirarFoto(blobOriginal, opts){
   const carimbo=await carimbar(bmp,{obra:ob.nome, quem:S.quem, slot:opts.slotTitulo, pos, fonte, data, fmt:S.fmt, marca:S.marca}, qual);
   const comExif=await inserirExif(carimbo,{data, gps:pos?{lat:pos.lat,lon:pos.lon,alt:pos.alt}:null, desc:`${ob.nome} · ${opts.slotTitulo||''} · ${S.quem||''}`});
   const id='F'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-  const stamp=new Date(); const nomeBase= opts.slot==='marco' ? `${hoje()}_${String(stamp.getHours()).padStart(2,'0')}${String(stamp.getMinutes()).padStart(2,'0')}${String(stamp.getSeconds()).padStart(2,'0')}_MARCO_${(opts.extra&&opts.extra.marco)||'SEM_CODIGO'}` : `${hoje()}_${String(stamp.getHours()).padStart(2,'0')}${String(stamp.getMinutes()).padStart(2,'0')}${String(stamp.getSeconds()).padStart(2,'0')}_${slug(opts.slotTitulo||'foto')}`;
+  /* nome com a data DA FOTO (galeria) e um sufixo do id: duas fotos no mesmo segundo tinham o mesmo nome, e o robô
+     respondia "já recebi" para a segunda — que era apagada do celular sem nunca ter chegado */
+  const stamp = opts.fonte==='galeria' ? data : new Date();
+  const nomeBase= opts.slot==='marco' ? `${carimboArq(stamp)}_MARCO_${(opts.extra&&opts.extra.marco)||'SEM_CODIGO'}${sufixo(id)}` : `${carimboArq(stamp)}_${slug(opts.slotTitulo||'foto')}${sufixo(id)}`;
   const thumb=await miniatura(bmp);
   const meta={ lat:pos?.lat??null, lon:pos?.lon??null, acc:pos?.acc??null, alt:pos?.alt??null, fmt:S.fmt, utm:pos?toUTM(pos.lat,pos.lon):null, fonte, marca:S.marca, quando:data.toISOString(), origem:opts.fonte, app:APP_VERSAO, extra:opts.extra||null };
-  await DB.put({ id, tipo:'foto', obraId:ob.id, obraNome:ob.nome, pastaId:ob.pastaId||null, quem:S.quem, slot:opts.slot, slotTitulo:opts.slotTitulo, nome:nomeBase+'.jpg', mime:'image/jpeg', blob:comExif, thumb, meta, status:'pendente', criadoEm:new Date().toISOString() });
+  await guardar({ id, tipo:'foto', obraId:ob.id, obraNome:ob.nome, pastaId:ob.pastaId||null, quem:S.quem, slot:opts.slot, slotTitulo:opts.slotTitulo, nome:nomeBase+'.jpg', mime:'image/jpeg', blob:comExif, thumb, meta, status:'pendente', criadoEm:new Date().toISOString() });
   if(opts.slot==='marco'){ /* marco: sem cópia original; o robô nomeia pelo código e gera o KML */ }
   else if(S.original && opts.fonte==='camera'){ // original limpo (sem carimbo) para o marketing
-    await DB.put({ id:id+'o', tipo:'foto', obraId:ob.id, obraNome:ob.nome, pastaId:ob.pastaId||null, quem:S.quem, slot:opts.slot, slotTitulo:opts.slotTitulo, nome:nomeBase+'_original.jpg', mime:'image/jpeg', blob:await inserirExif(blobOriginal.type==='image/jpeg'?blobOriginal:carimbo,{data,gps:pos?{lat:pos.lat,lon:pos.lon,alt:pos.alt}:null,desc:ob.nome}), thumb:null, meta:Object.assign({},meta,{original:true}), status:'pendente', criadoEm:new Date().toISOString() }); }
+    await guardar({ id:id+'o', tipo:'foto', obraId:ob.id, obraNome:ob.nome, pastaId:ob.pastaId||null, quem:S.quem, slot:opts.slot, slotTitulo:opts.slotTitulo, nome:nomeBase+'_original.jpg', mime:'image/jpeg', blob:await inserirExif(blobOriginal.type==='image/jpeg'?blobOriginal:carimbo,{data,gps:pos?{lat:pos.lat,lon:pos.lon,alt:pos.alt}:null,desc:ob.nome}), thumb:null, meta:Object.assign({},meta,{original:true}), status:'pendente', criadoEm:new Date().toISOString() }); }
   else if(S.original && opts.fonte==='galeria'){
-    await DB.put({ id:id+'o', tipo:'foto', obraId:ob.id, obraNome:ob.nome, pastaId:ob.pastaId||null, quem:S.quem, slot:opts.slot, slotTitulo:opts.slotTitulo, nome:nomeBase+'_original.'+(blobOriginal.type.split('/')[1]||'jpg').replace('jpeg','jpg'), mime:blobOriginal.type||'image/jpeg', blob:blobOriginal, thumb:null, meta:Object.assign({},meta,{original:true}), status:'pendente', criadoEm:new Date().toISOString() }); }
-  await recarregarFila(); render(); toast('Foto guardada na fila'+(pos?'':' — sem coordenada'));
+    await guardar({ id:id+'o', tipo:'foto', obraId:ob.id, obraNome:ob.nome, pastaId:ob.pastaId||null, quem:S.quem, slot:opts.slot, slotTitulo:opts.slotTitulo, nome:nomeBase+'_original.'+(blobOriginal.type.split('/')[1]||'jpg').replace('jpeg','jpg'), mime:blobOriginal.type||'image/jpeg', blob:blobOriginal, thumb:null, meta:Object.assign({},meta,{original:true}), status:'pendente', criadoEm:new Date().toISOString() }); }
+  await recarregarFila(); render(); toast('Foto guardada na fila'+(pos?'':(opts.fonte==='camera'&&S.pos?' — SEM coordenada (GPS desatualizado: espere fixar)':' — sem coordenada')));
   if(navigator.onLine) enviarFila();
 }
 async function miniatura(bmp){ const oc=document.createElement('canvas'); const k=Math.min(1,520/Math.max(bmp.width,bmp.height)); oc.width=Math.round(bmp.width*k); oc.height=Math.round(bmp.height*k); desenhoLiso(oc.getContext('2d')).drawImage(bmp,0,0,oc.width,oc.height); return oc.toDataURL('image/jpeg',0.72); }
-async function enfileirarArquivo(blob, tipo, nome, extra){
-  const ob=obraAtual(); if(!ob) return toast('Escolha a obra primeiro');
+async function enfileirarArquivo(blob, tipo, nome, extra, opt){
+  opt=opt||{};
+  const ob = opt.obra || (opt.obraId ? (S.pacote?.obras||[]).find(o=>o.id===opt.obraId) : obraAtual());
+  if(!ob){ toast('Escolha a obra primeiro'); throw new Error('sem obra'); }
   const id=tipo[0].toUpperCase()+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-  await DB.put({ id, tipo, obraId:ob.id, obraNome:ob.nome, pastaId:ob.pastaId||null, quem:S.quem, slot:tipo, slotTitulo:tipo, nome, mime:blob.type||'application/octet-stream', blob, thumb:null, meta:{quando:new Date().toISOString(), lat:S.pos?.lat??null, lon:S.pos?.lon??null, acc:S.pos?.acc??null, app:APP_VERSAO, extra:extra||null}, status:'pendente', criadoEm:new Date().toISOString() });
-  await recarregarFila(); render(); if(navigator.onLine) enviarFila();
+  const m=/^(.*?)(\.[A-Za-z0-9]+)$/.exec(nome); const nomeU = m ? m[1]+sufixo(id)+m[2] : nome+sufixo(id);
+  const pos=posFresca(5*60000);
+  await guardar({ id, tipo, obraId:ob.id, obraNome:ob.nome, pastaId:ob.pastaId||null, quem:S.quem, slot:tipo, slotTitulo:tipo, nome:nomeU, mime:blob.type||'application/octet-stream', blob, thumb:null, meta:{quando:new Date().toISOString(), lat:pos?.lat??null, lon:pos?.lon??null, acc:pos?.acc??null, app:APP_VERSAO, extra:extra||null}, status:opt.status||'pendente', criadoEm:new Date().toISOString() });
+  await recarregarFila(); render(); if(navigator.onLine && (opt.status||'pendente')==='pendente') enviarFila();
   return id;
 }
 async function enfileirarRegistro(obj, nome){
@@ -546,18 +567,23 @@ async function enviarFila(){
   if(S.enviando || !navigator.onLine) return; if(!S.cfg.script){ pintarFila(); return; }
   S.enviando=true; pintarFila();
   try{
-    for(const it of S.fila.filter(x=>x.status!=='enviado')){
+    const fila=S.fila.filter(x=>x.status==='pendente'||x.status==='erro').sort((a,b)=>((a.blob&&a.blob.size)||0)-((b.blob&&b.blob.size)||0));
+    for(const it of fila){
+      const grande = ((it.blob&&it.blob.size)||0) > 5e6;
       try{
+        const ac=new AbortController(), lim=setTimeout(()=>ac.abort(), 60000 + 15000*(((it.blob&&it.blob.size)||0)/1e6));
         const corpo={ token:S.cfg.token, acao:'enviar', id:it.id, obraId:it.obraId, obraNome:it.obraNome, pastaId:it.pastaId, quem:it.quem, tipo:it.tipo, slot:it.slot, slotTitulo:it.slotTitulo, nome:it.nome, mime:it.mime, meta:it.meta, criadoEm:it.criadoEm, b64: await b64(it.blob) };
-        const r=await fetch(S.cfg.script,{method:'POST',body:JSON.stringify(corpo)});
+        const r=await fetch(S.cfg.script,{method:'POST',body:JSON.stringify(corpo),signal:ac.signal}); clearTimeout(lim);
         const j=await r.json().catch(()=>({ok:false,erro:'resposta inválida'}));
         if(j.ok){ it.status='enviado'; it.enviadoEm=new Date().toISOString(); it.url=j.url||null; it.pasta=j.pasta||null; it.marco=j.marco||null; it.blob=null; it.erro=null; }
         else { it.status='erro'; it.erro=j.erro||('HTTP '+r.status); }
-      }catch(e){ if(e instanceof TypeError || !navigator.onLine){ it.status='pendente'; it.erro=null; await DB.put(it); break; } it.status='erro'; it.erro=String(e.message||e); }
+      }catch(e){ if(e instanceof TypeError || e.name==='AbortError' || !navigator.onLine){ it.status='pendente'; it.erro=null; await DB.put(it);
+          if(grande && navigator.onLine) continue;   /* vídeo grande caiu no sinal fraco: os pequenos de trás ainda tentam */
+          break; } it.status='erro'; it.erro=String(e.message||e); }
       await DB.put(it); pintarFila();
       if(it.status==='erro' && !navigator.onLine) break;
     }
-  } finally { S.enviando=false; await recarregarFila(); render(); }
+  } finally { S.enviando=false; await recarregarFila(); try{ if(window.FICHAS && FICHAS.aliviarMemoria) FICHAS.aliviarMemoria(); }catch(e){} if(!(window.FICHAS && FICHAS.aberta())) render(); }
 }
 async function baixarPacote(silencioso){
   if(!S.cfg.script){ if(!silencioso) toast('Configure a URL do robô em Ajustes'); return false; }
@@ -639,10 +665,10 @@ async function salvarGravacao(){
 async function enfileirarVideo(blob, o){
   const ob=obraAtual(); if(!ob) return toast('Escolha a obra primeiro');
   const id='V'+Date.now().toString(36)+Math.random().toString(36).slice(2,6); const d=new Date();
-  const nomeBase=`${hoje()}_${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}${String(d.getSeconds()).padStart(2,'0')}_VIDEO_${slug(o.slotTitulo||'video')}`;
+  const nomeBase=`${carimboArq(o.data||d)}_VIDEO_${slug(o.slotTitulo||'video')}${sufixo(id)}`;
   const pos=o.pos||null;
   const meta={ lat:pos?.lat??null, lon:pos?.lon??null, acc:pos?.acc??null, alt:pos?.alt??null, fmt:S.fmt, utm:pos?toUTM(pos.lat,pos.lon):null, fonte:o.fonte||null, marca:S.marca, quando:(o.data||d).toISOString(), origem:o.origem, segundos:o.seg||null, carimbado:!!o.carimbado, tamanhoMB:+(blob.size/1048576).toFixed(1), app:APP_VERSAO, extra:o.extra||null };
-  await DB.put({ id, tipo:'video', obraId:ob.id, obraNome:ob.nome, pastaId:ob.pastaId||null, quem:S.quem, slot:o.slot, slotTitulo:o.slotTitulo, nome:nomeBase+'.'+extVideo(blob.type), mime:blob.type||'video/webm', blob, thumb:o.thumb||null, meta, status:'pendente', criadoEm:d.toISOString() });
+  await guardar({ id, tipo:'video', obraId:ob.id, obraNome:ob.nome, pastaId:ob.pastaId||null, quem:S.quem, slot:o.slot, slotTitulo:o.slotTitulo, nome:nomeBase+'.'+extVideo(blob.type), mime:blob.type||'video/webm', blob, thumb:o.thumb||null, meta, status:'pendente', criadoEm:d.toISOString() });
   await recarregarFila(); render(); toast(`Vídeo guardado na fila (${meta.tamanhoMB} MB)`+(pos?'':' — sem coordenada'));
   if(navigator.onLine) enviarFila();
 }
@@ -712,7 +738,7 @@ async function gravar(){
   try{ const st=await navigator.mediaDevices.getUserMedia({audio:true}); const mime=['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/aac',''].find(m=>!m||MediaRecorder.isTypeSupported(m));
     REC.mr=new MediaRecorder(st, mime?{mimeType:mime}:undefined); REC.chunks=[]; REC.blob=null; REC.obraId=S.obraId;
     REC.mr.ondataavailable=e=>REC.chunks.push(e.data);
-    REC.mr.onstop=async()=>{ st.getTracks().forEach(t=>t.stop()); REC.blob=new Blob(REC.chunks,{type:REC.mr.mimeType||'audio/webm'}); REC.mr=null; clearInterval(REC.timer); const ext=(REC.blob.type.includes('mp4')||REC.blob.type.includes('aac'))?'m4a':'webm'; REC.ultimoId=await enfileirarArquivo(REC.blob,'audio',`${agoraArq()}_diario_${slug(S.quem)}.${ext}`); toast('Áudio guardado na fila'); render(); };
+    REC.mr.onstop=async()=>{ st.getTracks().forEach(t=>t.stop()); REC.blob=new Blob(REC.chunks,{type:REC.mr.mimeType||'audio/webm'}); REC.mr=null; clearInterval(REC.timer); const ext=(REC.blob.type.includes('mp4')||REC.blob.type.includes('aac'))?'m4a':'webm'; try{ REC.ultimoId=await enfileirarArquivo(REC.blob,'audio',`${agoraArq()}_diario_${slug(S.quem)}.${ext}`,null,{obraId:REC.obraId, status:'aguardando'}); toast('Áudio gravado. Ouça e toque em ENVIAR.'); }catch(e){} render(); };
     REC.mr.start(); REC.t0=Date.now(); REC.timer=setInterval(()=>{ const s=Math.floor((Date.now()-REC.t0)/1000); const el=$('#timer'); if(el) el.textContent=`${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')} / 00:40`; if(s>=40 && REC.mr) REC.mr.stop(); },250);
     render();
   }catch(e){ toast('Microfone indisponível: '+e.message); }
@@ -777,7 +803,7 @@ function telaInicio(){
        ios?`<div class="passos">1. Toque no botão <b>Compartilhar</b> (quadrado com seta para cima, no alto à direita no Chrome ou embaixo no Safari).<br>2. Escolha <b>Adicionar à Tela de Início</b>.<br>3. Feche o navegador e abra pelo ícone <b>Campo Natural</b>.</div>`
           :`<div class="passos">1. Toque no menu <b>⋮</b> do navegador.<br>2. Escolha <b>Instalar app</b> ou <b>Adicionar à tela inicial</b>.<br>3. Abra pelo ícone <b>Campo Natural</b>.</div>`)+`</div>`; }
   if(semScript) h+=`<div class="banner">O robô de campo ainda não está configurado neste aparelho. Abra <b>Ajustes</b> e cole a URL do robô. Sem ele o app funciona, mas nada sobe para o Drive.</div>`;
-  h+=`<div class="card"><label>Quem está usando este aparelho</label><input id="quem" placeholder="Primeiro e segundo nome" value="${esc(S.quem)}"><div class="nota">Vai no carimbo da foto e no nome do arquivo. Fica salvo neste celular.</div></div>`;
+  h+=cartaoQuem();
   h+=`<div class="card"><h2>Obras abertas</h2><input id="busca" placeholder="Buscar obra ou cliente…" style="margin-bottom:10px"><div id="lista">`;
   if(!P) h+=`<div class="muted">Nenhuma lista de obras neste aparelho ainda. Com internet, toque em <b>Atualizar lista</b>.</div>`;
   else if(!P.obras.length) h+=`<div class="muted">Nenhuma obra aberta no painel.</div>`;
@@ -785,19 +811,39 @@ function telaInicio(){
   h+=`</div><div class="row" style="margin-top:8px"><button class="sec" id="atualizar">Atualizar lista</button><button class="sec" id="ajustes">Ajustes</button></div>`;
   h+=`<div class="nota">${P?`Lista de ${fmtData(P.geradoEm)} · ${P.obras.length} obras abertas`:''} · app ${APP_VERSAO}</div></div>`;
   const pend=S.fila.filter(x=>x.status!=='enviado');
-  if(pend.length){ h+=`<div class="card"><h2>Na fila de envio</h2>`+pend.map(x=>`<div class="chk" style="align-items:center"><span class="chip ${x.status==='erro'?'e':'w'}">${x.status==='erro'?'erro':'pendente'}</span><span style="flex:1;font-size:14px">${esc(x.obraNome)} · ${esc(x.slotTitulo||x.tipo)}${x.erro?`<br><small style="color:var(--err)">${esc(x.erro)}</small>`:''}</span></div>`).join('')+`</div>`; }
+  if(pend.length){ /* inclui áudio esperando o Enviar: na lista inicial ninguém esquece */ h+=`<div class="card"><h2>Na fila de envio</h2>`+pend.map(x=>`<div class="chk" style="align-items:center"><span class="chip ${x.status==='erro'?'e':'w'}">${x.status==='erro'?'erro':(x.status==='aguardando'?'não enviado':'pendente')}</span><span style="flex:1;font-size:14px">${esc(x.obraNome)} · ${esc(x.slotTitulo||x.tipo)}${x.erro?`<br><small style="color:var(--err)">${esc(x.erro)}</small>`:''}</span></div>`).join('')+`</div>`; }
   return h;
+}
+/* ---------- quem está usando o aparelho: escolhe uma vez na lista da equipe e fica fixo ---------- */
+function nomeCurto(n){ const p=String(n||'').trim().split(/\s+/).filter(Boolean); const cap=w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase();
+  return p.slice(0,2).map(cap).join(' '); }
+function cartaoQuem(){
+  const eq=(S.pacote&&S.pacote.equipe)||[]; const trocando=S.trocandoQuem || !S.quem;
+  if(!trocando) return `<div class="card" style="display:flex;align-items:center;gap:10px"><div style="flex:1"><div class="muted" style="font-size:13px">Este aparelho está com</div><b style="font-size:19px">${esc(S.quem)}</b>${S.quemId?'':' <span class="chip w">de fora da equipe</span>'}</div><button class="sec" id="quemTrocar" style="flex:0 0 auto">Trocar</button></div>`;
+  let h=`<div class="card"><h2>Quem é você?</h2><div class="nota">Escolha uma vez. Fica gravado neste celular e vai no carimbo das fotos, no nome dos arquivos e nas fichas. Só muda se você tocar em Trocar.</div>`;
+  if(eq.length) h+=`<div class="row" style="flex-wrap:wrap;gap:8px;margin-top:8px">`+eq.map(f=>`<button class="${S.quemId===f.id?'green':'sec'}" data-quem="${esc(f.id)}" style="flex:1 1 45%;min-height:52px">${esc(nomeCurto(f.nome))}</button>`).join('')+`</div>`;
+  else h+=`<div class="muted" style="margin-top:6px">A lista da equipe ainda não chegou neste celular (toque em Atualizar lista com internet). Enquanto isso, escreva o nome:</div>`;
+  h+=`<label style="margin-top:10px">${eq.length?'Não está na lista (terceirizado, visitante)? Escreva':'Primeiro e segundo nome'}</label><div class="row"><input id="quemOutro" placeholder="Primeiro e segundo nome"><button class="sec" id="quemOk" style="flex:0 0 auto">Usar</button></div>`;
+  if(S.quem) h+=`<button class="big ghost" id="quemCancela" style="margin-top:8px">Continuar como ${esc(S.quem)}</button>`;
+  return h+`</div>`;
+}
+function ligarQuem(){
+  const fixa=(id,nome)=>{ S.quemId=id||''; S.quem=nome; LS.set('quemId',S.quemId); LS.set('quem',S.quem); S.trocandoQuem=false; render(); toast('Aparelho de '+nome); };
+  document.querySelectorAll('[data-quem]').forEach(b=>b.onclick=()=>{ const f=((S.pacote&&S.pacote.equipe)||[]).find(x=>x.id===b.dataset.quem); if(f) fixa(f.id, nomeCurto(f.nome)); });
+  const ok=$('#quemOk'); if(ok) ok.onclick=()=>{ const v=($('#quemOutro').value||'').trim(); if(v.split(/\s+/).length<2) return toast('Escreva primeiro e segundo nome'); fixa('', nomeCurto(v)); };
+  const tr=$('#quemTrocar'); if(tr) tr.onclick=()=>{ if(!confirm('Trocar a pessoa deste aparelho? As próximas fotos e fichas saem no nome de quem você escolher.')) return; S.trocandoQuem=true; render(); };
+  const ca=$('#quemCancela'); if(ca) ca.onclick=()=>{ S.trocandoQuem=false; render(); };
 }
 function cartaoObra(o){ const P=S.pacote; return `<button class="obra" data-id="${esc(o.id)}"><b>${esc(o.nome)}</b><small>${esc(o.cliente||'')}</small><div style="margin-top:6px">${(o.linhas||[]).map(l=>`<span class="chip">${esc(P.linhas[l]?.nome||l)}</span>`).join('')}${o.pastaId?'':'<span class="chip w">sem pasta no Drive</span>'}</div></button>`; }
 function ligarInicio(){
   const bi=$('#btInstalar'); if(bi) bi.onclick=async()=>{ const e=S.promptInstalar; S.promptInstalar=null; try{ e.prompt(); await e.userChoice; }catch(_){} render(); };
-  $('#quem').onchange=e=>{ S.quem=e.target.value.trim(); LS.set('quem',S.quem); };
+  ligarQuem();
   $('#busca').oninput=e=>{ const q=e.target.value.toLowerCase(); $('#lista').innerHTML=(S.pacote?.obras||[]).filter(o=>(o.nome+' '+(o.cliente||'')+' '+(o.servico||'')).toLowerCase().includes(q)).map(cartaoObra).join('')||'<div class="muted">Nada encontrado.</div>'; ligarObras(); };
   ligarObras();
   $('#atualizar').onclick=()=>baixarPacote(false);
   $('#ajustes').onclick=telaAjustes;
 }
-function ligarObras(){ document.querySelectorAll('.obra').forEach(b=>b.onclick=()=>{ if(!S.quem){ toast('Escreva seu nome primeiro'); $('#quem').focus(); return; } S.obraId=b.dataset.id; REC.blob=null; REC.ultimoId=null; REC.obraId=null; S.tab='roteiro'; LS.set('obraId',S.obraId); render(); window.scrollTo(0,0); iniciarGPS(); }); }
+function ligarObras(){ document.querySelectorAll('.obra').forEach(b=>b.onclick=()=>{ if(!S.quem){ toast('Escolha quem você é primeiro'); window.scrollTo(0,0); return; } S.obraId=b.dataset.id; REC.blob=null; REC.ultimoId=null; REC.obraId=null; S.tab='roteiro'; LS.set('obraId',S.obraId); render(); window.scrollTo(0,0); iniciarGPS(); }); }
 function telaAjustes(){
   const m=$('#main'); $('#hTit').textContent='Ajustes'; $('#hBtn').classList.remove('hide'); $('#hBtn').textContent='Voltar';
   m.innerHTML=`<div class="card"><h2>Robô de campo</h2><label>URL do robô (Apps Script, termina em /exec)</label><input id="cfgScript" value="${esc(S.cfg.script)}" placeholder="https://script.google.com/macros/s/…/exec"><label>Chave</label><input id="cfgToken" value="${esc(S.cfg.token)}"><div class="nota">A URL vem do escritório. Depois de colar, toque em Salvar e em Atualizar lista.</div></div>
@@ -810,7 +856,10 @@ function telaAjustes(){
   $('#cMarca').onchange=e=>{S.marca=e.target.checked;LS.set('marca',S.marca);}; $('#cOrig').onchange=e=>{S.original=e.target.checked;LS.set('original',S.original);};
   $('#salvarCfg').onclick=async()=>{ S.cfg.script=$('#cfgScript').value.trim(); S.cfg.token=$('#cfgToken').value.trim(); LS.set('cfg',S.cfg); toast('Salvo'); S.obraId=null; render(); if(S.cfg.script) baixarPacote(false); };
   $('#limparEnv').onclick=async()=>{ for(const x of S.fila.filter(x=>x.status==='enviado')) await DB.del(x.id); await recarregarFila(); telaAjustes(); };
-  $('#limparTudo').onclick=async()=>{ if(!$('#limparTudo').dataset.c){ $('#limparTudo').dataset.c=1; $('#limparTudo').textContent='Toque de novo para confirmar'; return; } for(const x of S.fila) await DB.del(x.id); await recarregarFila(); telaAjustes(); };
+  $('#limparTudo').onclick=async()=>{ const nao=S.fila.filter(x=>x.status!=='enviado').length;
+    if(nao && !confirm(`ATENÇÃO: ${nao} arquivo(s) AINDA NÃO SUBIRAM para o escritório e não existem em nenhum outro lugar.\n\nApagar mesmo assim? Não tem desfazer.`)) return;
+    if(!nao && !confirm('Apagar o histórico de enviados deste aparelho?')) return;
+    for(const x of S.fila) await DB.del(x.id); await recarregarFila(); telaAjustes(); };
   $('#hBtn').onclick=()=>{ S.obraId=null; render(); };
 }
 function telaRoteiro(ob){
@@ -824,7 +873,43 @@ function telaRoteiro(ob){
     ? `<div class="chk" style="font-size:15px;color:var(--ink);margin:0;align-items:center"><span style="width:24px;text-align:center;font-weight:700;color:${c.ok?'var(--green)':'var(--muted)'}">${c.ok?'✓':'○'}</span><span>${esc(c.t)}</span></div>`
     : `<label class="chk" style="text-transform:none;letter-spacing:0;font-size:15px;color:var(--ink);margin:0;font-weight:400"><input type="checkbox" data-t="${esc(c.t)}" ${c.ok?'checked':''}><span>${esc(c.t)}</span></label>`).join('');
   h+=`<label>O que ficou faltando ou deu errado hoje</label><textarea id="obsDia" placeholder="Pode deixar em branco.">${esc(LS.get('obs_'+ob.id+'_'+hoje(),''))}</textarea><button class="big" id="fecharDia" style="margin-top:12px">Registrar o dia (${chk.filter(c=>c.ok).length}/${chk.length} feitos)</button><div class="nota">Manda para o escritório o que foi feito, o que ficou faltando e a coordenada. Junto com as fotos e o áudio, isso é o registro do dia.</div></div>`;
+  h+=cartaoDesmob(ob);
   return h;
+}
+/* ---------- Terminei o campo (SOP-030): vira demanda de fechamento para a Giselle no painel ---------- */
+function desmobDe(ob){ return LS.get('desmob_'+ob.id, null); }
+function cartaoDesmob(ob){
+  const d=desmobDe(ob);
+  let h=`<div class="card" id="desmobBox"><h2>Terminei o campo nesta obra</h2>`;
+  if(d) h+=`<div class="geo" style="color:var(--green)">✓ Desmobilização avisada em ${esc(fmtData(d.em))} por ${esc(d.quem||'')}</div><div class="nota">O escritório recebe o aviso e abre o fechamento (medição, aceite, fatura). Se precisar corrigir as quantidades, preencha de novo e envie: o aviso novo substitui o anterior.</div>`;
+  else h+=`<div class="nota">Use só no último dia, quando a equipe sair da obra. Sem isso o escritório não sabe que a obra acabou e a fatura não sai. Funciona sem sinal: o aviso vai para a fila e sobe quando pegar internet.</div>`;
+  h+=`<label>O que foi executado — item por item</label><textarea id="dmQtd" placeholder="Ex.: 2 furos SPT, 24 m no total · ou: poço 6&quot;, 80 m, bomba instalada">${esc(d?.qtd||'')}</textarea>`;
+  h+=`<label>Bate com o contrato?</label><select id="dmDiv"><option value="">— escolha —</option><option value="sem" ${d?.div==='sem'?'selected':''}>Sim — sem divergência</option><option value="com" ${d?.div==='com'?'selected':''}>Não — teve divergência (rocha, metragem, aditivo, item não feito)</option></select>`;
+  h+=`<div id="dmMotivoBox" style="${d?.div==='com'?'':'display:none'}"><label>O que mudou e por quê</label><textarea id="dmMotivo" placeholder="Ex.: rocha aos 42 m, cliente autorizou o extra pelo WhatsApp">${esc(d?.motivo||'')}</textarea></div>`;
+  h+=`<button class="big ${d?'sec':'green'}" id="dmEnviar" style="margin-top:12px">${d?'Enviar correção':'Desmobilizei — avisar o escritório'}</button></div>`;
+  return h;
+}
+function ligarDesmob(ob){
+  const div=$('#dmDiv'); if(!div) return;
+  div.onchange=()=>{ $('#dmMotivoBox').style.display = div.value==='com' ? '' : 'none'; };
+  $('#dmEnviar').onclick=async()=>{
+    const qtd=$('#dmQtd').value.trim(), dv=div.value, motivo=($('#dmMotivo').value||'').trim();
+    if(!qtd) return toast('Escreva o que foi executado — é a medição da obra.',4000);
+    if(!dv) return toast('Diga se bate com o contrato.',4000);
+    if(dv==='com' && !motivo) return toast('Explique a divergência antes de sair da obra.',4000);
+    const crit = (window.FICHAS && FICHAS.pendenciasCriticas) ? FICHAS.pendenciasCriticas(ob.id) : [];
+    const falta = checklistDaObra(ob).filter(c=>!c.ok).map(c=>c.t);
+    if((crit.length || falta.length) && !confirm(`A OBRA ESTÁ SENDO ENCERRADA INCOMPLETA\n\n`+
+        (crit.length?`Dados que NÃO se recuperam depois de sair:\n• ${crit.join('\n• ')}\n\n`:'')+
+        (falta.length?`Ainda não marcado hoje:\n• ${falta.join('\n• ')}\n\n`:'')+
+        `O aviso vai para o escritório dizendo o que faltou. Desmobilizar assim mesmo?`)) return;
+    const anterior=desmobDe(ob); const em=new Date().toISOString();
+    const reg={ tipo:'desmobilizacao', obraId:ob.id, obra:ob.nome, quem:S.quem, data:em, coordenada:posFresca(5*60000), quantidades:qtd, divergencia:dv==='com', motivo:dv==='com'?motivo:'', correcao:!!anterior, incompleto:crit.concat(falta), app:APP_VERSAO };
+    const blob=new Blob([JSON.stringify(reg,null,1)],{type:'application/json'});
+    LS.set('desmob_'+ob.id,{ em, quem:S.quem, qtd, div:dv, motivo });
+    await enfileirarArquivo(blob,'registro',`${agoraArq()}_DESMOBILIZACAO_${slug(S.quem)}.json`,{ tipo:'desmobilizacao', quantidades:qtd.slice(0,1500), divergencia:dv==='com', motivo:reg.motivo.slice(0,1500), correcao:!!anterior, incompleto:reg.incompleto.slice(0,12) });
+    toast(anterior?'Correção na fila':'Aviso de desmobilização na fila',3500);
+  };
 }
 function ligarRoteiro(ob){
   atualizarGeo();
@@ -832,8 +917,11 @@ function ligarRoteiro(ob){
   document.querySelectorAll('input[data-t]').forEach(c=>c.onchange=()=>{ const est=estadoChk(ob); est[c.dataset.t]=c.checked; LS.set('chk_'+ob.id+'_'+hoje(),est); const l=checklistDaObra(ob); $('#fecharDia').textContent=`Registrar o dia (${l.filter(x=>x.ok).length}/${l.length} feitos)`; });
   $('#obsDia').oninput=e=>LS.set('obs_'+ob.id+'_'+hoje(),e.target.value);
   $('#fecharDia').onclick=async()=>{ const chk=checklistDaObra(ob); const est=estadoChk(ob); const obs=$('#obsDia').value.trim();
-    await enfileirarRegistro({ tipo:'dia', obraId:ob.id, obra:ob.nome, quem:S.quem, data:new Date().toISOString(), coordenada:S.pos, feitos:chk.filter(c=>c.ok).map(c=>c.t), pendentes:chk.filter(c=>!c.ok).map(c=>c.t), fotos:fotosDaObra(ob).length, obs, app:APP_VERSAO }, `${agoraArq()}_registro_do_dia_${slug(S.quem)}.json`);
+    const falta=chk.filter(c=>!c.ok).map(c=>c.t);
+    if(falta.length && !confirm(`REGISTRO DO DIA INCOMPLETO\n\nAinda não marcado:\n• ${falta.join('\n• ')}\n\nO escritório recebe o registro avisando que saiu incompleto. Enviar assim mesmo?`)) return;
+    await enfileirarRegistro({ tipo:'dia', incompleto:falta.length>0, obraId:ob.id, obra:ob.nome, quem:S.quem, data:new Date().toISOString(), coordenada:posFresca(5*60000), feitos:chk.filter(c=>c.ok).map(c=>c.t), pendentes:chk.filter(c=>!c.ok).map(c=>c.t), fotos:fotosDaObra(ob).length, obs, app:APP_VERSAO }, `${agoraArq()}_registro_do_dia_${slug(S.quem)}.json`);
     toast('Registro do dia na fila'); };
+  ligarDesmob(ob);
 }
 function cartaoMarcos(ob){
   if(!temMarcos(ob)) return '';
@@ -868,18 +956,33 @@ function ligarFotos(ob){
     await DB.del(id); await DB.del(id+'o').catch(()=>{}); await recarregarFila(); render();
     barraDesfazer('Apagado da fila.', async()=>{ for(const g of guardados) await DB.put(g); await recarregarFila(); render(); toast('De volta na fila'); }); });
 }
+function audioDaVez(ob){ /* o último áudio desta obra hoje que ainda pede atenção (ou o que acabou de subir) */
+  const meus=(S.fila||[]).filter(x=>x.tipo==='audio' && x.obraId===ob.id && hojeISO(x.criadoEm));
+  return meus.find(x=>x.id===REC.ultimoId) || meus.filter(x=>x.status==='aguardando').pop() || null; }
+const URLS_AUDIO={};
+function urlAudio(it){ if(!it||!it.blob) return null; return URLS_AUDIO[it.id]||(URLS_AUDIO[it.id]=URL.createObjectURL(it.blob)); }
 function audiosDeHoje(ob){ return (S.fila||[]).filter(x=>x.tipo==='audio' && x.obraId===ob.id && hojeISO(x.criadoEm)).length; }
 function telaDiario(ob){
   const P=S.pacote; const gravando=!!REC.mr; const nAud=audiosDeHoje(ob); const cheio=nAud>=2; const meuAudio = REC.blob && REC.obraId===ob.id; // áudio de outra obra não aparece aqui
   let h=`<div class="card"><h2>Diário de obra — 40 segundos</h2><div class="nota">Cinco frases, nesta ordem. O escritório transcreve e vira o registro do dia.</div>`;
   h+=(P.roteiroDiario||[]).map((f,i)=>`<div class="frase"><span>${i+1}</span><div>${esc(f)}</div></div>`).join('');
   h+=`<div class="timer" id="timer">${gravando?'00:00 / 00:40':'00:40'}</div><button class="rec ${gravando?'on':''}" id="rec" ${cheio&&!gravando?'disabled':''}>${gravando?'■':'●'}</button><div class="nota" style="text-align:center">${gravando?'Gravando… toque para parar':(cheio?'Os 2 áudios do dia já foram gravados':'Toque para gravar')}</div><div class="nota" style="text-align:center">${cheio?'Precisa falar mais? Apague um dos áudios na aba Fotos e grave de novo, ou escreva no campo de observação do Roteiro.':`Cabem 2 áudios por dia nesta obra (${nAud} de 2 gravados).`}</div>`;
-  if(meuAudio) h+=`<audio controls src="${URL.createObjectURL(REC.blob)}" style="width:100%;margin-top:8px"></audio><div class="row" style="margin-top:10px"><div class="nota">Já está guardado na fila. Não gostou? Apague e grave de novo.</div><div class="row" style="margin-top:10px"><button class="sec" id="descartar">Apagar e regravar</button></div>`;
+  const it=audioDaVez(ob);
+  if(it && !gravando){ const src=urlAudio(it);
+    if(src) h+=`<audio controls src="${src}" style="width:100%;margin-top:8px"></audio>`;
+    if(it.status==='aguardando') h+=`<button class="big green" id="audEnviar" style="margin-top:12px">Enviar áudio ao escritório</button><button class="big ghost" id="descartar" style="margin-top:8px">Apagar e regravar</button><div class="nota" style="text-align:center">Ouça antes, se quiser. Ele só sai do celular quando você tocar em Enviar.</div>`;
+    else if(it.status==='enviado') h+=`<div class="geo" style="color:var(--green);text-align:center;font-size:18px;margin-top:12px">✓ Áudio enviado ao escritório às ${esc(fmtData(it.enviadoEm||new Date()).slice(11))}</div>`;
+    else if(it.status==='erro') h+=`<div class="erro" style="margin-top:12px">Não subiu: ${esc(it.erro||'erro')}. Ele continua guardado e tenta de novo sozinho.</div><button class="big sec" id="audReenviar" style="margin-top:8px">Tentar de novo agora</button>`;
+    else h+=`<div class="geo" style="color:#8A5200;text-align:center;font-size:17px;margin-top:12px">⏳ Enviado para a fila — ${navigator.onLine?'subindo agora…':'sobe sozinho quando pegar sinal'}</div><button class="big ghost" id="descartar" style="margin-top:8px">Cancelar e regravar</button>`;
+  }
   h+=`</div>`; return h;
 }
 function ligarDiario(ob){
   $('#rec').onclick=gravar;
-  const d=$('#descartar'); if(d) d.onclick=async()=>{ const it=S.fila.find(x=>x.id===REC.ultimoId); if(it && it.status!=='enviado'){ await DB.del(it.id); await recarregarFila(); toast('Áudio apagado'); } else if(it) toast('Esse já tinha sido enviado; o novo vai junto'); REC.blob=null; REC.ultimoId=null; render(); };
+  const d=$('#descartar'); if(d) d.onclick=async()=>{ const it=audioDaVez(ob); if(it && it.status!=='enviado'){ await DB.del(it.id); await recarregarFila(); toast('Áudio apagado'); } else if(it) toast('Esse já tinha sido enviado; o novo vai junto'); REC.blob=null; REC.ultimoId=null; render(); };
+  const en=$('#audEnviar'); if(en) en.onclick=async()=>{ const it=audioDaVez(ob); if(!it) return; it.status='pendente'; it.erro=null; await DB.put(it); REC.ultimoId=it.id; await recarregarFila(); render();
+    toast(navigator.onLine?'Enviando o áudio…':'Sem sinal: o áudio vai sozinho quando pegar internet',3500); if(navigator.onLine) enviarFila(); };
+  const re=$('#audReenviar'); if(re) re.onclick=()=>enviarFila();
 }
 function sopHTML(s){ let h=`<details><summary><span>${esc(s.codigo)} · ${esc(s.titulo)}</span></summary>`;
     if(s.objetivo) h+=`<p><b>Objetivo.</b> ${esc(s.objetivo)}</p>`; if(s.quando) h+=`<p class="muted"><b>Quando.</b> ${esc(s.quando)}</p>`; if(s.executa) h+=`<p class="muted"><b>Quem.</b> ${esc(s.executa)}</p>`;
@@ -978,6 +1081,8 @@ function ligarOcorr(ob){
   $('#tgMarca').onclick=()=>{ S.marca=!S.marca; LS.set('marca',S.marca); pintarToggles(); };
   $('#tgFmt').onclick=()=>{ S.fmt=S.fmt==='utm'?'geo':'utm'; LS.set('fmt',S.fmt); pintarToggles(); atualizarGeo(); };
   window.addEventListener('online',()=>{ pintarFila(); enviarFila(); }); window.addEventListener('offline',pintarFila);
+  /* sinal fraco não dispara o evento "online" de novo: tenta sozinho a cada minuto enquanto houver pendente */
+  setInterval(()=>{ if(navigator.onLine && !S.enviando && S.fila.some(x=>x.status==='pendente'||x.status==='erro')) enviarFila(); }, 60000);
   const ob=LS.get('obraId',null); if(ob && S.pacote?.obras.some(o=>o.id===ob)) S.obraId=ob;
   render(); if(S.obraId) iniciarGPS();
   // Botão "voltar": fecha a câmera/ficha, volta para a lista de obras e NUNCA sai do app

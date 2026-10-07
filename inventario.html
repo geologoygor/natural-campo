@@ -524,7 +524,11 @@ function rascSalvar(){
 function rascLista(){ return op("rasc","readonly",function(st){ return st.getAll(); }).then(function(r){ return r||[]; }); }
 function rascApagar(id){ return op("rasc","readwrite",function(st){ return st.delete(id); }); }
 function filaLista(){ return op("fila","readonly",function(st){ return st.getAll(); }).then(function(r){ return r||[]; }); }
-function filaPut(it){ return op("fila","readwrite",function(st){ return st.put(it); }); }
+/* gravar na fila PRECISA acusar falha (memória cheia, aba anônima): antes a falha parecia sucesso e a ficha
+   começada era apagada com as fotos */
+function filaPut(it){ return idb().then(function(db){ if(!db) throw new Error("armazenamento do aparelho indisponível");
+  return new Promise(function(res,rej){ try{ var tx=db.transaction("fila","readwrite"); tx.objectStore("fila").put(it);
+    tx.oncomplete=function(){ res(true); }; tx.onerror=tx.onabort=function(){ rej(tx.error||new Error("não gravou")); }; }catch(e){ rej(e); } }); }); }
 
 /* ---------- imagem ---------- */
 function reduzir(file){
@@ -851,6 +855,8 @@ function enviar(){
     S.d=null; S.rascId=null; S.fotos=[]; S.docs=[]; S.tela="inicio"; render(); window.scrollTo(0,0);
     toast(navigator.onLine?"Ficha na fila de envio. Subindo…":"Sem internet: a ficha ficou no aparelho e sobe quando o sinal voltar.",4200);
     enviarFila(false);
+  }).catch(function(e){
+    toast("A ficha NÃO foi para a fila ("+(e&&e.message||"memória cheia")+"). Ela continua aqui, com as fotos. Libere espaço no celular e toque em Enviar de novo.",9000);
   });
 }
 function enviarFila(manual){
