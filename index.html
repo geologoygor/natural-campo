@@ -223,7 +223,7 @@ details[open] summary::after{content:"–"}
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.10.0';
+const APP_VERSAO = '1.11.0';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -804,6 +804,7 @@ function telaInicio(){
           :`<div class="passos">1. Toque no menu <b>⋮</b> do navegador.<br>2. Escolha <b>Instalar app</b> ou <b>Adicionar à tela inicial</b>.<br>3. Abra pelo ícone <b>Campo Natural</b>.</div>`)+`</div>`; }
   if(semScript) h+=`<div class="banner">O robô de campo ainda não está configurado neste aparelho. Abra <b>Ajustes</b> e cole a URL do robô. Sem ele o app funciona, mas nada sobe para o Drive.</div>`;
   h+=cartaoQuem();
+  h+=cartaoAgenda();
   h+=`<div class="card"><h2>Obras abertas</h2><input id="busca" placeholder="Buscar obra ou cliente…" style="margin-bottom:10px"><div id="lista">`;
   if(!P) h+=`<div class="muted">Nenhuma lista de obras neste aparelho ainda. Com internet, toque em <b>Atualizar lista</b>.</div>`;
   else if(!P.obras.length) h+=`<div class="muted">Nenhuma obra aberta no painel.</div>`;
@@ -835,9 +836,79 @@ function ligarQuem(){
   const ca=$('#quemCancela'); if(ca) ca.onclick=()=>{ S.trocandoQuem=false; render(); };
 }
 function cartaoObra(o){ const P=S.pacote; return `<button class="obra" data-id="${esc(o.id)}"><b>${esc(o.nome)}</b><small>${esc(o.cliente||'')}</small><div style="margin-top:6px">${(o.linhas||[]).map(l=>`<span class="chip">${esc(P.linhas[l]?.nome||l)}</span>`).join('')}${o.pastaId?'':'<span class="chip w">sem pasta no Drive</span>'}</div></button>`; }
+/* ---------- AGENDA (v1.11): a da empresa e a de quem está no aparelho ----------
+ * Vem do painel junto com a lista (cada pessoa da equipe leva os seus compromissos e as suas
+ * tarefas abertas, escritório e campo). Só leitura: marcar feito continua no painel.
+ * O que é de RH ou dinheiro não vem para o app (fica só no painel). Funciona sem internet. */
+const DIAS_SEM=['dom','seg','ter','qua','qui','sex','sáb'];
+function agEventos(){ const P=S.pacote||{}; if(Array.isArray(P.agenda)&&P.agenda.length) return P.agenda;
+  const vistos={}, out=[]; (P.equipe||[]).forEach(f=>(f.agenda||[]).forEach(e=>{ if(e&&e.id&&!vistos[e.id]){ vistos[e.id]=1; out.push(e); } }));
+  return out.sort((a,b)=>(a.data+a.hora).localeCompare(b.data+b.hora)); }
+function agTemDados(){ const P=S.pacote||{}; return Array.isArray(P.agenda) || (P.equipe||[]).some(f=>Array.isArray(f.agenda)||Array.isArray(f.tarefas)); }
+function agMeus(ev){ return ev.filter(e=>e.todos || (e.funcs||[]).includes(S.quemId)); }
+function agTarefas(){ const f=((S.pacote&&S.pacote.equipe)||[]).find(x=>x.id===S.quemId); return (f&&f.tarefas)||[]; }
+function agNome(id){ const f=((S.pacote&&S.pacote.equipe)||[]).find(x=>x.id===id); return f?nomeCurto(f.nome):id; }
+function agDia(iso){ const h=hoje(); if(iso===h) return 'Hoje';
+  const d=new Date(iso+'T12:00:00'), t=new Date(h+'T12:00:00'); const dd=Math.round((d-t)/864e5);
+  if(dd===1) return 'Amanhã'; if(dd===-1) return 'Ontem';
+  return `${DIAS_SEM[d.getDay()]} ${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`; }
+function agDataCurta(iso){ if(!iso) return ''; const [a,m,d]=iso.split('-'); return `${d}/${m}`; }
+function agLinhaEvento(e, comNomes){
+  const lugar=e.lugar==='campo'?'<span class="chip g">campo</span>':(e.lugar==='escritorio'?'<span class="chip">escritório</span>':'');
+  const obraAberta=e.obraId && (S.pacote?.obras||[]).some(o=>o.id===e.obraId);
+  return `<div class="chk" style="display:block"><div><b>${esc(e.hora||'')}</b> ${esc(e.titulo)} ${lugar}</div>`+
+    `${e.onde?`<div class="muted" style="font-size:13px">📍 ${esc(e.onde)}</div>`:''}`+
+    `${e.obra?`<div class="muted" style="font-size:13px">Obra: ${esc(e.obra)}</div>`:''}`+
+    `${comNomes?`<div style="font-size:13px;margin-top:2px">${e.todos?'<span class="chip w">toda a empresa</span>':(e.funcs||[]).map(id=>`<span class="chip">${esc(agNome(id))}</span>`).join('')}</div>`:''}`+
+    `${e.notas?`<div class="nota" style="margin-top:2px">${esc(e.notas)}</div>`:''}`+
+    `${obraAberta?`<button class="sec" data-agobra="${esc(e.obraId)}" style="margin-top:6px;padding:8px 12px">Abrir a obra</button>`:''}</div>`; }
+function agPorDia(ev, comNomes){ if(!ev.length) return '';
+  let h='', dia=''; ev.forEach(e=>{ if(e.data!==dia){ dia=e.data; h+=`<div style="margin-top:10px;font-weight:700;color:var(--navy)">${esc(agDia(dia))}</div>`; } h+=agLinhaEvento(e, comNomes); }); return h; }
+function agLinhaTarefa(t){
+  const h=hoje(); const atrasada=t.prazo && t.prazo<h && t.status!=='espera';
+  const espera=t.status==='espera'; const quemB={cliente:'o cliente',orgao:'o órgão',natural:'a Natural'}[t.bola]||'';
+  const chip=atrasada?`<span class="chip e">atrasada · ${esc(agDataCurta(t.prazo))}</span>`:(t.prazo===h?'<span class="chip w">vence hoje</span>':(t.prazo&&t.prazo<h?`<span class="chip">prazo era ${esc(agDataCurta(t.prazo))}</span>`:(t.prazo?`<span class="chip">até ${esc(agDataCurta(t.prazo))}</span>`:'')));
+  const chE=espera?`<span class="chip w">aguardando${quemB?' '+esc(quemB):''}</span>`:''; const chP=t.prioridade==='alta'||t.prioridade==='urgente'?'<span class="chip e">prioridade alta</span>':'';
+  const obraAberta=t.obraId && (S.pacote?.obras||[]).some(o=>o.id===t.obraId);
+  const corpo=(t.porque||t.desc?`<div class="nota">${esc(t.porque||t.desc)}</div>`:'')+(t.obra?`<div class="muted" style="font-size:13px">Obra: ${esc(t.obra)}</div>`:'')+
+    ((t.check||[]).length?`<div style="margin-top:4px">`+t.check.map(c=>`<div style="font-size:14px">${c.ok?'✅':'⬜'} ${esc(c.t)}</div>`).join('')+`</div>`:'')+
+    (obraAberta?`<button class="sec" data-agobra="${esc(t.obraId)}" style="margin-top:6px;padding:8px 12px">Abrir a obra</button>`:'')+
+    `<div class="muted" style="font-size:12px;margin-top:4px">Demanda nº ${esc(t.n??'')} · marcar como feita: no painel ou avisando o escritório</div>`;
+  return `<details><summary><span style="flex:1"><span style="font-weight:600">${esc(t.titulo)}</span><br>${chip}${chE}${chP}</span></summary>${corpo}</details>`; }
+function cartaoAgenda(){
+  if(!S.pacote) return '';
+  if(!agTemDados()) return `<div class="card"><h2>Agenda</h2><div class="muted">A agenda ainda não veio com a lista deste celular. Com internet, toque em <b>Atualizar lista</b>.</div></div>`;
+  const aba=LS.get('agAba','minha'); const h0=hoje();
+  const ev=agEventos().filter(e=>e.data>=h0); // compromisso que já passou sai da tela
+  let h=`<div class="card"><h2>Agenda</h2><div class="seg" style="margin-bottom:6px"><button data-agaba="minha" class="${aba==='minha'?'on':''}">Minha agenda</button><button data-agaba="empresa" class="${aba==='empresa'?'on':''}">Empresa</button></div>`;
+  if(aba==='empresa'){
+    const lim=new Date(Date.now()+14*864e5); const limIso=`${lim.getFullYear()}-${String(lim.getMonth()+1).padStart(2,'0')}-${String(lim.getDate()).padStart(2,'0')}`;
+    const prox=ev.filter(e=>e.data<=limIso); const depois=ev.length-prox.length;
+    h+= prox.length? agPorDia(prox, true) : `<div class="muted" style="margin-top:8px">Nenhum compromisso da empresa nos próximos 14 dias.</div>`;
+    if(depois) h+=`<div class="nota" style="margin-top:8px">+${depois} compromisso(s) mais adiante — veja no painel.</div>`;
+  } else if(!S.quemId){
+    h+=`<div class="muted" style="margin-top:8px">${S.quem?'O nome deste aparelho não está na lista da equipe, então não há agenda individual. Toque em <b>Trocar</b> e escolha o seu nome na lista.':'Escolha o seu nome acima para ver a sua agenda.'}</div>`;
+  } else {
+    const meus=agMeus(ev); const tar=agTarefas();
+    const ord=t=>{ const at=t.prazo&&t.prazo<h0&&t.status!=='espera'; return (at?'0':(t.status==='espera'?'2':'1'))+(t.prazo||'9999'); };
+    const tarO=tar.slice().sort((a,b)=>ord(a).localeCompare(ord(b)));
+    const nAt=tar.filter(t=>t.prazo&&t.prazo<h0&&t.status!=='espera').length;
+    h+=`<div class="muted" style="font-size:13px;margin-top:4px">${esc(S.quem)} · ${meus.length} compromisso(s) · ${tar.length} tarefa(s) aberta(s)${nAt?` · <b style="color:var(--err)">${nAt} atrasada(s)</b>`:''}</div>`;
+    h+= meus.length? agPorDia(meus, false) : `<div class="muted" style="margin-top:8px">Nenhum compromisso seu na agenda.</div>`;
+    h+=`<div style="margin-top:14px;font-weight:700;color:var(--navy)">Minhas tarefas (escritório e campo)</div>`;
+    if(!tarO.length) h+=`<div class="muted" style="margin-top:4px">Nenhuma tarefa aberta no seu nome.</div>`;
+    else { const mostrar=S.agTodas?tarO:tarO.slice(0,6); h+=mostrar.map(agLinhaTarefa).join('');
+      if(tarO.length>mostrar.length) h+=`<button class="big ghost" id="agMais" style="margin-top:6px">Ver todas (${tarO.length})</button>`; }
+  }
+  return h+`<div class="nota" style="margin-top:8px">Vem do painel junto com a lista (${esc(fmtData(S.pacote.geradoEm))}). Atualize com internet para ver mudanças.</div></div>`; }
+function ligarAgenda(){
+  document.querySelectorAll('[data-agaba]').forEach(b=>b.onclick=()=>{ LS.set('agAba', b.dataset.agaba); render(); });
+  const mais=$('#agMais'); if(mais) mais.onclick=()=>{ S.agTodas=true; render(); };
+  document.querySelectorAll('[data-agobra]').forEach(b=>b.onclick=()=>{ const o=document.querySelector(`.obra[data-id="${CSS.escape(b.dataset.agobra)}"]`); if(o) o.click(); });
+}
 function ligarInicio(){
   const bi=$('#btInstalar'); if(bi) bi.onclick=async()=>{ const e=S.promptInstalar; S.promptInstalar=null; try{ e.prompt(); await e.userChoice; }catch(_){} render(); };
-  ligarQuem();
+  ligarQuem(); ligarAgenda();
   $('#busca').oninput=e=>{ const q=e.target.value.toLowerCase(); $('#lista').innerHTML=(S.pacote?.obras||[]).filter(o=>(o.nome+' '+(o.cliente||'')+' '+(o.servico||'')).toLowerCase().includes(q)).map(cartaoObra).join('')||'<div class="muted">Nada encontrado.</div>'; ligarObras(); };
   ligarObras();
   $('#atualizar').onclick=()=>baixarPacote(false);
