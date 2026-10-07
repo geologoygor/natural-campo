@@ -173,6 +173,7 @@ const DEF = {
    { t:'Pendências e pedidos fora do escopo (a Natural orça à parte — não prometer)', campos:[
      {k:'pend', r:'Ex.: cano até a casa, caixa d’água, casa de proteção, mais um ponto. Se não houver, escreva "nenhum".', tipo:'area', w:4}]},
    { t:'Assinaturas', campos:[
+     {k:'foto_recebe', r:'Foto de quem recebe (se aceitar)', tipo:'foto', w:2},
      {k:'ass_recebe', r:'Assinatura de quem recebe', tipo:'ass', w:2}, {k:'encarregado', r:'Encarregado da Natural (nome)', tipo:'text', w:2, pre:'quem'},
      {k:'ass_enc', r:'Assinatura do encarregado', tipo:'ass', w:2}]}
   ],
@@ -257,6 +258,7 @@ DEF.poco_limpeza = {
      {k:'recebe', r:'Nome de quem recebe', tipo:'text', w:2},
      {k:'quem_e', r:'Quem recebe é', tipo:'sel', op:['','O próprio cliente','Indicado pelo cliente por WhatsApp'], w:2},
      {k:'pend', r:'Pedidos fora do escopo (a Natural orça à parte — não prometer). Se não houver, escreva "nenhum".', tipo:'area', w:4},
+     {k:'foto_recebe', r:'Foto de quem recebe (se aceitar)', tipo:'foto', w:2},
      {k:'ass_recebe', r:'Assinatura de quem recebe', tipo:'ass', w:2}, {k:'ass_enc', r:'Assinatura do encarregado', tipo:'ass', w:2}
    ]}
   ],
@@ -777,6 +779,72 @@ function ligarGeo(f){
 
 const FICHAS_DA_LINHA = { spt:['spt'], poco:['poco_perf','poco_teste','poco_entrega'], outorga:['poco_teste'], geofisica:['geof_cam','geof_sev'], 'limpeza-poco':['poco_limpeza'] };
 
+/* ============================================================
+   TERMO DE RECEBIMENTO — SOP-031 v1.2 (texto validado pelo Ygor em 25/09/2026)
+   Para SPT, topografia, georreferenciamento, geofísica e obra civil (o poço tem a FC-POÇO Entrega).
+   O termo lista só o que foi medido no "Terminei o campo" (SOP-030) e NÃO fala de valor:
+   assinar não pode virar argumento de quitação.
+   ============================================================ */
+const dataBR = v => /^\d{4}-\d{2}-\d{2}$/.test(v||'') ? v.split('-').reverse().join('/') : (v||'');
+function textoTermo(d){ const b=(v,ph)=> (v&&String(v).trim()) ? String(v).trim() : ph;
+  const quem = /^Indicado/.test(d.quem_e||'') ? `indicado pelo cliente por WhatsApp em ${b(dataBR(d.ind_data),'[data]')}` : (/^Represent/.test(d.quem_e||'') ? 'representante do cliente' : 'cliente');
+  return `Declaro que recebi o serviço ${b(d.servico,'[descrição]')}, executado pela Natural Engenharia na obra ${b(d.obra,'[obra]')}${d.local?' ('+d.local.trim()+')':''} em ${b(dataBR(d.data),'[data]')}, conforme medido: ${b(d.medido,'[itens e quantidades]')}. Pendências anotadas: ${b(d.pend,'nenhuma')}. Assinatura de ${b(d.recebe,'[nome]')}, ${quem}.`; }
+DEF.termo = {
+  codigo:'TERMO DE RECEBIMENTO', titulo:'Termo de recebimento do serviço', sop:'SOP-031',
+  ident: d => d.recebe ? 'aceite '+d.recebe.split(' ')[0] : 'aceite',
+  blocos: [
+   { t:'1 · O serviço', notaSoApp:true, nota:'Mostre ao cliente o que foi feito, item por item, antes de pedir a assinatura.', campos:[
+     {k:'servico', r:'Serviço', tipo:'text', w:4, pre:'servico'}, {k:'obra', r:'Obra', tipo:'text', w:2, pre:'obra'}, {k:'local', r:'Local', tipo:'text', w:2, ph:'fazenda, rua, município'},
+     {k:'data', r:'Data', tipo:'date', pre:'hoje', w:2}, {k:'hora', r:'Hora', tipo:'time', agora:true, w:2}, {k:'coord', r:'Coordenada', tipo:'gps', w:4}
+   ]},
+   { t:'2 · Conforme medido (SOP-030)', notaSoApp:true, nota:'Vem do cartão "Terminei o campo" da aba Roteiro. Só o que foi medido — nada de item novo escrito na hora. Nada de valor.', campos:[
+     {k:'medido', r:'Itens e quantidades', tipo:'area', w:4, pre:'medicao', ph:'Ex.: 2 furos SPT, 24 m no total'},
+     {k:'pend', r:'Pendências (se não houver, escreva "nenhuma")', tipo:'area', w:4}
+   ]},
+   { t:'3 · Quem recebe', campos:[
+     {k:'recebe', r:'Nome de quem recebe', tipo:'text', w:2},
+     {k:'quem_e', r:'Quem recebe é', tipo:'sel', w:2, op:['','O próprio cliente','Indicado pelo cliente por WhatsApp','Representante do cliente (cliente com termo próprio)']},
+     {k:'ind_data', r:'Indicado no WhatsApp em', tipo:'date'}, {k:'relacao', r:'Relação com o cliente', tipo:'text', ph:'caseiro, gerente, fiscal…'},
+     {k:'doc_cli', r:'Cliente tem termo próprio (aeroporto, China Mobile…)', tipo:'sel', w:2, op:['','Não','Sim — assinou o dele; fotografei e anexei']}
+   ]},
+   { t:'4 · O termo', campos:[
+     {k:'texto', r:'', tipo:'texto', w:4, calc:textoTermo},
+     {k:'declara', r:'', tipo:'check', w:4, op:['Li o termo com quem recebe e ele concordou']}
+   ]},
+   { t:'5 · Foto e assinaturas', notaSoApp:true, nota:'A foto de quem assina, ao lado do serviço, é a prova de quem recebeu e onde. Só se a pessoa aceitar.', campos:[
+     {k:'foto_recebe', r:'Foto de quem assina', tipo:'foto', w:2}, {k:'ass_recebe', r:'Assinatura de quem recebe', tipo:'ass', w:2},
+     {k:'encarregado', r:'Encarregado da Natural (nome)', tipo:'text', w:2, pre:'quem'}, {k:'ass_enc', r:'Assinatura do encarregado', tipo:'ass', w:2}
+   ]},
+   { t:'Se a pessoa recusar', soSe: d=>/^Sim/.test(d.recusa||'')||!!d.recusa_motivo, campos:[
+     {k:'recusa', r:'Recusou assinar?', tipo:'sel', w:2, op:['','Não','Sim — recusou']}, {k:'recusa_motivo', r:'Motivo, com as palavras dela', tipo:'area', w:4}
+   ]}
+  ],
+  nota:'Termo assinado não é quitação: conversa de pagamento é com o escritório. Recusa: não discuta, anote o motivo, fotografe o serviço funcionando e avise o Ygor no mesmo dia. Sem sinal: tudo fica no celular e sobe quando pegar internet.',
+  avisos: d => { const a=[];
+    if(!d.medido) a.push('Itens medidos em branco — preencha o "Terminei o campo" ou escreva aqui o que foi medido.');
+    if(!d.recebe) a.push('Nome de quem recebe em branco.');
+    if(/^Indicado/.test(d.quem_e||'') && !d.ind_data) a.push('Indicado por WhatsApp sem a data da indicação.');
+    if(/^Sim/.test(d.recusa||'')){ if(!d.recusa_motivo) a.push('Recusa sem o motivo escrito.'); a.push('Recusa de assinar: avise o Ygor hoje.'); }
+    else { if(!d.ass_recebe) a.push('Sem assinatura de quem recebe — o serviço fica sem aceite (SOP-031).');
+      if(!(d.declara||[]).length) a.push('Não marcou que leu o termo com quem recebe.'); }
+    if(!d.foto_recebe) a.push('Sem foto de quem assina (só se a pessoa aceitar).');
+    if(!d.pend) a.push('Pendências em branco — se não houver, escreva "nenhuma".');
+    return a; }
+};
+['spt','geofisica','georef','topografia','obra-civil'].forEach(l=>{ FICHAS_DA_LINHA[l]=(FICHAS_DA_LINHA[l]||[]).concat('termo'); });
+
+/* foto de quem assina: câmera traseira, reduzida e carimbada com data, hora e coordenada */
+function fotografar(pronto){
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.capture='environment'; inp.style.display='none'; document.body.appendChild(inp);
+  inp.onchange=async()=>{ const fl=inp.files&&inp.files[0]; inp.remove(); if(!fl) return;
+    try{ const url=URL.createObjectURL(fl); const im=await new Promise((ok,er)=>{ const i=new Image(); i.onload=()=>ok(i); i.onerror=er; i.src=url; });
+      const lado=900, r=Math.min(1,lado/Math.max(im.width,im.height)); const cv=document.createElement('canvas'); cv.width=Math.round(im.width*r); cv.height=Math.round(im.height*r);
+      const c=cv.getContext('2d'); c.drawImage(im,0,0,cv.width,cv.height); URL.revokeObjectURL(url);
+      const carimbo=`${fmtData(new Date())} · ${S.pos?fmtCoordCurta(S.pos,S.fmt):'sem GPS'} · ${S.quem||''}`;
+      c.fillStyle='rgba(17,62,107,.8)'; c.fillRect(0,cv.height-34,cv.width,34); c.fillStyle='#fff'; c.font='18px system-ui,Arial'; c.fillText(carimbo,10,cv.height-11);
+      pronto(cv.toDataURL('image/jpeg',0.72)); }catch(e){ toast('Não consegui ler a foto: '+e.message,4000); } };
+  inp.click(); }
+
 function somaHora(h, min){ if(!h||!/^\d{1,2}:\d{2}$/.test(h)) return ''; const [a,b]=h.split(':').map(Number); const t=a*60+b+Number(min); const d=Math.floor(t/1440); const r=((t%1440)+1440)%1440; return String(Math.floor(r/60)).padStart(2,'0')+':'+String(r%60).padStart(2,'0')+(d?` (+${d}d)`:''); }
 
 /* ---------------- Armazenamento (no celular, salva a cada toque) ---------------- */
@@ -795,7 +863,7 @@ function faixaMemoria(mostra){ let el=document.getElementById('faixaMem');
 /* fichas encerradas e já enviadas não precisam guardar as assinaturas (estão no PDF que subiu): libera memória */
 function aliviarMemoria(){ try{ const env=new Set((S.fila||[]).filter(x=>x.status==='enviado'&&x.tipo==='ficha').map(x=>x.meta&&x.meta.extra&&x.meta.extra.fichaId));
   const a=todas(); let mudou=false;
-  for(const f of a) if(f.status==='encerrada' && env.has(f.id)) for(const [k,v] of Object.entries(f.dados)) if(typeof v==='string' && v.startsWith('data:image')){ f.dados[k]='[assinatura no PDF enviado]'; mudou=true; }
+  for(const f of a) if(f.status==='encerrada' && env.has(f.id)) for(const [k,v] of Object.entries(f.dados)) if(typeof v==='string' && v.startsWith('data:image')){ f.dados[k]='[imagem no PDF enviado]'; mudou=true; }
   if(mudou) salvarTodas(a); }catch(e){} }
 function remover(id){ salvarTodas(todas().filter(f=>f.id!==id)); }
 
@@ -804,7 +872,7 @@ let ABERTA=null; // id da ficha em edição
 function novaFicha(tipo, ob){
   const def=DEF[tipo]; const d={};
   for(const b of def.blocos){ for(const c of (b.campos||[])){
-      if(c.pre==='hoje') d[c.k]=HOJE(); else if(c.pre==='obra') d[c.k]=ob.nome; else if(c.pre==='cliente') d[c.k]=ob.cliente||ob.nome; else if(c.pre==='quem') d[c.k]=S.quem||''; else d[c.k]= c.tipo==='check'?[]:''; }
+      if(c.pre==='hoje') d[c.k]=HOJE(); else if(c.pre==='obra') d[c.k]=ob.nome; else if(c.pre==='cliente') d[c.k]=ob.cliente||ob.nome; else if(c.pre==='quem') d[c.k]=S.quem||''; else if(c.pre==='servico') d[c.k]=ob.servico||''; else if(c.pre==='medicao'){ let m=null; try{ m=JSON.parse(localStorage.getItem('nc_desmob_'+ob.id)||'null'); }catch(e){} d[c.k]=(m&&m.qtd)||''; } else d[c.k]= c.tipo==='check'?[]:''; }
     if(b.tabela){ const tb=b.tabela; d[tb.k] = tb.seq==='fixo' ? tb.fixo.map(x=>Object.assign({},x)) : []; } }
   if(tipo==='geof_cam'){ d.leituras=[]; d.geo_pendente=true; d.geo_a=''; d.geo_rem=''; d.geo_L=''; }
   if(tipo==='spt'){ const n=todas().filter(f=>f.obraId===ob.id&&f.tipo==='spt').length+1; d.furo=String(n).padStart(2,'0'); d.golpes=[linhaVazia(def.blocos[1].tabela, {de:0,ate:1})]; }
@@ -839,6 +907,8 @@ function campoHTML(c, v, ro){
   const span=`grid-column:span ${Math.min(c.w||1,4)}`;
   if(c.tipo==='check') return `<div style="${span}">${lab}${c.op.map((o,i)=>`<label class="chk" style="text-transform:none;letter-spacing:0;font-weight:400;font-size:15px;color:var(--ink);margin:0"><input type="checkbox" data-ck="${c.k}" value="${esc(o)}" ${(v||[]).includes(o)?'checked':''} ${dis}><span>${esc(o)}</span></label>`).join('')}</div>`;
   if(c.tipo==='calc') return `<div style="${span}">${lab}<input id="${id}" data-calcf="${c.k}" value="${esc(v==null?'':v)}" disabled style="font-weight:700;opacity:.9"></div>`;
+  if(c.tipo==='texto') return `<div style="${span}"><div class="termo-txt" data-textof="${c.k}">${esc(v||'')}</div></div>`;
+  if(c.tipo==='foto') return `<div style="${span}">${lab}<div class="ass fotoass" data-foto="${c.k}">${v&&String(v).startsWith('data:image')?`<img src="${v}" alt="foto">`:(v?`<span class="muted">${esc(v)}</span>`:'<span class="muted">📷 Toque para fotografar</span>')}</div>${v&&!ro?`<button class="ghost" data-fotox="${c.k}" style="color:var(--err)">tirar a foto</button>`:''}</div>`;
   if(c.tipo==='ass') return `<div style="${span}">${lab}<div class="ass" data-ass="${c.k}">${v?`<img src="${v}" alt="assinatura">`:'<span class="muted">Toque para assinar</span>'}</div></div>`;
   if(c.tipo==='sel') return `<div style="${span}">${lab}<select id="${id}" data-f="${c.k}" ${dis}>${c.op.map(o=>`<option ${o===v?'selected':''}>${esc(o)}</option>`).join('')}</select></div>`;
   if(c.tipo==='area') return `<div style="${span}">${lab}<textarea id="${id}" data-f="${c.k}" ${dis} placeholder="${esc(c.ph||'')}">${esc(v||'')}</textarea></div>`;
@@ -948,7 +1018,7 @@ function desenharEditor(){
     if(b.grafico){ h+=cartaoGrafico(f,b); return; }
     h+=`<div class="card"><h2>${esc(b.t)}</h2>${b.nota?`<div class="nota">${esc(b.nota)}</div>`:''}`;
     if(b.img) h+=`<img src="${b.img}" data-zoom="${b.img}" alt="${esc(b.t)}" style="width:100%;border:1px solid var(--line);border-radius:12px;margin-top:8px"><div class="mini">toque na figura para ampliar — abre por cima da ficha, com botão Fechar; nada se perde</div>`;
-    if(b.campos) h+=`<div class="grid">`+b.campos.map(c=>campoHTML(c,c.tipo==='calc'?c.calc(d):d[c.k],ro)).join('')+`</div>`;
+    if(b.campos) h+=`<div class="grid">`+b.campos.map(c=>campoHTML(c,(c.tipo==='calc'||c.tipo==='texto')?c.calc(d):d[c.k],ro)).join('')+`</div>`;
     if(b.tabela) h+=tabelaHTML(b.tabela,d,ro);
     h+=`</div>`; });
   if(def.nota) h+=`<div class="card nota">${esc(def.nota)}</div>`;
@@ -975,6 +1045,8 @@ function ligarEditor(f){
     f.dados[k].splice(+i,1); gravar(f); desenharEditor();
     barraDesfazer('Apagado.', ()=>{ f.dados[k].splice(+i,0,linha); gravar(f); desenharEditor(); }); });
   document.querySelectorAll('[data-mostra]').forEach(b=>b.onclick=()=>{ document.querySelectorAll('.linha.vz').forEach(x=>x.classList.toggle('oc')); });
+  document.querySelectorAll('[data-foto]').forEach(el=>el.onclick=()=>{ if(f.status==='encerrada') return; fotografar(url=>{ f.dados[el.dataset.foto]=url; gravar(f); desenharEditor(); }); });
+  document.querySelectorAll('[data-fotox]').forEach(b=>b.onclick=()=>{ const k=b.dataset.fotox, ant=f.dados[k]; f.dados[k]=''; gravar(f); desenharEditor(); barraDesfazer('Foto tirada da ficha.', ()=>{ f.dados[k]=ant; gravar(f); desenharEditor(); }); });
   document.querySelectorAll('[data-ass]').forEach(el=>el.onclick=()=>{ if(f.status==='encerrada') return; assinar(el.dataset.ass, url=>{ f.dados[el.dataset.ass]=url; gravar(f); desenharEditor(); }); });
   document.querySelectorAll('[data-gmat]').forEach(box=>box.querySelectorAll('button').forEach(b=>b.onclick=()=>{ const [k,i,c]=box.dataset.gmat.split('.'); const l=f.dados[k][+i]; const s=l._sel||(l._sel={tipos:[],cor:'',umid:''}); const gr=box.dataset.grupo, v=b.dataset.v;
     if(gr==='tipos') s.tipos = s.tipos.includes(v)? s.tipos.filter(x=>x!==v) : [...s.tipos, v]; else s[gr] = s[gr]===v?'':v;
@@ -1037,6 +1109,7 @@ function atualizarCalc(f){
   const def=DEF[f.tipo]; const d=f.dados;
   def.blocos.filter(b=>b.tabela).forEach(b=>{ const tb=b.tabela; (d[tb.k]||[]).forEach((l,i)=>tb.cols.filter(c=>c.tipo==='calc').forEach(c=>{ const el=document.querySelector(`[data-calc="${tb.k}.${i}.${c.k}"]`); if(el) el.textContent=String(c.calc(l,d)); })); });
   def.blocos.forEach(b=>(b.campos||[]).filter(c=>c.tipo==='calc').forEach(c=>{ const el=document.querySelector(`[data-calcf="${c.k}"]`); if(el) el.value=String(c.calc(d)); }));
+  def.blocos.forEach(b=>(b.campos||[]).filter(c=>c.tipo==='texto').forEach(c=>{ const el=document.querySelector(`[data-textof="${c.k}"]`); if(el) el.textContent=String(c.calc(d)); }));
   const box=$('#avisosBox'); if(box){ const av=def.avisos(d); box.innerHTML=`<h2>O que ainda falta</h2>${av.length?av.map(x=>`<div class="erro">${esc(x)}</div>`).join(''):'<div class="muted">Nada pendente.</div>'}<div class="nota">Nenhum aviso impede encerrar. Não mediu? Deixe em branco e escreva o porquê. Nunca invente.</div>`; }
   if(f.tipo==='poco_teste' && $('#prox') && !(document.activeElement&&document.activeElement.id==='ldv')) renderProx(f);
 }
@@ -1371,13 +1444,20 @@ async function gerarPDF(f){
         titulo(b.t); c.drawImage(g, M, y, lw, lh);
         c.strokeStyle='#D9DEE5'; c.lineWidth=1; c.strokeRect(M, y, lw, lh); y+=lh+18; }
       continue; }
+    if(b.soSe && !b.soSe(d)) continue;
     titulo(b.t);
-    if(b.nota){ const ls=quebra(b.nota,W-2*M,15); garante(ls.length*20); c.fillStyle='#5B6570'; c.font=fonte(15); ls.forEach(l=>{ c.fillText(l,M,y+14); y+=20; }); y+=6; }
+    if(b.nota && !b.notaSoApp){ const ls=quebra(b.nota,W-2*M,15); garante(ls.length*20); c.fillStyle='#5B6570'; c.font=fonte(15); ls.forEach(l=>{ c.fillText(l,M,y+14); y+=20; }); y+=6; }
     if(b.campos){ // grade de 4 colunas
       const col=(W-2*M)/4; let x=0, alt=0; const linha=[];
       const flush=()=>{ y+=alt+10; x=0; alt=0; };
       for(const cp of b.campos){ const span=Math.min(cp.w||1,4); if(x+span>4) flush();
         const X=M+x*col, larg=span*col-14;
+        if(cp.tipo==='texto'){ if(x>0) flush(); const ls=quebra(cp.calc(d),W-2*M-30,19); garante(ls.length*26+30); c.fillStyle='#F3F5F8'; c.fillRect(M,y,W-2*M,ls.length*26+24); c.fillStyle='#1B2430'; c.font=fonte(19); ls.forEach((l,i)=>c.fillText(l,M+15,y+30+i*26)); y+=ls.length*26+36; continue; }
+        if(cp.tipo==='foto'){ garante(270); const img=d[cp.k]; c.fillStyle='#5B6570'; c.font=fonte(14,true); quebra(cp.r.toUpperCase(),larg,14,true).slice(0,1).forEach(l=>c.fillText(l,X,y+14));
+          c.strokeStyle='#D9DEE5'; c.strokeRect(X,y+22,larg,240);
+          if(img && String(img).startsWith('data:image')){ const im=await new Promise(ok=>{ const i=new Image(); i.onload=()=>ok(i); i.onerror=()=>ok(null); i.src=img; }); if(im){ const r=Math.min(larg/im.width,240/im.height); c.drawImage(im,X+(larg-im.width*r)/2,y+22,im.width*r,im.height*r); } }
+          else { c.fillStyle='#B45309'; c.font=fonte(15); c.fillText('sem foto de quem assina',X+10,y+140); }
+          alt=Math.max(alt,270); x+=span; continue; }
         if(cp.tipo==='ass'){ garante(170); const img=d[cp.k]; c.fillStyle='#5B6570'; c.font=fonte(14,true); c.fillText(cp.r.toUpperCase(),X,y+14);
           c.strokeStyle='#D9DEE5'; c.strokeRect(X,y+22,larg,120);
           if(img){ const im=await new Promise(ok=>{ const i=new Image(); i.onload=()=>ok(i); i.onerror=()=>ok(null); i.src=img; }); if(im){ const r=Math.min(larg/im.width,120/im.height); c.drawImage(im,X+(larg-im.width*r)/2,y+22,im.width*r,im.height*r); } }
@@ -1647,7 +1727,7 @@ async function encerrar(f){
     gravar(f);
     const pdf=await gerarPDF(f);
     await enfileirarArquivo(pdf,'ficha',base+'.pdf',{fichaId:f.id,tipo:f.tipo,versao:f.versao,avisos:av},{obra:ob});
-    const dados=new Blob([JSON.stringify({app:'campo',fichaId:f.id,tipo:f.tipo,codigo:def.codigo,sop:def.sop,versao:f.versao,obraId:f.obraId,obra:f.obraNome,por:f.por,criadoEm:f.criadoEm,encerradoEm:new Date().toISOString(),avisos:av,foraDoPadrao:!!f.foraDoPadrao,dados:Object.fromEntries(Object.entries(f.dados).map(([k,v])=>[k, (typeof v==='string'&&v.startsWith('data:image'))?'[assinatura no PDF]':v]))},null,1)],{type:'application/json'});
+    const dados=new Blob([JSON.stringify({app:'campo',fichaId:f.id,tipo:f.tipo,codigo:def.codigo,sop:def.sop,versao:f.versao,obraId:f.obraId,obra:f.obraNome,por:f.por,criadoEm:f.criadoEm,encerradoEm:new Date().toISOString(),avisos:av,foraDoPadrao:!!f.foraDoPadrao,dados:Object.fromEntries(Object.entries(f.dados).map(([k,v])=>[k, (typeof v==='string'&&v.startsWith('data:image'))?'[imagem no PDF]':v]))},null,1)],{type:'application/json'});
     await enfileirarArquivo(dados,'ficha',base+'.json',{fichaId:f.id,tipo:f.tipo,versao:f.versao},{obra:ob});
     S.obraId=prevObra;
     f.status='encerrada'; f.encerradaEm=new Date().toISOString();

@@ -73,7 +73,7 @@ main>*{max-width:720px;margin-left:auto;margin-right:auto}
 details{border-top:1px solid var(--line);padding:8px 0}
 details summary{cursor:pointer;font-weight:600;color:var(--navy);list-style:none;display:flex;justify-content:space-between;align-items:center;gap:8px}
 details summary::after{content:"+";font-size:20px;color:var(--green)}
-details[open] summary::after{content:"–"}
+details[open]>summary::after{content:"–"}
 .etapa{padding:8px 0 8px 14px;border-left:3px solid var(--green);margin:8px 0;font-size:15px}
 .etapa .pq{color:var(--muted);font-size:13px;margin-top:4px}
 .regra{padding:6px 0 6px 12px;border-left:3px solid var(--navy);margin:6px 0;font-size:14px}
@@ -101,6 +101,41 @@ details[open] summary::after{content:"–"}
 .seg{display:flex;border:1.5px solid var(--navy);border-radius:10px;overflow:hidden}
 .seg button{flex:1;border-radius:0;background:#fff;color:var(--navy);padding:10px}
 .seg button.on{background:var(--navy);color:#fff}
+/* tela inicial (v1.13): Hoje · Tarefas · Obras, cor por urgência */
+.ini-nav{display:flex;gap:6px;margin-bottom:12px;position:sticky;top:-14px;z-index:10;background:var(--bg);padding:6px 0}
+.ini-nav button{flex:1;background:#fff;color:var(--navy);border:1.5px solid var(--line);padding:12px 6px;font-size:15px;border-radius:12px;display:flex;align-items:center;justify-content:center;gap:6px}
+.ini-nav button.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+.bolha{font-style:normal;font-size:12px;font-weight:700;min-width:22px;padding:2px 7px;border-radius:999px;background:#E8F1FA;color:var(--navy)}
+.ini-nav button.on .bolha{background:rgba(255,255,255,.2);color:#fff}
+.bolha.e{background:var(--err);color:#fff}.bolha.w{background:#F59E0B;color:#fff}.bolha.n{background:var(--navy);color:#fff}.bolha.cinza{background:#94A3B8;color:#fff}
+.hoje-cab{margin:2px 2px 10px}.hoje-data{font-size:22px;font-weight:800;color:var(--navy)}
+.placar{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+.placar .pl{display:flex;flex-direction:column;align-items:center;padding:12px 4px;border-radius:14px;border:0;font-weight:600}
+.placar .pl b{font-size:30px;line-height:1}.placar .pl span{font-size:13px;margin-top:4px}
+.pl.e{background:var(--err-bg);color:var(--err)}.pl.w{background:var(--warn-bg);color:var(--warn)}.pl.n{background:#E8F1FA;color:var(--navy)}
+.vazio{color:var(--muted);font-size:15px;padding:6px 0}.vazio.ok{color:var(--green-2);font-weight:600}
+.ev{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}.ev:last-child{border-bottom:0}
+.ev-h{flex:0 0 64px;text-align:center;font-size:18px;font-weight:800;color:var(--navy);background:#E8F1FA;border-radius:10px;padding:8px 2px;align-self:flex-start}
+.ev-h small{display:block;font-size:11px;font-weight:600;margin-top:2px}
+.ev.campo .ev-h{background:var(--ok-bg);color:var(--green-2)}
+.ev-c{flex:1;min-width:0}.ev-c b{display:block;font-size:15px}.ev-l{font-size:13px;color:var(--muted);margin-top:2px}
+.dia-cab{margin:12px 0 2px;font-weight:700;color:var(--navy)}
+.curta{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}.curta:last-child{border-bottom:0}
+.curta small{color:var(--muted)}
+.dpill{flex:0 0 auto;background:var(--navy);color:#fff;border-radius:8px;padding:3px 8px;font-size:12px;font-weight:700;min-width:70px;text-align:center}
+details.tar{border:0;border-left:5px solid #93C5FD;background:#F8FAFC;border-radius:10px;padding:10px 12px;margin:8px 0}
+details.tar.e{border-left-color:var(--err);background:#FFF5F5}details.tar.w{border-left-color:#F59E0B;background:#FFFBEB}details.tar.cinza{border-left-color:#CBD5E1;background:#F8FAFC}
+details.tar summary::after{color:var(--muted)}
+.tar-c{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
+.tar-q{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--navy)}
+.tar.e .tar-q{color:var(--err)}.tar.w .tar-q{color:var(--warn)}.tar.cinza .tar-q{color:var(--muted)}
+.tar-t{font-size:15px;color:var(--ink);font-weight:600}.tar-o{font-size:13px;color:var(--muted);font-weight:500}
+details.grupo{padding:12px 14px}details.grupo>summary{font-size:17px;color:var(--navy)}details.grupo>summary span{flex:1}
+details.grupo>summary::after{margin-left:8px}
+details.grupo.e>summary{color:var(--err)}details.grupo.w>summary{color:var(--warn)}details.grupo.cinza>summary{color:var(--muted)}
+details.card{border-top:0}details.empresa>summary{color:var(--navy)}
+details.instalar>summary{color:#fff}details.instalar>summary::after{color:#fff}
+button.mini{padding:8px 12px;font-size:14px;margin-top:6px}
 /* câmera */
 #cam{position:fixed;inset:0;background:#000;z-index:50;display:none;flex-direction:column}
 #verPdf{position:fixed;inset:0;z-index:60;background:#3a3f47;display:flex;flex-direction:column}
@@ -172,6 +207,8 @@ details[open] summary::after{content:"–"}
 .lh b{color:var(--navy)}
 .ass{border:1.5px dashed var(--navy);border-radius:10px;min-height:90px;display:flex;align-items:center;justify-content:center;background:#fff;cursor:pointer}
 .ass img{max-width:100%;max-height:120px}
+.fotoass{min-height:140px}.fotoass img{max-height:260px;border-radius:8px}
+.termo-txt{background:#F3F5F8;border-left:4px solid var(--green);border-radius:10px;padding:12px 14px;font-size:16px;line-height:1.5;color:var(--ink)}
 .assov{position:fixed;inset:0;background:rgba(10,20,35,.6);z-index:80;display:flex;align-items:center;justify-content:center;padding:16px}
 .assbox{background:#fff;border-radius:16px;padding:14px;width:100%;max-width:680px}
 .assbox canvas{border:1.5px solid var(--line);border-radius:10px;background:#fff;touch-action:none;display:block}
@@ -223,7 +260,7 @@ details[open] summary::after{content:"–"}
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.12.0';
+const APP_VERSAO = '1.13.0';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -794,27 +831,6 @@ function render(){
   m.innerHTML=html; m.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{S.tab=b.dataset.tab; render(); window.scrollTo(0,0);});
   ({roteiro:ligarRoteiro, fotos:ligarFotos, diario:ligarDiario, proc:()=>{}, fichas:ligarFichas, ocorr:ligarOcorr})[S.tab](ob);
 }
-function telaInicio(){
-  const P=S.pacote; const semScript=!S.cfg.script;
-  let h='';
-  if(!EH_APP()){ const ios=/iPhone|iPad|iPod/.test(navigator.userAgent);
-    h+=`<div class="card instalar"><h2>Instale o app na tela inicial</h2><div class="nota" style="color:#fff">Aberto pelo navegador, a barra de baixo (com a seta de voltar) continua aparecendo. Instalado, o app abre em tela cheia, sem essa barra, e não tem como sair sem querer.</div>`+
-      (S.promptInstalar?`<button id="btInstalar">Instalar agora</button>`:
-       ios?`<div class="passos">1. Toque no botão <b>Compartilhar</b> (quadrado com seta para cima, no alto à direita no Chrome ou embaixo no Safari).<br>2. Escolha <b>Adicionar à Tela de Início</b>.<br>3. Feche o navegador e abra pelo ícone <b>Campo Natural</b>.</div>`
-          :`<div class="passos">1. Toque no menu <b>⋮</b> do navegador.<br>2. Escolha <b>Instalar app</b> ou <b>Adicionar à tela inicial</b>.<br>3. Abra pelo ícone <b>Campo Natural</b>.</div>`)+`</div>`; }
-  if(semScript) h+=`<div class="banner">O robô de campo ainda não está configurado neste aparelho. Abra <b>Ajustes</b> e cole a URL do robô. Sem ele o app funciona, mas nada sobe para o Drive.</div>`;
-  h+=cartaoQuem();
-  h+=cartaoAgenda();
-  h+=`<div class="card"><h2>Obras abertas</h2><input id="busca" placeholder="Buscar obra ou cliente…" style="margin-bottom:10px"><div id="lista">`;
-  if(!P) h+=`<div class="muted">Nenhuma lista de obras neste aparelho ainda. Com internet, toque em <b>Atualizar lista</b>.</div>`;
-  else if(!P.obras.length) h+=`<div class="muted">Nenhuma obra aberta no painel.</div>`;
-  else h+=P.obras.map(cartaoObra).join('');
-  h+=`</div><div class="row" style="margin-top:8px"><button class="sec" id="atualizar">Atualizar lista</button><button class="sec" id="ajustes">Ajustes</button></div>`;
-  h+=`<div class="nota">${P?`Lista de ${fmtData(P.geradoEm)} · ${P.obras.length} obras abertas`:''} · app ${APP_VERSAO}</div></div>`;
-  const pend=S.fila.filter(x=>x.status!=='enviado');
-  if(pend.length){ /* inclui áudio esperando o Enviar: na lista inicial ninguém esquece */ h+=`<div class="card"><h2>Na fila de envio</h2>`+pend.map(x=>`<div class="chk" style="align-items:center"><span class="chip ${x.status==='erro'?'e':'w'}">${x.status==='erro'?'erro':(x.status==='aguardando'?'não enviado':'pendente')}</span><span style="flex:1;font-size:14px">${esc(x.obraNome)} · ${esc(x.slotTitulo||x.tipo)}${x.erro?`<br><small style="color:var(--err)">${esc(x.erro)}</small>`:''}</span></div>`).join('')+`</div>`; }
-  return h;
-}
 /* ---------- quem está usando o aparelho: escolhe uma vez na lista da equipe e fica fixo ---------- */
 function nomeCurto(n){ const p=String(n||'').trim().split(/\s+/).filter(Boolean); const cap=w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase();
   return p.slice(0,2).map(cap).join(' '); }
@@ -841,7 +857,7 @@ function cartaoObra(o){ const P=S.pacote; return `<button class="obra" data-id="
  * tarefas abertas, escritório e campo). Só leitura: marcar feito continua no painel.
  * O que é de RH ou dinheiro não vem para o app (fica só no painel). Funciona sem internet. */
 const DIAS_SEM=['dom','seg','ter','qua','qui','sex','sáb'];
-function agEventos(){ const P=S.pacote||{}; if(Array.isArray(P.agenda)&&P.agenda.length) return P.agenda;
+function agEventos(){ const P=S.pacote||{}; if(Array.isArray(P.agenda)&&P.agenda.length) return P.agenda.slice().sort((a,b)=>((a.data||'')+(a.hora||'')).localeCompare((b.data||'')+(b.hora||'')));
   const vistos={}, out=[]; (P.equipe||[]).forEach(f=>(f.agenda||[]).forEach(e=>{ if(e&&e.id&&!vistos[e.id]){ vistos[e.id]=1; out.push(e); } }));
   return out.sort((a,b)=>(a.data+a.hora).localeCompare(b.data+b.hora)); }
 function agTemDados(){ const P=S.pacote||{}; return Array.isArray(P.agenda) || (P.equipe||[]).some(f=>Array.isArray(f.agenda)||Array.isArray(f.tarefas)); }
@@ -853,67 +869,123 @@ function agDia(iso){ const h=hoje(); if(iso===h) return 'Hoje';
   if(dd===1) return 'Amanhã'; if(dd===-1) return 'Ontem';
   return `${DIAS_SEM[d.getDay()]} ${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`; }
 function agDataCurta(iso){ if(!iso) return ''; const [a,m,d]=iso.split('-'); return `${d}/${m}`; }
-function agLinhaEvento(e, comNomes){
-  const lugar=e.lugar==='campo'?'<span class="chip g">campo</span>':(e.lugar==='escritorio'?'<span class="chip">escritório</span>':'');
-  const obraAberta=e.obraId && (S.pacote?.obras||[]).some(o=>o.id===e.obraId);
-  return `<div class="chk" style="display:block"><div><b>${esc(e.hora||'')}</b> ${esc(e.titulo)} ${lugar}</div>`+
-    `${e.onde?`<div class="muted" style="font-size:13px">📍 ${esc(e.onde)}</div>`:''}`+
-    `${e.obra?`<div class="muted" style="font-size:13px">Obra: ${esc(e.obra)}</div>`:''}`+
-    `${comNomes?`<div style="font-size:13px;margin-top:2px">${e.todos?'<span class="chip w">toda a empresa</span>':(e.funcs||[]).map(id=>`<span class="chip">${esc(agNome(id))}</span>`).join('')}</div>`:''}`+
-    `${e.notas?`<div class="nota" style="margin-top:2px">${esc(e.notas)}</div>`:''}`+
-    `${obraAberta?`<button class="sec" data-agobra="${esc(e.obraId)}" style="margin-top:6px;padding:8px 12px">Abrir a obra</button>`:''}</div>`; }
-function agPorDia(ev, comNomes){ if(!ev.length) return '';
-  let h='', dia=''; ev.forEach(e=>{ if(e.data!==dia){ dia=e.data; h+=`<div style="margin-top:10px;font-weight:700;color:var(--navy)">${esc(agDia(dia))}</div>`; } h+=agLinhaEvento(e, comNomes); }); return h; }
-function agLinhaTarefa(t){
-  const h=hoje(); const atrasada=t.prazo && t.prazo<h && t.status!=='espera';
-  const espera=t.status==='espera'; const quemB={cliente:'o cliente',orgao:'o órgão',natural:'a Natural'}[t.bola]||'';
-  const chip=atrasada?`<span class="chip e">atrasada · ${esc(agDataCurta(t.prazo))}</span>`:(t.prazo===h?'<span class="chip w">vence hoje</span>':(t.prazo&&t.prazo<h?`<span class="chip">prazo era ${esc(agDataCurta(t.prazo))}</span>`:(t.prazo?`<span class="chip">até ${esc(agDataCurta(t.prazo))}</span>`:'')));
-  const chE=espera?`<span class="chip w">aguardando${quemB?' '+esc(quemB):''}</span>`:''; const chP=t.prioridade==='alta'||t.prioridade==='urgente'?'<span class="chip e">prioridade alta</span>':'';
-  const obraAberta=t.obraId && (S.pacote?.obras||[]).some(o=>o.id===t.obraId);
-  const corpo=(t.porque||t.desc?`<div class="nota">${esc(t.porque||t.desc)}</div>`:'')+(t.obra?`<div class="muted" style="font-size:13px">Obra: ${esc(t.obra)}</div>`:'')+
-    ((t.check||[]).length?`<div style="margin-top:4px">`+t.check.map(c=>`<div style="font-size:14px">${c.ok?'✅':'⬜'} ${esc(c.t)}</div>`).join('')+`</div>`:'')+
-    (obraAberta?`<button class="sec" data-agobra="${esc(t.obraId)}" style="margin-top:6px;padding:8px 12px">Abrir a obra</button>`:'')+
-    `<div class="muted" style="font-size:12px;margin-top:4px">Demanda nº ${esc(t.n??'')} · marcar como feita: no painel ou avisando o escritório</div>`;
-  return `<details><summary><span style="flex:1"><span style="font-weight:600">${esc(t.titulo)}</span><br>${chip}${chE}${chP}</span></summary>${corpo}</details>`; }
-function cartaoAgenda(){
-  if(!S.pacote) return '';
-  if(!agTemDados()) return `<div class="card"><h2>Agenda</h2><div class="muted">A agenda ainda não veio com a lista deste celular. Com internet, toque em <b>Atualizar lista</b>.</div></div>`;
-  const aba=LS.get('agAba','minha'); const h0=hoje();
-  const ev=agEventos().filter(e=>e.data>=h0); // compromisso que já passou sai da tela
-  let h=`<div class="card"><h2>Agenda</h2><div class="seg" style="margin-bottom:6px"><button data-agaba="minha" class="${aba==='minha'?'on':''}">Minha agenda</button><button data-agaba="empresa" class="${aba==='empresa'?'on':''}">Empresa</button></div>`;
-  if(aba==='empresa'){
-    const lim=new Date(Date.now()+14*864e5); const limIso=`${lim.getFullYear()}-${String(lim.getMonth()+1).padStart(2,'0')}-${String(lim.getDate()).padStart(2,'0')}`;
-    const prox=ev.filter(e=>e.data<=limIso); const depois=ev.length-prox.length;
-    h+= prox.length? agPorDia(prox, true) : `<div class="muted" style="margin-top:8px">Nenhum compromisso da empresa nos próximos 14 dias.</div>`;
-    if(depois) h+=`<div class="nota" style="margin-top:8px">+${depois} compromisso(s) mais adiante — veja no painel.</div>`;
-  } else if(!S.quemId){
-    h+=`<div class="muted" style="margin-top:8px">${S.quem?'O nome deste aparelho não está na lista da equipe, então não há agenda individual. Toque em <b>Trocar</b> e escolha o seu nome na lista.':'Escolha o seu nome acima para ver a sua agenda.'}</div>`;
-  } else {
-    const meus=agMeus(ev); const tar=agTarefas();
-    const ord=t=>{ const at=t.prazo&&t.prazo<h0&&t.status!=='espera'; return (at?'0':(t.status==='espera'?'2':'1'))+(t.prazo||'9999'); };
-    const tarO=tar.slice().sort((a,b)=>ord(a).localeCompare(ord(b)));
-    const nAt=tar.filter(t=>t.prazo&&t.prazo<h0&&t.status!=='espera').length;
-    h+=`<div class="muted" style="font-size:13px;margin-top:4px">${esc(S.quem)} · ${meus.length} compromisso(s) · ${tar.length} tarefa(s) aberta(s)${nAt?` · <b style="color:var(--err)">${nAt} atrasada(s)</b>`:''}</div>`;
-    h+= meus.length? agPorDia(meus, false) : `<div class="muted" style="margin-top:8px">Nenhum compromisso seu na agenda.</div>`;
-    h+=`<div style="margin-top:14px;font-weight:700;color:var(--navy)">Minhas tarefas (escritório e campo)</div>`;
-    if(!tarO.length) h+=`<div class="muted" style="margin-top:4px">Nenhuma tarefa aberta no seu nome.</div>`;
-    else { const mostrar=S.agTodas?tarO:tarO.slice(0,6); h+=mostrar.map(agLinhaTarefa).join('');
-      if(tarO.length>mostrar.length) h+=`<button class="big ghost" id="agMais" style="margin-top:6px">Ver todas (${tarO.length})</button>`; }
-  }
-  return h+`<div class="nota" style="margin-top:8px">Vem do painel junto com a lista (${esc(fmtData(S.pacote.geradoEm))}). Atualize com internet para ver mudanças.</div></div>`; }
-function ligarAgenda(){
-  document.querySelectorAll('[data-agaba]').forEach(b=>b.onclick=()=>{ LS.set('agAba', b.dataset.agaba); render(); });
-  const mais=$('#agMais'); if(mais) mais.onclick=()=>{ S.agTodas=true; render(); };
-  document.querySelectorAll('[data-agobra]').forEach(b=>b.onclick=()=>{ const o=document.querySelector(`.obra[data-id="${CSS.escape(b.dataset.agobra)}"]`); if(o) o.click(); });
+function telaInicio(){
+  const P=S.pacote; const semScript=!S.cfg.script;
+  let h='';
+  if(!EH_APP()){ const ios=/iPhone|iPad|iPod/.test(navigator.userAgent);
+    h+=`<details class="card instalar"><summary>Instale o app na tela inicial</summary><div class="nota" style="color:#fff">Instalado, o app abre em tela cheia e não tem como sair sem querer.</div>`+
+      (S.promptInstalar?`<button id="btInstalar">Instalar agora</button>`:
+       ios?`<div class="passos">1. Toque em <b>Compartilhar</b> (quadrado com seta para cima).<br>2. Escolha <b>Adicionar à Tela de Início</b>.<br>3. Abra pelo ícone <b>Campo Natural</b>.</div>`
+          :`<div class="passos">1. Toque no menu <b>⋮</b> do navegador.<br>2. Escolha <b>Instalar app</b>.<br>3. Abra pelo ícone <b>Campo Natural</b>.</div>`)+`</details>`; }
+  if(semScript) h+=`<div class="banner">O robô de campo ainda não está configurado neste aparelho. Abra <b>Ajustes</b> e cole a URL do robô. Sem ele o app funciona, mas nada sobe para o Drive.</div>`;
+  h+=cartaoQuem();
+  if(S.trocandoQuem || !S.quem) return h; // primeiro escolhe quem é; o resto aparece depois
+  const pend=S.fila.filter(x=>x.status!=='enviado');
+  const tar=agTarefas(); const g=agGrupos(tar); const nObras=(P?.obras||[]).length;
+  const aba=LS.get('inicioAba','hoje');
+  const nTar=tar.filter(t=>t.status!=='espera').length;
+  h+=`<div class="ini-nav">`+
+    `<button data-ini="hoje" class="${aba==='hoje'?'on':''}">Hoje${g.atrasadas.length+g.hoje.length?`<i class="bolha e">${g.atrasadas.length+g.hoje.length}</i>`:''}</button>`+
+    `<button data-ini="tarefas" class="${aba==='tarefas'?'on':''}">Tarefas${nTar?`<i class="bolha">${nTar}</i>`:''}</button>`+
+    `<button data-ini="obras" class="${aba==='obras'?'on':''}">Obras<i class="bolha">${nObras}</i></button></div>`;
+  if(pend.length) h+=cartaoFilaInicio(pend);
+  h+= aba==='tarefas'? telaTarefasInicio(tar,g) : aba==='obras'? telaObrasInicio() : telaHoje(tar,g);
+  h+=`<div class="nota" style="text-align:center">${P?`Lista de ${esc(fmtData(P.geradoEm))} · `:''}app ${APP_VERSAO}</div>`;
+  return h;
 }
+function cartaoFilaInicio(pend){ /* inclui áudio esperando o Enviar: na tela inicial ninguém esquece */
+  return `<div class="card fila-ini"><h2>Na fila de envio · ${pend.length}</h2>`+pend.map(x=>`<div class="chk" style="align-items:center"><span class="chip ${x.status==='erro'?'e':'w'}">${x.status==='erro'?'erro':(x.status==='aguardando'?'não enviado':'pendente')}</span><span style="flex:1;font-size:14px">${esc(x.obraNome)} · ${esc(x.slotTitulo||x.tipo)}${x.erro?`<br><small style="color:var(--err)">${esc(x.erro)}</small>`:''}</span></div>`).join('')+`</div>`; }
+/* tarefas em grupos que terminam: atrasadas, hoje, esta semana, mais adiante, esperando outra pessoa */
+function agGrupos(tar){ const h0=hoje(); const fim=new Date(h0+'T12:00:00'); fim.setDate(fim.getDate()+7);
+  const fimIso=`${fim.getFullYear()}-${String(fim.getMonth()+1).padStart(2,'0')}-${String(fim.getDate()).padStart(2,'0')}`;
+  const g={atrasadas:[],hoje:[],semana:[],depois:[],espera:[]};
+  tar.forEach(t=>{ if(t.status==='espera') g.espera.push(t); else if(t.prazo&&t.prazo<h0) g.atrasadas.push(t); else if(t.prazo===h0) g.hoje.push(t); else if(t.prazo&&t.prazo<=fimIso) g.semana.push(t); else g.depois.push(t); });
+  const pr=t=>(t.prioridade==='alta'||t.prioridade==='urgente')?'0':'1';
+  Object.values(g).forEach(a=>a.sort((a,b)=>((a.prazo||'9999')+pr(a)).localeCompare((b.prazo||'9999')+pr(b))));
+  return g; }
+function agDiaLongo(iso){ const d=new Date(iso+'T12:00:00'); const dias=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+  const mes=['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+  return `${dias[d.getDay()]}, ${d.getDate()} de ${mes[d.getMonth()]}`; }
+function agObraNome(id){ const o=(S.pacote?.obras||[]).find(x=>x.id===id); return o?o.nome:''; }
+function agLocalObra(id){ const e=agEventos().find(x=>x.obraId===id && x.onde); return e?e.onde:''; }
+function telaHoje(tar,g){
+  const h0=hoje(); const ev=agEventos().filter(e=>e.data>=h0);
+  const meus=S.quemId?agMeus(ev):[]; const deHoje=meus.filter(e=>e.data===h0);
+  const fim=new Date(h0+'T12:00:00'); fim.setDate(fim.getDate()+7); const fimIso=fim.toISOString().slice(0,10);
+  const prox=meus.filter(e=>e.data>h0 && e.data<=fimIso);
+  let h=`<div class="hoje-cab"><div class="muted">${S.quem?esc(S.quem.split(' ')[0])+', hoje é':'Hoje é'}</div><div class="hoje-data">${esc(agDiaLongo(h0))}</div></div>`;
+  if(!agTemDados()) return h+`<div class="card"><div class="muted">A agenda ainda não veio para este celular. Com internet, toque em <b>Atualizar lista</b> na aba Obras.</div></div>`;
+  if(!S.quemId) return h+`<div class="card"><div class="muted">${S.quem?'Este nome não está na lista da equipe, então não há agenda individual. Toque em <b>Trocar</b> e escolha o seu nome.':'Escolha o seu nome acima para ver a sua agenda.'}</div></div>`+agEmpresa(ev);
+  // placar: quanto falta, em três números
+  h+=`<div class="placar"><button data-ini="tarefas" class="pl e"><b>${g.atrasadas.length}</b><span>atrasada${g.atrasadas.length===1?'':'s'}</span></button>`+
+     `<button data-ini="tarefas" class="pl w"><b>${g.hoje.length}</b><span>para hoje</span></button>`+
+     `<button data-ini="tarefas" class="pl n"><b>${g.semana.length}</b><span>esta semana</span></button></div>`;
+  h+=`<div class="card"><h2>Compromissos de hoje</h2>`+(deHoje.length? deHoje.map(e=>agBlocoEvento(e,false)).join('') : `<div class="vazio">Nenhum compromisso marcado para hoje.</div>`)+`</div>`;
+  const fazer=g.atrasadas.concat(g.hoje);
+  h+=`<div class="card"><h2>Fazer hoje</h2>`+(fazer.length? fazer.slice(0,5).map(agLinhaTarefa).join('') + (fazer.length>5?`<button class="big ghost" data-ini="tarefas">Ver as outras ${fazer.length-5} →</button>`:'')
+      : `<div class="vazio ok">✓ Nada atrasado e nada vencendo hoje.</div>`)+`</div>`;
+  if(prox.length) h+=`<div class="card"><h2>Próximos 7 dias</h2>`+prox.map(e=>agLinhaCurta(e)).join('')+`</div>`;
+  return h+agEmpresa(ev);
+}
+function agEmpresa(ev){ const lim=new Date(Date.now()+14*864e5).toISOString().slice(0,10);
+  const prox=ev.filter(e=>e.data<=lim); if(!prox.length) return '';
+  let h=`<details class="card empresa"><summary>Agenda da empresa · próximos 14 dias (${prox.length})</summary>`; let dia='';
+  prox.forEach(e=>{ if(e.data!==dia){ dia=e.data; h+=`<div class="dia-cab">${esc(agDia(dia))}</div>`; } h+=agBlocoEvento(e,true); });
+  return h+`</details>`; }
+function agBlocoEvento(e, comNomes){
+  const tipo=e.lugar==='campo'?'campo':(e.lugar==='escritorio'?'esc':'');
+  const obraAberta=e.obraId && (S.pacote?.obras||[]).some(o=>o.id===e.obraId);
+  return `<div class="ev ${tipo}"><div class="ev-h">${esc(e.hora||'—')}<small>${tipo==='campo'?'campo':(tipo==='esc'?'escritório':'')}</small></div><div class="ev-c">`+
+    `<b>${esc(e.titulo)}</b>`+
+    `${e.onde?`<div class="ev-l">📍 ${esc(e.onde)}</div>`:''}`+
+    `${e.obra||agObraNome(e.obraId)?`<div class="ev-l">Obra: ${esc(e.obra||agObraNome(e.obraId))}</div>`:''}`+
+    `${comNomes?`<div class="ev-l">${e.todos?'Toda a empresa':(e.funcs||[]).map(agNome).map(esc).join(', ')}</div>`:''}`+
+    `${e.notas?`<div class="nota">${esc(e.notas)}</div>`:''}`+
+    `${obraAberta?`<button class="sec mini" data-agobra="${esc(e.obraId)}">Abrir a obra</button>`:''}</div></div>`; }
+function agLinhaCurta(e){ return `<div class="curta"><span class="dpill">${esc(agDia(e.data))}</span><span><b>${esc(e.hora||'')}</b> ${esc(e.titulo)}${e.onde?`<br><small>📍 ${esc(e.onde)}</small>`:''}</span></div>`; }
+function agLinhaTarefa(t){
+  const h=hoje(); const atrasada=t.prazo && t.prazo<h && t.status!=='espera'; const espera=t.status==='espera';
+  const quemB={cliente:'o cliente',orgao:'o órgão',natural:'a Natural'}[t.bola]||'';
+  const cor=espera?'cinza':(atrasada?'e':(t.prazo===h?'w':'n'));
+  const quando=espera?`aguardando${quemB?' '+esc(quemB):''}`:(atrasada?`atrasada desde ${esc(agDataCurta(t.prazo))}`:(t.prazo===h?'vence hoje':(t.prazo?`até ${esc(agDia(t.prazo).toLowerCase())}`:'sem prazo')));
+  const alta=(t.prioridade==='alta'||t.prioridade==='urgente')&&!espera;
+  let obraN=t.obra||agObraNome(t.obraId)||agResumo(t.porque||t.desc); if(obraN && String(t.titulo||'').toLowerCase().includes(obraN.toLowerCase())) obraN=''; const local=t.local||(t.obraId?agLocalObra(t.obraId):'');
+  const obraAberta=t.obraId && (S.pacote?.obras||[]).some(o=>o.id===t.obraId);
+  const feitos=(t.check||[]).filter(c=>c.ok).length, nCk=(t.check||[]).length;
+  const corpo=(t.porque||t.desc?`<div class="nota">${esc(t.porque||t.desc)}</div>`:'')+
+    ((t.check||[]).length?`<div style="margin-top:4px">`+t.check.map(c=>`<div style="font-size:14px;margin:3px 0">${c.ok?'✅':'⬜'} ${esc(c.t)}</div>`).join('')+`</div>`:'')+
+    (obraAberta?`<button class="sec mini" data-agobra="${esc(t.obraId)}">Abrir a obra</button>`:'')+
+    `<div class="muted" style="font-size:12px;margin-top:6px">Demanda nº ${esc(t.n??'')} · marcar como feita: no painel ou avisando o escritório</div>`;
+  return `<details class="tar ${cor}"><summary><span class="tar-c"><span class="tar-q">${quando}${alta?' · <b>prioridade alta</b>':''}</span><span class="tar-t">${esc(t.titulo)}</span>`+
+    `${obraN?`<span class="tar-o">${esc(obraN)}${local?` · 📍 ${esc(local)}`:''}</span>`:''}${nCk?`<span class="tar-o">${feitos} de ${nCk} itens feitos</span>`:''}</span></summary>${corpo}</details>`; }
+function agResumo(x){ x=String(x||'').replace(/\s+/g,' ').trim(); if(!x) return ''; const m=x.match(/—\s*([^.]+)/); let r=(m?m[1]:x.split(/\.\s/)[0]).trim(); return r.length>70?r.slice(0,68)+'…':r; }
+function telaTarefasInicio(tar,g){
+  if(!S.quemId) return `<div class="card"><div class="muted">Escolha o seu nome na lista da equipe para ver as suas tarefas.</div></div>`;
+  if(!tar.length) return `<div class="card"><div class="vazio ok">✓ Nenhuma tarefa aberta no seu nome.</div></div>`;
+  const sec=(tit,cls,arr,aberto)=>arr.length?`<details class="card grupo ${cls}" ${aberto?'open':''}><summary><span>${tit}</span><i class="bolha ${cls}">${arr.length}</i></summary>${arr.map(agLinhaTarefa).join('')}</details>`:'';
+  return sec('Atrasadas','e',g.atrasadas,true)+sec('Vencem hoje','w',g.hoje,true)+sec('Esta semana','n',g.semana,true)+
+    sec('Mais adiante','n',g.depois,false)+sec('Esperando outra pessoa','cinza',g.espera,false)+
+    `<div class="nota" style="text-align:center">Tarefas de escritório e de campo. Marcar como feita: no painel ou avisando o escritório.</div>`; }
+function telaObrasInicio(){ const P=S.pacote;
+  let h=`<div class="card"><input id="busca" placeholder="Buscar obra ou cliente…" style="margin-bottom:10px"><div id="lista">`;
+  if(!P) h+=`<div class="muted">Nenhuma lista de obras neste aparelho ainda. Com internet, toque em <b>Atualizar lista</b>.</div>`;
+  else if(!P.obras.length) h+=`<div class="muted">Nenhuma obra aberta no painel.</div>`;
+  else h+=P.obras.map(cartaoObra).join('');
+  return h+`</div><div class="row" style="margin-top:8px"><button class="sec" id="atualizar">Atualizar lista</button><button class="sec" id="ajustes">Ajustes</button></div></div>`; }
+function ligarAgenda(){
+  document.querySelectorAll('[data-ini]').forEach(b=>b.onclick=()=>{ LS.set('inicioAba', b.dataset.ini); render(); $('#main').scrollTop=0; });
+  document.querySelectorAll('[data-agobra]').forEach(b=>b.onclick=e=>{ e.preventDefault(); e.stopPropagation(); abrirObraId(b.dataset.agobra); });
+}
+function abrirObraId(id){ if(!S.quem){ toast('Escolha quem você é primeiro'); return; } S.obraId=id; REC.blob=null; REC.ultimoId=null; REC.obraId=null; S.tab='roteiro'; LS.set('obraId',S.obraId); render(); window.scrollTo(0,0); iniciarGPS(); }
 function ligarInicio(){
   const bi=$('#btInstalar'); if(bi) bi.onclick=async()=>{ const e=S.promptInstalar; S.promptInstalar=null; try{ e.prompt(); await e.userChoice; }catch(_){} render(); };
   ligarQuem(); ligarAgenda();
-  $('#busca').oninput=e=>{ const q=e.target.value.toLowerCase(); $('#lista').innerHTML=(S.pacote?.obras||[]).filter(o=>(o.nome+' '+(o.cliente||'')+' '+(o.servico||'')).toLowerCase().includes(q)).map(cartaoObra).join('')||'<div class="muted">Nada encontrado.</div>'; ligarObras(); };
+  const bu=$('#busca'); if(bu) bu.oninput=e=>{ const q=e.target.value.toLowerCase(); $('#lista').innerHTML=(S.pacote?.obras||[]).filter(o=>(o.nome+' '+(o.cliente||'')+' '+(o.servico||'')).toLowerCase().includes(q)).map(cartaoObra).join('')||'<div class="muted">Nada encontrado.</div>'; ligarObras(); };
   ligarObras();
-  $('#atualizar').onclick=()=>baixarPacote(false);
-  $('#ajustes').onclick=telaAjustes;
+  const at=$('#atualizar'); if(at) at.onclick=()=>baixarPacote(false);
+  const aj=$('#ajustes'); if(aj) aj.onclick=telaAjustes;
 }
+
 function ligarObras(){ document.querySelectorAll('.obra').forEach(b=>b.onclick=()=>{ if(!S.quem){ toast('Escolha quem você é primeiro'); window.scrollTo(0,0); return; } S.obraId=b.dataset.id; REC.blob=null; REC.ultimoId=null; REC.obraId=null; S.tab='roteiro'; LS.set('obraId',S.obraId); render(); window.scrollTo(0,0); iniciarGPS(); }); }
 function telaAjustes(){
   const m=$('#main'); $('#hTit').textContent='Ajustes'; $('#hBtn').classList.remove('hide'); $('#hBtn').textContent='Voltar';
