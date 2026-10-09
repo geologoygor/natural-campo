@@ -852,7 +852,9 @@ const K='fichas_v1';
 function todas(){ try{ return JSON.parse(localStorage.getItem('nc_'+K)||'[]'); }catch(e){ return []; } }
 function salvarTodas(a){ try{ localStorage.setItem('nc_'+K, JSON.stringify(a)); return true; }catch(e){ toast('Memória do celular cheia: envie a fila e apague fichas antigas.',5000); return false; } }
 function pegar(id){ return todas().find(f=>f.id===id); }
-function gravar(f){ const a=todas(); const i=a.findIndex(x=>x.id===f.id); f.atualizadoEm=new Date().toISOString(); if(i<0) a.push(f); else a[i]=f;
+function gravar(f){ const a=todas(); const i=a.findIndex(x=>x.id===f.id); f.atualizadoEm=new Date().toISOString();
+  if(i>=0 && a[i].parcialEm && (!f.parcialEm || a[i].parcialEm>f.parcialEm)) f.parcialEm=a[i].parcialEm; // parcial feita por fora da tela aberta não se perde
+  if(i<0) a.push(f); else a[i]=f;
   const ok=salvarTodas(a); faixaMemoria(!ok); return ok; }
 /* faixa vermelha FIXA enquanto a ficha não estiver gravada no celular (memória cheia): toast de 5 s ninguém vê,
    e tudo que for digitado depois some se o app fechar */
@@ -1024,7 +1026,7 @@ function desenharEditor(){
   if(def.nota) h+=`<div class="card nota">${esc(def.nota)}</div>`;
   const av=def.avisos(d);
   h+=`<div class="card" id="avisosBox"><h2>O que ainda falta</h2>${av.length?av.map(x=>`<div class="erro">${esc(x)}</div>`).join(''):'<div class="muted">Nada pendente.</div>'}<div class="nota">Nenhum aviso impede encerrar. Não mediu? Deixe em branco e escreva o porquê. Nunca invente.</div></div>`;
-  if(!ro) h+=`<button class="big green" id="encerrar">Encerrar ficha e enviar</button><button class="big ghost" id="excluir" style="margin-top:8px;color:var(--err)">Excluir esta ficha</button>`;
+  if(!ro) h+=`<button class="big sec" id="parcial" style="margin-bottom:8px">Enviar o que já tem (parcial)</button><div class="nota" style="text-align:center;margin:-2px 0 10px">Não precisa estar completa. A ficha continua aberta e você segue preenchendo.</div><button class="big green" id="encerrar">Encerrar ficha e enviar</button><button class="big ghost" id="excluir" style="margin-top:8px;color:var(--err)">Excluir esta ficha</button>`;
   else h+=`<button class="big sec" id="reabrir">Reabrir para corrigir (gera versão ${f.versao+1})</button><button class="big ghost" id="pdfver" style="margin-top:8px">Ver o PDF / compartilhar</button>`;
   $('#main').innerHTML=h; ligarEditor(f);
 }
@@ -1095,6 +1097,10 @@ function ligarEditor(f){
     x.disabled=false; x.textContent=txt;
   }; });
   const enc=$('#encerrar'); if(enc) enc.onclick=()=>encerrar(f);
+  const pa=$('#parcial'); if(pa) pa.onclick=async()=>{ const t0=pa.textContent; pa.disabled=true; pa.textContent='Gerando a parcial…';
+    try{ gravar(f); await enviarParcial(f); toast(navigator.onLine?'Parcial na fila e subindo. A ficha continua aberta.':'Parcial guardada na fila: sobe sozinha quando pegar sinal (com o app aberto).',4500); if(navigator.onLine) enviarFila(); }
+    catch(e){ toast('Não consegui gerar a parcial: '+e.message,5000); }
+    pa.disabled=false; pa.textContent=t0; };
   const exc=$('#excluir'); if(exc) exc.onclick=()=>{ const copia=JSON.parse(JSON.stringify(f)); remover(f.id); fechar();
     barraDesfazer('Ficha excluída.', ()=>{ gravar(copia); render(); toast('Ficha de volta'); }, 12000); };
   const rea=$('#reabrir'); if(rea) rea.onclick=()=>{ f.status='rascunho'; f.versao=(f.versao||1)+1; gravar(f); desenharEditor(); toast('Reaberta: versão '+f.versao); };
@@ -1423,8 +1429,10 @@ async function gerarPDF(f){
     c.fillStyle='#19A878'; c.font=fonte(20,true); c.fillText(`${def.codigo} · ${def.sop} · ${def.ident(d)}${f.versao>1?' · v'+f.versao:''}`,W-M,M+50);
     c.textAlign='left'; c.fillStyle='#19A878'; c.fillRect(M,M+70,W-2*M,3);
     c.fillStyle='#5B6570'; c.font=fonte(17); c.fillText(`Obra: ${f.obraNome}`,M,M+100);
-    c.fillText(`Preenchida no app de campo por ${f.por||'—'} · ${f.encerradaEm?'encerrada em '+fmtData(new Date(f.encerradaEm)):'gerada em '+fmtData(new Date())} · ficha ${f.id}${f.versao>1?' · v'+f.versao:''}`,M,M+124);
-    y=M+150; };
+    c.fillText(`Preenchida no app de campo por ${f.por||'—'} · ${f._parcial?'PARCIAL gerada em '+fmtData(new Date()):(f.encerradaEm?'encerrada em '+fmtData(new Date(f.encerradaEm)):'gerada em '+fmtData(new Date()))} · ficha ${f.id}${f.versao>1?' · v'+f.versao:''}`,M,M+124);
+    y=M+150;
+    if(f._parcial){ c.fillStyle='#FFF4E5'; c.fillRect(M,y,W-2*M,40); c.fillStyle='#B45309'; c.font=fonte(19,true);
+      c.fillText('PARCIAL — ficha ainda em preenchimento. Vale o envio mais novo; o definitivo é o encerrado.',M+14,y+27); y+=56; } };
   const rodape=()=>{ paginas.forEach((p,i)=>{ const x=p.getContext('2d'); x.fillStyle='#D9DEE5'; x.fillRect(M,H-90,W-2*M,1); x.fillStyle='#8A94A0'; x.font=fonte(15); x.textAlign='center';
       x.fillText('NATURAL ENGENHARIA · R. Lírio do Vale, 24 – Andar 01, Sala F08 – Aparecida, Boa Vista/RR · (95) 98109-5431 · naturalengenhariarr@gmail.com',W/2,H-62);
       x.fillText(`Campo em branco é permitido; campo inventado, não. · Página ${i+1} de ${paginas.length}`,W/2,H-40); x.textAlign='left'; }); };
@@ -1483,7 +1491,7 @@ async function gerarPDF(f){
       y+=16; }
   }
   if(def.nota){ const ls=quebra(def.nota,W-2*M-20,15); garante(ls.length*20+24); c.fillStyle='#E7F6ED'; c.fillRect(M,y,W-2*M,ls.length*20+18); c.fillStyle='#137F5B'; c.font=fonte(15); ls.forEach((l,i)=>c.fillText(l,M+10,y+22+i*20)); y+=ls.length*20+30; }
-  const av=def.avisos(d); if(av.length){ titulo(f.foraDoPadrao?'ENCERRADA FORA DO PADRÃO — o que faltou':'Avisos no encerramento (campo em branco é permitido)'); av.forEach(a=>{ const ls=quebra('• '+a,W-2*M,15); garante(ls.length*20); c.fillStyle='#B45309'; c.font=fonte(15); ls.forEach(l=>{ c.fillText(l,M,y+14); y+=20; }); }); }
+  const av=def.avisos(d); if(av.length){ titulo(f._parcial?'PARCIAL — ficha ainda aberta; o que falta até agora':(f.foraDoPadrao?'ENCERRADA FORA DO PADRÃO — o que faltou':'Avisos no encerramento (campo em branco é permitido)')); av.forEach(a=>{ const ls=quebra('• '+a,W-2*M,15); garante(ls.length*20); c.fillStyle='#B45309'; c.font=fonte(15); ls.forEach(l=>{ c.fillText(l,M,y+14); y+=20; }); }); }
   rodape();
   const jpgs=[], imgs=[]; for(const p of paginas){ const b=await new Promise(ok=>p.toBlob(ok,'image/jpeg',0.85)); imgs.push(b); jpgs.push(new Uint8Array(await b.arrayBuffer())); }
   const pdf=montarPDF(jpgs, W, H); pdf._paginas=imgs; return pdf;
@@ -1662,7 +1670,7 @@ function desenharSPT(f){
 
   const av=def.avisos(d);
   h+=`<div class="card" id="avisosBox"><h2>O que ainda falta</h2>${av.length?av.map(x=>`<div class="erro">${esc(x)}</div>`).join(''):'<div class="muted">Nada pendente.</div>'}<div class="nota">Nenhum aviso impede encerrar. Não mediu? Deixe em branco. Nunca invente.</div></div>`;
-  h+=`<button class="big green" id="encerrar">Encerrar boletim e enviar</button><button class="big ghost" id="excluir" style="margin-top:8px;color:var(--err)">Excluir este boletim</button></div>`;
+  h+=`<button class="big sec" id="parcial" style="margin-bottom:8px">Enviar o que já tem (parcial)</button><div class="nota" style="text-align:center;margin:-2px 0 10px">Não precisa estar completa. A ficha continua aberta e você segue preenchendo.</div><button class="big green" id="encerrar">Encerrar boletim e enviar</button><button class="big ghost" id="excluir" style="margin-top:8px;color:var(--err)">Excluir este boletim</button></div>`;
   $('#main').innerHTML=h; ligarEditor(f); ligarSPT(f); window.scrollTo(0,y);
 }
 function ligarSPT(f){
@@ -1735,6 +1743,34 @@ async function encerrar(f){
     toast('Ficha encerrada: PDF e dados na fila de envio',3500); desenharEditor();
   }catch(e){ toast('Não consegui gerar o PDF: '+e.message,5000); $('#encerrar').disabled=false; $('#encerrar').textContent='Encerrar ficha e enviar'; }
 }
+
+/* ---------------- PARCIAL (v1.16.0): manda o que já tem, SEM encerrar ----------------
+ * Pedido do Ygor (09/10/2026): obra de muitos dias não pode deixar dado só no celular.
+ * Parcial não exige critério nenhum, de qualquer tamanho. A ficha continua aberta; sai PDF + dados
+ * marcados PARCIAL com a hora no nome. O escritório usa sempre o mais novo; o encerramento continua igual.
+ * Sem dado novo desde a última parcial, não manda de novo. */
+function temParcialNova(f){ return f.status!=='encerrada' && !!f.atualizadoEm && (!f.parcialEm || f.atualizadoEm>f.parcialEm)
+  && (new Date(f.atualizadoEm)-new Date(f.criadoEm))>3000; }   // ficha aberta e nunca mexida não vai
+function dadosLimpos(d){ return Object.fromEntries(Object.entries(d).map(([k,v])=>[k, (typeof v==='string'&&v.startsWith('data:image'))?'[imagem no PDF]':v])); }
+async function enviarParcial(f, o){ o=o||{};
+  const def=DEF[f.tipo]; const av=def.avisos(f.dados);
+  const ob=(S.pacote?.obras||[]).find(x=>x.id===f.obraId) || {id:f.obraId,nome:f.obraNome,pastaId:null};
+  const hh=new Date().toTimeString().slice(0,5).replace(':','h');
+  const base=`${HOJE()}_${def.codigo.replace(/\s+/g,'-')}_${slug(def.ident(f.dados))}${f.versao>1?'_v'+f.versao:''}_PARCIAL_${hh}`;
+  const q={obra:ob, quieto:!o.render, semEnvio:true};
+  if(!o.soDados){ try{ f._parcial=true; const pdf=await gerarPDF(f); delete f._parcial;
+      await enfileirarArquivo(pdf,'ficha',base+'.pdf',{fichaId:f.id,tipo:f.tipo,versao:f.versao,parcial:true,avisos:av},q); }
+    catch(e){ delete f._parcial; } }   // PDF falhou? os dados vão do mesmo jeito
+  const em=new Date().toISOString();
+  const dados=new Blob([JSON.stringify({app:'campo',parcial:true,parcialEm:em,fichaId:f.id,tipo:f.tipo,codigo:def.codigo,sop:def.sop,versao:f.versao,obraId:f.obraId,obra:f.obraNome,por:f.por,enviadoPor:S.quem||'',criadoEm:f.criadoEm,encerradoEm:null,avisos:av,dados:dadosLimpos(f.dados)},null,1)],{type:'application/json'});
+  await enfileirarArquivo(dados,'ficha',base+'.json',{fichaId:f.id,tipo:f.tipo,versao:f.versao,parcial:true},q);
+  f.parcialEm=em; const a=todas(); const x=a.find(y=>y.id===f.id); if(x){ x.parcialEm=em; salvarTodas(a); }
+}
+function pendentesParcial(obraId){ return todas().filter(f=>temParcialNova(f) && (!obraId || f.obraId===obraId)).length; }
+async function enviarParciais(o){ const fs=todas().filter(temParcialNova); for(const f of fs){ try{ await enviarParcial(f,o); }catch(e){} } return fs.length; }
+async function parcialAuto(){ const fs=todas().filter(f=>temParcialNova(f) && (!f.parcialEm || Date.now()-new Date(f.parcialEm).getTime()>2*36e5));
+  for(const f of fs){ try{ await enviarParcial(f,{soDados:true}); }catch(e){} } return fs.length; }
+window.FICHAS_PARCIAIS = { pendentes:pendentesParcial, enviar:enviarParciais, auto:parcialAuto };
 
 window.FICHAS_DA_LINHA = FICHAS_DA_LINHA;
 /* os três dados que NÃO se recuperam no poço (SOP-008): o app avisa, nunca trava */

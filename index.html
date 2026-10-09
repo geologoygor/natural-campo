@@ -261,14 +261,14 @@ button.mini{padding:8px 12px;font-size:14px;margin-top:6px}
 <canvas id="cv" class="hide"></canvas>
 
 <script src="geofisica.js?v=1.9.4"></script>
-<script src="fichas.js?v=1.9.6"></script>
+<script src="fichas.js?v=1.16.0"></script>
 <script>
 /* ============================================================
    CAMPO · Natural Engenharia — app de campo (PWA)
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.15.0';
+const APP_VERSAO = '1.16.0';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -399,8 +399,10 @@ function pintarFila(){
   const hojeEnv=daObra.filter(x=>x.status==='enviado' && (x.enviadoEm||'').slice(0,10)===hoje()).length;
   const t=$('#filaTxt'), b=$('#filaBtn');
   if(S.enviando){ t.innerHTML=`<b>Enviando…</b> ${pend.length} na fila`; b.disabled=true; return; }
-  b.disabled = pend.length===0 && outras===0;
-  const nota = (outras? ` · <span class="muted">${outras} de outras obras</span>`:'') + (esperando.length? `<br><span style="color:var(--err);font-weight:700">🎙 ${esperando.length} áudio gravado e NÃO enviado — aba Diário, botão Enviar</span>`:'');
+  // v1.16.0: ficha aberta com dado novo também conta — o botão manda como PARCIAL, sem exigir critério nenhum
+  let parc=0; try{ if(window.FICHAS_PARCIAIS) parc=window.FICHAS_PARCIAIS.pendentes(S.obraId||null); }catch(e){}
+  b.disabled = pend.length===0 && outras===0 && parc===0;
+  const nota = (outras? ` · <span class="muted">${outras} de outras obras</span>`:'') + (parc? `<br><span style="font-weight:700">📋 ${parc} ficha(s) aberta(s) com dado novo — "Enviar agora" manda o que já tem (parcial)</span>`:'') + (esperando.length? `<br><span style="color:var(--err);font-weight:700">🎙 ${esperando.length} áudio gravado e NÃO enviado — aba Diário, botão Enviar</span>`:'');
   if(pend.length===0) t.innerHTML = `<b>${hojeEnv? (S.obraId?'Tudo enviado desta obra.':'Tudo enviado.') : (S.obraId?'Nada na fila desta obra.':'Nada na fila.')}</b> ${hojeEnv? hojeEnv+' arquivo(s) hoje.':''} ${navigator.onLine?'':'Sem internet.'}${nota}`;
   else t.innerHTML = `<b>${pend.length} na fila${S.obraId?' desta obra':''}</b>${err.length?` · <span style="color:var(--err)">${err.length} com erro</span>`:''} · ${navigator.onLine?'com internet':'sem internet — sobe sozinho depois'}${nota}`;
 }
@@ -621,7 +623,7 @@ async function enfileirarArquivo(blob, tipo, nome, extra, opt){
   const m=/^(.*?)(\.[A-Za-z0-9]+)$/.exec(nome); const nomeU = m ? m[1]+sufixo(id)+m[2] : nome+sufixo(id);
   const pos=posFresca(5*60000);
   await guardar({ id, tipo, obraId:ob.id, obraNome:ob.nome, pastaId:ob.pastaId||null, quem:S.quem, slot:tipo, slotTitulo:tipo, nome:nomeU, mime:blob.type||'application/octet-stream', blob, thumb:null, meta:{quando:new Date().toISOString(), lat:pos?.lat??null, lon:pos?.lon??null, acc:pos?.acc??null, app:APP_VERSAO, extra:extra||null}, status:opt.status||'pendente', criadoEm:new Date().toISOString() });
-  await recarregarFila(); render(); if(navigator.onLine && (opt.status||'pendente')==='pendente') enviarFila();
+  await recarregarFila(); if(!opt.quieto) render(); if(!opt.semEnvio && navigator.onLine && (opt.status||'pendente')==='pendente') enviarFila();
   return id;
 }
 async function enfileirarRegistro(obj, nome){
@@ -1412,7 +1414,10 @@ function ligarOcorr(ob){
 (async function boot(){
   await DB.open(); await recarregarFila();
   $('#hBtn').onclick=()=>{ if(window.FICHAS && FICHAS.aberta()){ history.back(); return; } S.obraId=null; LS.set('obraId',null); render(); };
-  $('#filaBtn').onclick=()=>enviarFila();
+  $('#filaBtn').onclick=async()=>{ const b=$('#filaBtn');
+    try{ if(window.FICHAS_PARCIAIS && window.FICHAS_PARCIAIS.pendentes(null)){ b.disabled=true; toast('Preparando as fichas abertas (parcial)…');
+      const n=await window.FICHAS_PARCIAIS.enviar({}); if(n) toast(`${n} ficha(s) aberta(s) indo como PARCIAL. Elas continuam abertas no celular.`,4500); } }catch(e){ toast('Fichas: '+e.message,5000); }
+    pintarFila(); enviarFila(); };
   $('#camFechar').onclick=()=>{ if(history.state&&history.state.t==='cam') history.back(); else fecharCamera(); }; $('#shutter').onclick=()=> CAM.modo==='video'? gravarOuParar() : fotografar(); $('#mFoto').onclick=()=>{ if(!CAM.rec) modoCamera('foto'); }; $('#mVideo').onclick=()=>{ if(!CAM.rec) modoCamera('video'); };
   $('#camSlot').onchange=()=>pintarTiras();
   // galeria: entra no MESMO item que está aberto na câmera
@@ -1429,6 +1434,9 @@ function ligarOcorr(ob){
   /* sinal fraco não dispara o evento "online" de novo: tenta sozinho a cada minuto enquanto houver pendente */
   setTimeout(relatarEstado, 20000);
   setInterval(()=>{ if(navigator.onLine && !S.enviando && S.fila.some(x=>x.status==='pendente'||x.status==='erro')) enviarFila(); }, 60000);
+  /* v1.16.0: cópia de segurança automática — ficha aberta com dado novo sobe sozinha (só os dados, leve) no máximo a cada 2 h,
+     com o app aberto e com sinal. Ninguém precisa lembrar; obra longa não fica com dado só no celular. */
+  setInterval(async()=>{ try{ if(navigator.onLine && !S.enviando && window.FICHAS_PARCIAIS && await window.FICHAS_PARCIAIS.auto()) enviarFila(); }catch(e){} }, 5*60000);
   const ob=LS.get('obraId',null); if(ob && S.pacote?.obras.some(o=>o.id===ob)) S.obraId=ob;
   render(); if(S.obraId) iniciarGPS();
   // Botão "voltar": fecha a câmera/ficha, volta para a lista de obras e NUNCA sai do app
