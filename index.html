@@ -268,7 +268,7 @@ button.mini{padding:8px 12px;font-size:14px;margin-top:6px}
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.16.1';
+const APP_VERSAO = '1.17.0';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -289,6 +289,7 @@ const S = {
   fmt: LS.get('fmt', 'utm'),          // 'geo' | 'utm'
   marca: LS.get('marca', true),       // marca d'água da empresa nas fotos
   original: LS.get('original', true), // envia também o arquivo original sem carimbo
+  salvarCel: LS.get('salvarCel', true), // v1.17.0: guarda cópia da foto tirada pelo app no próprio celular
   obraId: null, tab: 'roteiro',
   pos: null, posEm: 0, watch: null,
   fila: [], enviando: false,
@@ -615,6 +616,8 @@ async function enfileirarFoto(blobOriginal, opts){
   const thumb=await miniatura(bmp);
   const meta={ lat:pos?.lat??null, lon:pos?.lon??null, acc:pos?.acc??null, alt:pos?.alt??null, fmt:S.fmt, utm:pos?toUTM(pos.lat,pos.lon):null, fonte, marca:S.marca, quando:data.toISOString(), origem:opts.fonte, app:APP_VERSAO, extra:opts.extra||null };
   await guardar({ id, tipo:'foto', obraId:ob.id, obraNome:ob.nome, pastaId:ob.pastaId||null, quem:S.quem, slot:opts.slot, slotTitulo:opts.slotTitulo, nome:nomeBase+'.jpg', mime:'image/jpeg', blob:comExif, thumb, meta, status:'pendente', criadoEm:new Date().toISOString() });
+  if(S.salvarCel && opts.fonte==='camera' && !EH_IOS){ /* Android: cópia vai sozinha para Downloads */
+    if(baixarNoCel(comExif, nomeBase+'.jpg')){ try{ const it=await DB.get(id); if(it){ it.noCel=true; await DB.put(it); } }catch(_){} } }
   if(opts.slot==='marco'){ /* marco: sem cópia original; o robô nomeia pelo código e gera o KML */ }
   else if(S.original && opts.fonte==='camera'){ // original limpo (sem carimbo) para o marketing
     await guardar({ id:id+'o', tipo:'foto', obraId:ob.id, obraNome:ob.nome, pastaId:ob.pastaId||null, quem:S.quem, slot:opts.slot, slotTitulo:opts.slotTitulo, nome:nomeBase+'_original.jpg', mime:'image/jpeg', blob:await inserirExif(blobOriginal.type==='image/jpeg'?blobOriginal:carimbo,{data,gps:pos?{lat:pos.lat,lon:pos.lon,alt:pos.alt}:null,desc:ob.nome}), thumb:null, meta:Object.assign({},meta,{original:true}), status:'pendente', criadoEm:new Date().toISOString() }); }
@@ -623,6 +626,27 @@ async function enfileirarFoto(blobOriginal, opts){
   await recarregarFila(); render(); toast('Foto guardada na fila'+(pos?'':(opts.fonte==='camera'&&S.pos?' — SEM coordenada (GPS desatualizado: espere fixar)':' — sem coordenada')));
   if(navigator.onLine) enviarFila();
 }
+/* ---------- CÓPIA NO CELULAR (v1.17.0) ----------
+ * Pedido do Ygor (09/10/2026): foto tirada pelo app fica salva também no celular, Android e iPhone.
+ * App de navegador não grava direto na galeria. Android: o arquivo cai sozinho em Downloads (Galeria/Google Fotos
+ * mostram). iPhone: o sistema exige um toque — "Salvar no celular" abre a folha do iOS com "Salvar N imagens".
+ * Foto puxada da galeria não entra (já está no celular). Vai a versão carimbada. */
+const EH_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+function baixarNoCel(blob,nome){ try{ const u=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=u; a.download=nome; a.style.display='none';
+  document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(u); a.remove(); },5000); return true; }catch(e){ return false; } }
+function fotosSemCopia(obraId){ return (S.fila||[]).filter(x=>x.tipo==='foto' && !x.meta?.original && x.meta?.origem==='camera' && !x.noCel && x.blob && (!obraId||x.obraId===obraId)); }
+async function salvarNoCelular(obraId){ const fs=fotosSemCopia(obraId); if(!fs.length) return toast('Todas as fotos já estão no celular ✓');
+  if(EH_IOS){ const lote=fs.slice(0,10); const files=lote.map(x=>new File([x.blob],x.nome,{type:x.mime||'image/jpeg'}));
+    if(!(navigator.canShare && navigator.canShare({files}))) return toast('Este iPhone não deixa o app salvar fotos. Atualize o iOS (16 ou mais novo).',5000);
+    try{ await navigator.share({files}); for(const x of lote){ x.noCel=true; if(x.status==='enviado') x.blob=null; await DB.put(x); } await recarregarFila(); render();
+      const r=fs.length-lote.length; toast(r?`${lote.length} salvas. Faltam ${r}: toque de novo em Salvar no celular.`:'Fotos salvas no celular ✓',4500); }
+    catch(e){ if(e.name!=='AbortError') toast('Não consegui salvar: '+e.message,4500); }
+    return; }
+  for(const x of fs){ if(baixarNoCel(x.blob,x.nome)){ x.noCel=true; if(x.status==='enviado') x.blob=null; await DB.put(x); } await new Promise(r=>setTimeout(r,400)); }
+  await recarregarFila(); render(); toast('Fotos salvas no celular (pasta Downloads) ✓',4500); }
+function cartaoCopiaCel(ob){ if(!S.salvarCel) return ''; const n=fotosSemCopia(ob.id).length; if(!n) return '';
+  return `<div class="card" style="border-left:5px solid var(--navy)"><b>📱 ${n} foto(s) ainda não estão salvas neste celular</b><div class="nota">${EH_IOS?'No iPhone o sistema pede um toque: toque abaixo e escolha <b>Salvar imagens</b> (vai de 10 em 10).':'Toque abaixo para salvar na pasta Downloads do celular.'}</div><button class="big sec" id="salvarCel" style="margin-top:8px">Salvar no celular</button></div>`; }
+
 async function miniatura(bmp){ const oc=document.createElement('canvas'); const k=Math.min(1,520/Math.max(bmp.width,bmp.height)); oc.width=Math.round(bmp.width*k); oc.height=Math.round(bmp.height*k); desenhoLiso(oc.getContext('2d')).drawImage(bmp,0,0,oc.width,oc.height); return oc.toDataURL('image/jpeg',0.72); }
 async function enfileirarArquivo(blob, tipo, nome, extra, opt){
   opt=opt||{};
@@ -654,7 +678,10 @@ async function enviarFila(){
         const corpo={ token:S.cfg.token, acao:'enviar', id:it.id, obraId:it.obraId, obraNome:it.obraNome, pastaId:it.pastaId, quem:it.quem, tipo:it.tipo, slot:it.slot, slotTitulo:it.slotTitulo, nome:it.nome, mime:it.mime, meta:it.meta, criadoEm:it.criadoEm, b64: await b64(it.blob) };
         const r=await fetch(S.cfg.script,{method:'POST',body:JSON.stringify(corpo),signal:ac.signal}); clearTimeout(lim);
         const j=await r.json().catch(()=>({ok:false,erro:'resposta inválida'}));
-        if(j.ok){ it.status='enviado'; it.enviadoEm=new Date().toISOString(); it.url=j.url||null; it.pasta=j.pasta||null; it.marco=j.marco||null; it.transito=!!j.transito; it.blob=null; it.erro=null; it.erroEm=null; }
+        if(j.ok){ it.status='enviado'; it.enviadoEm=new Date().toISOString(); it.url=j.url||null; it.pasta=j.pasta||null; it.marco=j.marco||null; it.transito=!!j.transito; it.erro=null; it.erroEm=null;
+          try{ const at=await DB.get(it.id); if(at&&at.noCel) it.noCel=true; }catch(_){}
+          /* v1.17.0: foto da câmera que ainda não foi salva no celular guarda o arquivo até ser salva (iPhone pede um toque) */
+          if(!(S.salvarCel && it.tipo==='foto' && it.meta?.origem==='camera' && !it.meta?.original && !it.noCel)) it.blob=null; }
         else { it.status='erro'; it.erro=j.erro||('HTTP '+r.status); it.erroEm=new Date().toISOString(); }
       }catch(e){ if(e instanceof TypeError || e.name==='AbortError' || !navigator.onLine){ it.status='pendente'; it.erro=null; await DB.put(it);
           if(grande && navigator.onLine) continue;   /* vídeo grande caiu no sinal fraco: os pequenos de trás ainda tentam */
@@ -1204,13 +1231,15 @@ function telaAjustes(){
   m.innerHTML=`<div class="card"><h2>Robô de campo</h2><label>URL do robô (Apps Script, termina em /exec)</label><input id="cfgScript" value="${esc(S.cfg.script)}" placeholder="https://script.google.com/macros/s/…/exec"><label>Chave</label><input id="cfgToken" value="${esc(S.cfg.token)}"><div class="nota">A URL vem do escritório. Depois de colar, toque em Salvar e em Atualizar lista.</div></div>
   <div class="card"><h2>Foto</h2><label>Coordenada no carimbo</label><div class="seg"><button id="fGeo" class="${S.fmt==='geo'?'on':''}">Geográficas (lat/lon)</button><button id="fUtm" class="${S.fmt==='utm'?'on':''}">UTM</button></div>
   <div class="chk" style="margin-top:10px"><input type="checkbox" id="cMarca" ${S.marca?'checked':''}><span>Logo da Natural Engenharia nas fotos e vídeos (desligue em trabalho para empresa terceira) (dá para ligar/desligar na câmera também)</span></div>
-  <div class="chk"><input type="checkbox" id="cOrig" ${S.original?'checked':''}><span>Enviar também o original sem carimbo (para o marketing). Dobra o tamanho do envio.</span></div></div>
+  <div class="chk"><input type="checkbox" id="cOrig" ${S.original?'checked':''}><span>Enviar também o original sem carimbo (para o marketing). Dobra o tamanho do envio.</span></div><div class="chk"><input type="checkbox" id="cCel" ${S.salvarCel?'checked':''}><span>Guardar cópia das fotos tiradas pelo app neste celular${EH_IOS?' (no iPhone, pelo botão Salvar no celular dentro da obra)':' (pasta Downloads)'}.</span></div></div>
   <div class="card"><h2>Este aparelho</h2><div class="muted">App ${APP_VERSAO} · ${S.pacote?`lista de ${fmtData(S.pacote.geradoEm)}`:'sem lista'} · ${S.fila.length} itens no histórico</div><div class="row" style="margin-top:10px"><button class="sec" id="limparEnv">Limpar enviados</button><button class="danger" id="limparTudo">Apagar fila inteira</button></div></div>
   <button class="big green" id="salvarCfg">Salvar</button>`;
   $('#fGeo').onclick=()=>{S.fmt='geo';LS.set('fmt','geo');telaAjustes();}; $('#fUtm').onclick=()=>{S.fmt='utm';LS.set('fmt','utm');telaAjustes();};
-  $('#cMarca').onchange=e=>{S.marca=e.target.checked;LS.set('marca',S.marca);}; $('#cOrig').onchange=e=>{S.original=e.target.checked;LS.set('original',S.original);};
+  $('#cMarca').onchange=e=>{S.marca=e.target.checked;LS.set('marca',S.marca);}; $('#cOrig').onchange=e=>{S.original=e.target.checked;LS.set('original',S.original);}; $('#cCel').onchange=e=>{S.salvarCel=e.target.checked;LS.set('salvarCel',S.salvarCel);};
   $('#salvarCfg').onclick=async()=>{ S.cfg.script=$('#cfgScript').value.trim(); S.cfg.token=$('#cfgToken').value.trim(); LS.set('cfg',S.cfg); toast('Salvo'); S.obraId=null; render(); if(S.cfg.script) baixarPacote(false); };
-  $('#limparEnv').onclick=async()=>{ for(const x of S.fila.filter(x=>x.status==='enviado')) await DB.del(x.id); await recarregarFila(); telaAjustes(); };
+  $('#limparEnv').onclick=async()=>{ const semCopia=S.salvarCel?fotosSemCopia().filter(x=>x.status==='enviado').length:0;
+    if(semCopia && !confirm(`${semCopia} foto(s) já enviadas ainda NÃO foram salvas neste celular. Se limpar, elas ficam só no Drive. Limpar mesmo assim?`)) return;
+    for(const x of S.fila.filter(x=>x.status==='enviado')) await DB.del(x.id); await recarregarFila(); telaAjustes(); };
   $('#limparTudo').onclick=async()=>{ const nao=S.fila.filter(x=>x.status!=='enviado').length;
     if(nao && !confirm(`ATENÇÃO: ${nao} arquivo(s) AINDA NÃO SUBIRAM para o escritório e não existem em nenhum outro lugar.\n\nApagar mesmo assim? Não tem desfazer.`)) return;
     if(!nao && !confirm('Apagar o histórico de enviados deste aparelho?')) return;
@@ -1220,6 +1249,7 @@ function telaAjustes(){
 function telaRoteiro(ob){
   const P=S.pacote; const fotos=fotosDaObra(ob); const chk=checklistDaObra(ob); const est=estadoChk(ob);
   let h=`<div class="card"><h2>Coordenada agora</h2><div class="geo" id="geoLive">Procurando GPS…</div><button class="sec" id="gpsLigar" style="margin-top:8px">Ligar o GPS</button><div class="nota">Formato: ${S.fmt==='utm'?'UTM':'geográficas'} (muda em Ajustes ou na câmera).</div></div>`;
+  h+=cartaoCopiaCel(ob);
   h+=`<div class="card"><h2>As 5 fotos + o que mais precisar</h2><div class="nota">Operação acontecendo, não posada. Horizontal. Toque no item: a câmera fica aberta e você tira <b>quantas fotos quiser</b> em cada um. Para <b>vídeo</b>, toque em "Vídeo" na câmera (até 1min30, com coordenada na imagem).</div><div class="slots">`;
   for(const s of slotsDaObra()){ const fs=fotos.filter(f=>f.slot===s.k); const n=P.roteiroFotos.findIndex(r=>r.k===s.k); h+=`<button class="slot ${fs.length?'done':''}" data-slot="${esc(s.k)}"><span class="n">${n>=0?n+1:'+'}</span><b>${esc(s.t)}</b><small>${esc(s.d)}</small>${fs.length?`${fs[fs.length-1].thumb?`<img src="${fs[fs.length-1].thumb}" alt="">`:""}<span class="cnt">${fs.length}</span>`:''}</button>`; }
   h+=`</div><div class="nota">Já tem a foto ou o vídeo no celular? Toque no item para abrir a câmera e use "Da galeria" lá dentro — assim vai para o item certo.</div></div>`;
@@ -1268,6 +1298,7 @@ function ligarDesmob(ob){
 }
 function ligarRoteiro(ob){
   atualizarGeo();
+  const sc=$('#salvarCel'); if(sc) sc.onclick=()=>salvarNoCelular(ob.id);
   const gl=$('#gpsLigar'); if(gl) gl.onclick=()=>{ S.gpsErro=null; iniciarGPS(true); atualizarGeo(); toast('Se aparecer "Permitir localização?", toque em PERMITIR',4500); };
   document.querySelectorAll('.slot').forEach(b=>b.onclick=()=>abrirCamera(b.dataset.slot));
   document.querySelectorAll('input[data-t]').forEach(c=>c.onchange=()=>{ const est=estadoChk(ob); est[c.dataset.t]=c.checked; LS.set('chk_'+ob.id+'_'+hoje(),est); const l=checklistDaObra(ob); $('#fecharDia').textContent=`Registrar o dia (${l.filter(x=>x.ok).length}/${l.length} feitos)`; });

@@ -1,7 +1,7 @@
 /* Campo · Natural Engenharia — service worker
    Rede primeiro (pega sempre a versão nova e os SOPs atualizados);
    sem internet, usa a cópia guardada no celular. */
-const V = 'campo-v1.16.1';
+const V = 'campo-v1.17.0';
 const ESPERA_REDE = 4000; // sinal fraco: depois de 4 s abre a cópia do celular em vez de tela branca
 const FONTES = 'campo-fontes'; // não muda de versão: a fonte baixada uma vez fica
 const SHELL = ['./', 'index.html', 'fichas.js', 'geofisica.js', 'manifest.webmanifest', 'logo-white.png', 'logo-color.png', 'icon-192.png', 'icon-512.png', 'campo.json', 'hidrogeo.json', 'COMO_ANDAR_CAMINHAMENTO.png', 'COMO_ABRIR_SEV.png'];
