@@ -268,7 +268,7 @@ button.mini{padding:8px 12px;font-size:14px;margin-top:6px}
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.16.0';
+const APP_VERSAO = '1.16.1';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -351,6 +351,13 @@ function iniciarGPS(forcar){
   /* pedido único dentro do toque: é o que faz o Android mostrar o "Permitir localização?" */
   try{ navigator.geolocation.getCurrentPosition(ok, er, {enableHighAccuracy:true, maximumAge:0, timeout:20000}); }catch(_){}
   S.watch = navigator.geolocation.watchPosition(ok, er, {enableHighAccuracy:true, maximumAge:5000, timeout:30000});
+  /* v1.16.1: o celular às vezes NUNCA responde (pergunta de permissão escondida ou ignorada) e a tela ficava
+     em "Procurando GPS…" para sempre, sem dizer nada. Depois de 12 s sem posição e sem erro, descobre o motivo e fala. */
+  const pedido=S.gpsPedidoEm=Date.now();
+  setTimeout(()=>{ if(S.gpsPedidoEm!==pedido || posFresca() || S.gpsErro) return;
+    const marca=c=>{ if(!posFresca() && !S.gpsErro){ S.gpsErro={code:c}; atualizarGeo(); } };
+    try{ if(navigator.permissions) navigator.permissions.query({name:'geolocation'}).then(st=>marca(st.state==='prompt'?4:(st.state==='denied'?1:5))).catch(()=>marca(5)); else marca(5); }catch(_){ marca(5); }
+  }, 12000);
 }
 /* frase que o funcionário entende e consegue resolver sozinho */
 function textoErroGPS(){
@@ -358,6 +365,8 @@ function textoErroGPS(){
   if(e.code===1) return 'GPS BLOQUEADO para o app. Toque no cadeado ao lado do endereço (ou ⋮ > Configurações > Configurações do site > Localização) e escolha PERMITIR. Se continuar: Configurações do Android > Apps > Chrome > Permissões > Localização > Permitir, com "Usar localização precisa" LIGADO.';
   if(e.code===2) return 'Localização do celular DESLIGADA. Puxe a barra de cima e ligue "Localização"; depois toque de novo.';
   if(e.code===3) return 'GPS ainda procurando sinal… vá para céu aberto e espere alguns segundos.';
+  if(e.code===4) return 'O celular ainda NÃO deu permissão de localização para o app. Toque em "Ligar o GPS" e escolha PERMITIR. Se a pergunta não aparecer: toque no ícone ao lado do endereço (ou ⋮ > Configurações > Configurações do site > Localização) e escolha Permitir.';
+  if(e.code===5) return 'O app tem permissão, mas o celular não está mandando a posição. Confira: Localização LIGADA, "Usar localização precisa" LIGADO (Configurações > Localização) e economia de bateria DESLIGADA. Vá para céu aberto e toque em "Ligar o GPS".';
   return 'Este navegador não dá GPS. Abra o app pelo Chrome.';
 }
 /* avisa já na abertura se o GPS está bloqueado, sem esperar o funcionário tentar tirar a foto */
@@ -1210,7 +1219,7 @@ function telaAjustes(){
 }
 function telaRoteiro(ob){
   const P=S.pacote; const fotos=fotosDaObra(ob); const chk=checklistDaObra(ob); const est=estadoChk(ob);
-  let h=`<div class="card"><h2>Coordenada agora</h2><div class="geo" id="geoLive">Procurando GPS…</div><div class="nota">Formato: ${S.fmt==='utm'?'UTM':'geográficas'} (muda em Ajustes ou na câmera).</div></div>`;
+  let h=`<div class="card"><h2>Coordenada agora</h2><div class="geo" id="geoLive">Procurando GPS…</div><button class="sec" id="gpsLigar" style="margin-top:8px">Ligar o GPS</button><div class="nota">Formato: ${S.fmt==='utm'?'UTM':'geográficas'} (muda em Ajustes ou na câmera).</div></div>`;
   h+=`<div class="card"><h2>As 5 fotos + o que mais precisar</h2><div class="nota">Operação acontecendo, não posada. Horizontal. Toque no item: a câmera fica aberta e você tira <b>quantas fotos quiser</b> em cada um. Para <b>vídeo</b>, toque em "Vídeo" na câmera (até 1min30, com coordenada na imagem).</div><div class="slots">`;
   for(const s of slotsDaObra()){ const fs=fotos.filter(f=>f.slot===s.k); const n=P.roteiroFotos.findIndex(r=>r.k===s.k); h+=`<button class="slot ${fs.length?'done':''}" data-slot="${esc(s.k)}"><span class="n">${n>=0?n+1:'+'}</span><b>${esc(s.t)}</b><small>${esc(s.d)}</small>${fs.length?`${fs[fs.length-1].thumb?`<img src="${fs[fs.length-1].thumb}" alt="">`:""}<span class="cnt">${fs.length}</span>`:''}</button>`; }
   h+=`</div><div class="nota">Já tem a foto ou o vídeo no celular? Toque no item para abrir a câmera e use "Da galeria" lá dentro — assim vai para o item certo.</div></div>`;
@@ -1259,6 +1268,7 @@ function ligarDesmob(ob){
 }
 function ligarRoteiro(ob){
   atualizarGeo();
+  const gl=$('#gpsLigar'); if(gl) gl.onclick=()=>{ S.gpsErro=null; iniciarGPS(true); atualizarGeo(); toast('Se aparecer "Permitir localização?", toque em PERMITIR',4500); };
   document.querySelectorAll('.slot').forEach(b=>b.onclick=()=>abrirCamera(b.dataset.slot));
   document.querySelectorAll('input[data-t]').forEach(c=>c.onchange=()=>{ const est=estadoChk(ob); est[c.dataset.t]=c.checked; LS.set('chk_'+ob.id+'_'+hoje(),est); const l=checklistDaObra(ob); $('#fecharDia').textContent=`Registrar o dia (${l.filter(x=>x.ok).length}/${l.length} feitos)`; });
   $('#obsDia').oninput=e=>LS.set('obs_'+ob.id+'_'+hoje(),e.target.value);
