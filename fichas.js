@@ -1768,9 +1768,16 @@ async function enviarParcial(f, o){ o=o||{};
 }
 function pendentesParcial(obraId){ return todas().filter(f=>temParcialNova(f) && (!obraId || f.obraId===obraId)).length; }
 async function enviarParciais(o){ const fs=todas().filter(temParcialNova); for(const f of fs){ try{ await enviarParcial(f,o); }catch(e){} } return fs.length; }
-async function parcialAuto(){ const fs=todas().filter(f=>temParcialNova(f) && (!f.parcialEm || Date.now()-new Date(f.parcialEm).getTime()>2*36e5));
+/* v1.18.0: cópia automática a cada 15 min (era 2 h) — pedido do Ygor (10/10/2026): dado parcial levantado em campo
+ * tem que chegar ao escritório mesmo que aconteça alguma coisa com o celular. Só os dados (JSON leve). */
+async function parcialAuto(){ const fs=todas().filter(f=>temParcialNova(f) && (!f.parcialEm || Date.now()-new Date(f.parcialEm).getTime()>15*6e4));
   for(const f of fs){ try{ await enviarParcial(f,{soDados:true}); }catch(e){} } return fs.length; }
-window.FICHAS_PARCIAIS = { pendentes:pendentesParcial, enviar:enviarParciais, auto:parcialAuto };
+/* v1.18.0: lista das fichas abertas com dado que ainda NÃO saiu do celular — vai no bilhete de estado do aparelho,
+ * para o escritório ver ficha parada no celular (antes o bilhete só olhava a fila e dizia "tudo certo"). */
+function abertasSemEnvio(){ return todas().filter(temParcialNova).map(f=>{ const def=DEF[f.tipo]||{};
+  let id=''; try{ id=def.ident?def.ident(f.dados):''; }catch(e){}
+  return { fichaId:f.id, codigo:def.codigo||f.tipo, ident:id, obraId:f.obraId, obra:f.obraNome, por:f.por||'', criadoEm:f.criadoEm, atualizadoEm:f.atualizadoEm, ultimaParcialEm:f.parcialEm||null }; }); }
+window.FICHAS_PARCIAIS = { pendentes:pendentesParcial, enviar:enviarParciais, auto:parcialAuto, abertas:abertasSemEnvio };
 
 window.FICHAS_DA_LINHA = FICHAS_DA_LINHA;
 /* os três dados que NÃO se recuperam no poço (SOP-008): o app avisa, nunca trava */

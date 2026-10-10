@@ -268,7 +268,7 @@ button.mini{padding:8px 12px;font-size:14px;margin-top:6px}
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.17.0';
+const APP_VERSAO = '1.18.0';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -377,7 +377,12 @@ try{ navigator.permissions && navigator.permissions.query({name:'geolocation'}).
 /* coordenada só vale se for de agora: carro andou 60 km com o app em segundo plano e a
    posição velha saía carimbada na foto da obra seguinte */
 function posFresca(ms){ return (S.pos && S.posEm && Date.now()-S.posEm <= (ms||60000)) ? S.pos : null; }
-document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'){ if(S.gpsErro) iniciarGPS(true); if(S.posEm && Date.now()-S.posEm>60000) atualizarGeo(); if(navigator.onLine) enviarFila(); } });
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'){ if(S.gpsErro) iniciarGPS(true); if(S.posEm && Date.now()-S.posEm>60000) atualizarGeo(); if(navigator.onLine) enviarFila();
+    /* v1.18.0: app que fica dias aberto também procura versão nova (antes só procurava ao abrir do zero) */
+    try{ if('serviceWorker' in navigator) navigator.serviceWorker.getRegistration().then(r=>r&&r.update()).catch(()=>{}); }catch(e){} }
+  /* v1.18.0: ao sair do app (trocar de tela, bloquear o celular), a ficha aberta com dado novo sobe na hora */
+  if(navigator.onLine) autoParciais(); });
+async function autoParciais(){ try{ if(!S.enviando && window.FICHAS_PARCIAIS && await window.FICHAS_PARCIAIS.auto()) enviarFila(); }catch(e){} }
 function atualizarGeo(err){
   const ge=textoErroGPS();
   const g0=$('#geoLive'); if(g0 && ge && !posFresca()) g0.textContent=ge;
@@ -1038,16 +1043,19 @@ function problemasAparelho(){ const ag=Date.now();
   return (S.fila||[]).filter(x=>x.obraId && (x.status==='erro' || ((x.status==='pendente'||x.status==='aguardando') && ag-new Date(x.criadoEm).getTime()>(x.status==='aguardando'?2:24)*36e5))); }
 async function relatarEstado(){
   try{ if(!S.cfg.script || !S.quem) return; const pr=problemasAparelho(); const ult=LS.get('estadoUlt',{});
-    const chave=pr.length? pr.map(x=>x.id+':'+x.status).sort().join(',') : 'ok';
+    let ab=[]; try{ ab=(window.FICHAS_PARCIAIS&&window.FICHAS_PARCIAIS.abertas)?window.FICHAS_PARCIAIS.abertas():[]; }catch(e){}
+    /* só entra a ficha com dado novo parado há mais de 30 min (com sinal ela sobe sozinha antes disso) */
+    ab=ab.filter(f=>Date.now()-new Date(f.ultimaParcialEm||f.criadoEm).getTime()>30*6e4);
+    const chave=(pr.length||ab.length)? pr.map(x=>x.id+':'+x.status).concat(ab.map(f=>'ficha:'+f.fichaId)).sort().join(',') : 'ok';
     const velho=Date.now()-(+ult.em||0) > 6*36e5;
-    if(chave===ult.chave && !(pr.length && velho)) return;
+    if(chave===ult.chave && !((pr.length||ab.length) && velho)) return;
     if(chave==='ok' && !ult.chave) return; /* nunca teve problema: não manda nada */
     LS.set('estadoUlt',{chave, em:Date.now()});
     const itens=pr.slice(0,30).map(x=>({obraId:x.obraId, obra:x.obraNome, o:rotuloEnvio(x), nome:x.nome, st:x.status, erro:String(x.erro||'').slice(0,160), criadoEm:x.criadoEm, erroEm:x.erroEm||null}));
     const obj={ tipo:'estado_aparelho', quem:S.quem, quemId:S.quemId||'', em:new Date().toISOString(), app:APP_VERSAO, online:navigator.onLine,
-      totais:{ erro:pr.filter(x=>x.status==='erro').length, parado:pr.filter(x=>x.status!=='erro').length, fila:(S.fila||[]).filter(x=>x.status!=='enviado').length }, itens, tudoCerto:!pr.length };
+      totais:{ erro:pr.filter(x=>x.status==='erro').length, parado:pr.filter(x=>x.status!=='erro').length, fila:(S.fila||[]).filter(x=>x.status!=='enviado').length, fichasAbertas:ab.length }, itens, fichasAbertas:ab.slice(0,30), tudoCerto:!pr.length && !ab.length };
     const blob=new Blob([JSON.stringify(obj,null,1)],{type:'application/json'});
-    await enfileirarArquivo(blob,'registro',`${agoraArq()}_ESTADO_APARELHO_${slug(S.quem)}.json`, { tipo:'estado_aparelho', quemId:obj.quemId, totais:obj.totais, itens:itens.slice(0,15), tudoCerto:obj.tudoCerto },
+    await enfileirarArquivo(blob,'registro',`${agoraArq()}_ESTADO_APARELHO_${slug(S.quem)}.json`, { tipo:'estado_aparelho', quemId:obj.quemId, totais:obj.totais, itens:itens.slice(0,15), fichasAbertas:ab.slice(0,10), tudoCerto:obj.tudoCerto },
       { obra:{ id:'', nome:'_ESTADO_DOS_APARELHOS', pastaId:null } });
   }catch(e){ console.warn('estado', e); } }
 
@@ -1471,13 +1479,14 @@ function ligarOcorr(ob){
   $('#camTrocar').onclick=async()=>{ if(CAM.rec) return toast('Pare a gravação antes de trocar a câmera'); CAM.facing=CAM.facing==='environment'?'user':'environment'; try{ await ligarStream(); }catch(e){ toast(e.message); } };
   $('#tgMarca').onclick=()=>{ S.marca=!S.marca; LS.set('marca',S.marca); pintarToggles(); };
   $('#tgFmt').onclick=()=>{ S.fmt=S.fmt==='utm'?'geo':'utm'; LS.set('fmt',S.fmt); pintarToggles(); atualizarGeo(); };
-  window.addEventListener('online',()=>{ pintarFila(); enviarFila(); }); window.addEventListener('offline',pintarFila);
+  window.addEventListener('online',()=>{ pintarFila(); enviarFila(); autoParciais(); }); window.addEventListener('offline',pintarFila);
   /* sinal fraco não dispara o evento "online" de novo: tenta sozinho a cada minuto enquanto houver pendente */
   setTimeout(relatarEstado, 20000);
   setInterval(()=>{ if(navigator.onLine && !S.enviando && S.fila.some(x=>x.status==='pendente'||x.status==='erro')) enviarFila(); }, 60000);
-  /* v1.16.0: cópia de segurança automática — ficha aberta com dado novo sobe sozinha (só os dados, leve) no máximo a cada 2 h,
+  /* v1.16.0: cópia de segurança automática — ficha aberta com dado novo sobe sozinha (só os dados, leve); v1.18.0: a cada 15 min, ao abrir e ao sair do app,
      com o app aberto e com sinal. Ninguém precisa lembrar; obra longa não fica com dado só no celular. */
-  setInterval(async()=>{ try{ if(navigator.onLine && !S.enviando && window.FICHAS_PARCIAIS && await window.FICHAS_PARCIAIS.auto()) enviarFila(); }catch(e){} }, 5*60000);
+  setInterval(()=>{ if(navigator.onLine) autoParciais(); }, 5*60000);
+  setTimeout(()=>{ if(navigator.onLine) autoParciais(); }, 15000); /* v1.18.0: ao abrir o app, ficha aberta com dado novo já sobe */
   const ob=LS.get('obraId',null); if(ob && S.pacote?.obras.some(o=>o.id===ob)) S.obraId=ob;
   render(); if(S.obraId) iniciarGPS();
   // Botão "voltar": fecha a câmera/ficha, volta para a lista de obras e NUNCA sai do app
