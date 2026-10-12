@@ -833,17 +833,51 @@ DEF.termo = {
 };
 ['spt','geofisica','georef','topografia','obra-civil'].forEach(l=>{ FICHAS_DA_LINHA[l]=(FICHAS_DA_LINHA[l]||[]).concat('termo'); });
 
-/* foto de quem assina: câmera traseira, reduzida e carimbada com data, hora e coordenada */
-function fotografar(pronto){
+/* foto de quem assina: câmera DENTRO do app (v1.18.2). Antes abria a câmera do sistema e, em alguns celulares,
+   não havia como voltar para a ficha sem fechar o app. Agora: botão "← Voltar" grande, o voltar do celular fecha só
+   a câmera, e a ficha continua aberta como estava. Se a câmera do app não abrir, cai na câmera do sistema (como antes). */
+let FCAM=null;
+function carimbarFoto(im, pronto){
+  const lado=900, r=Math.min(1,lado/Math.max(im.width||im.videoWidth,im.height||im.videoHeight)); const W=im.width||im.videoWidth, H=im.height||im.videoHeight;
+  const cv=document.createElement('canvas'); cv.width=Math.round(W*r); cv.height=Math.round(H*r);
+  const c=cv.getContext('2d'); c.drawImage(im,0,0,cv.width,cv.height);
+  const carimbo=`${fmtData(new Date())} · ${S.pos?fmtCoordCurta(S.pos,S.fmt):'sem GPS'} · ${S.quem||''}`;
+  c.fillStyle='rgba(17,62,107,.8)'; c.fillRect(0,cv.height-34,cv.width,34); c.fillStyle='#fff'; c.font='18px system-ui,Arial'; c.fillText(carimbo,10,cv.height-11);
+  pronto(cv.toDataURL('image/jpeg',0.72)); }
+function fotografarSistema(pronto){
   const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.capture='environment'; inp.style.display='none'; document.body.appendChild(inp);
   inp.onchange=async()=>{ const fl=inp.files&&inp.files[0]; inp.remove(); if(!fl) return;
     try{ const url=URL.createObjectURL(fl); const im=await new Promise((ok,er)=>{ const i=new Image(); i.onload=()=>ok(i); i.onerror=er; i.src=url; });
-      const lado=900, r=Math.min(1,lado/Math.max(im.width,im.height)); const cv=document.createElement('canvas'); cv.width=Math.round(im.width*r); cv.height=Math.round(im.height*r);
-      const c=cv.getContext('2d'); c.drawImage(im,0,0,cv.width,cv.height); URL.revokeObjectURL(url);
-      const carimbo=`${fmtData(new Date())} · ${S.pos?fmtCoordCurta(S.pos,S.fmt):'sem GPS'} · ${S.quem||''}`;
-      c.fillStyle='rgba(17,62,107,.8)'; c.fillRect(0,cv.height-34,cv.width,34); c.fillStyle='#fff'; c.font='18px system-ui,Arial'; c.fillText(carimbo,10,cv.height-11);
-      pronto(cv.toDataURL('image/jpeg',0.72)); }catch(e){ toast('Não consegui ler a foto: '+e.message,4000); } };
+      carimbarFoto(im,pronto); URL.revokeObjectURL(url); }catch(e){ toast('Não consegui ler a foto: '+e.message,4000); } };
   inp.click(); }
+function fecharFcam(){ if(!FCAM) return false; try{ FCAM.stream&&FCAM.stream.getTracks().forEach(t=>t.stop()); }catch(e){} FCAM.ov.remove(); FCAM=null; return true; }
+function sairFcam(){ if(history.state&&history.state.t==='fcam') history.back(); else fecharFcam(); }
+async function fotografar(pronto){
+  if(FCAM) fecharFcam();
+  if(!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia)) return fotografarSistema(pronto);
+  const ov=document.createElement('div'); ov.style.cssText='position:fixed;inset:0;background:#000;z-index:9990;display:flex;flex-direction:column';
+  ov.innerHTML=`<div style="position:absolute;top:0;left:0;right:0;z-index:2;padding:calc(10px + env(safe-area-inset-top)) 12px 10px;display:flex;align-items:center;gap:10px;background:linear-gradient(rgba(0,0,0,.65),transparent)">
+      <button id="fcVolta" style="background:#fff;color:#14284D;border:0;border-radius:10px;padding:12px 18px;font:700 17px system-ui;white-space:nowrap;flex:none">← Voltar</button>
+      <span style="color:#fff;font:600 14px system-ui;opacity:.9">Tire a foto: ela volta sozinha para a ficha</span></div>
+    <video id="fcVid" autoplay playsinline muted style="flex:1 1 0;min-height:0;width:100%;object-fit:cover;background:#000"></video>
+    <div style="flex:none;display:flex;align-items:center;justify-content:space-between;padding:18px 22px calc(22px + env(safe-area-inset-bottom));background:#000">
+      <button id="fcGal" style="background:rgba(255,255,255,.15);color:#fff;border:0;border-radius:10px;padding:12px 14px;font:600 14px system-ui">🖼 Galeria</button>
+      <button id="fcTira" aria-label="Fotografar" style="width:76px;height:76px;border-radius:50%;border:5px solid #fff;background:#fff;box-shadow:inset 0 0 0 4px #000"></button>
+      <span style="width:92px"></span></div>`;
+  document.body.appendChild(ov); FCAM={ov, stream:null};
+  try{ history.pushState({t:'fcam'},''); }catch(e){}
+  ov.querySelector('#fcVolta').onclick=sairFcam;
+  ov.querySelector('#fcGal').onclick=()=>{ const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.style.display='none'; document.body.appendChild(inp);
+    inp.onchange=async()=>{ const fl=inp.files&&inp.files[0]; inp.remove(); if(!fl) return;
+      try{ const url=URL.createObjectURL(fl); const im=await new Promise((ok,er)=>{ const i=new Image(); i.onload=()=>ok(i); i.onerror=er; i.src=url; }); carimbarFoto(im,pronto); URL.revokeObjectURL(url); sairFcam(); }catch(e){ toast('Não consegui ler a foto: '+e.message,4000); } };
+    inp.click(); };
+  const vid=ov.querySelector('#fcVid');
+  try{ FCAM.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1440}}, audio:false}); if(!FCAM){ return; } vid.srcObject=FCAM.stream; }
+  catch(e){ sairFcam(); toast('A câmera do app não abriu; abrindo a câmera do celular.',3500); return fotografarSistema(pronto); }
+  ov.querySelector('#fcTira').onclick=()=>{ if(!vid.videoWidth) return toast('Câmera ainda carregando…');
+    try{ carimbarFoto(vid,pronto); toast('Foto guardada na ficha'); }catch(e){ toast('Não consegui fotografar: '+e.message,4000); return; }
+    sairFcam(); };
+}
 
 function somaHora(h, min){ if(!h||!/^\d{1,2}:\d{2}$/.test(h)) return ''; const [a,b]=h.split(':').map(Number); const t=a*60+b+Number(min); const d=Math.floor(t/1440); const r=((t%1440)+1440)%1440; return String(Math.floor(r/60)).padStart(2,'0')+':'+String(r%60).padStart(2,'0')+(d?` (+${d}d)`:''); }
 
@@ -1799,7 +1833,7 @@ function pendenciasCriticas(obraId){
   else { if(!tes.some(f=>f.dados.estab)) out.push('Minuto em que o nível estabilizou'); if(!tes.some(f=>f.dados.volta)) out.push('Minuto em que o nível voltou ao NE'); }
   return out; }
 function encerradasHoje(obraId){ const h=HOJE(); return todas().filter(f=>f.obraId===obraId && f.status==='encerrada' && f.encerradaEm && new Date(f.encerradaEm).toDateString()===new Date().toDateString()).length; }
-window.FICHAS = { aliviarMemoria, pendenciasCriticas, encerradasHoje, secaoLista, ligarLista, abrir, fechar, aberta, fecharZoom, desenharEditor, gerarPDF, DEF, _novaFicha:novaFicha, _pegar:pegar, _fig:desenharFiguraGeof };
+window.FICHAS = { fecharFcam, aliviarMemoria, pendenciasCriticas, encerradasHoje, secaoLista, ligarLista, abrir, fechar, aberta, fecharZoom, desenharEditor, gerarPDF, DEF, _novaFicha:novaFicha, _pegar:pegar, _fig:desenharFiguraGeof };
 })();
 
 /* ± : o teclado numérico do Android (inputmode decimal) não tem o sinal de menos.
