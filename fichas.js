@@ -137,10 +137,10 @@ const DEF = {
      {k:'fonte', r:'De onde vieram os números', tipo:'sel', w:2, op:['','Anotei no papel / caderno','Lembro de cabeça (medi, mas não anotei)','Quem mediu me passou','Outro']},
      {k:'quem_mediu', r:'Quem fez o teste', tipo:'text', w:2},
      {k:'lanc_obs', r:'Observações (o que faltou anotar, por quê)', tipo:'area', w:4}]},
-   { t:'Bombeamento', esconde: d=>d.modo==='resumo', nota:'Hora = hora de início + t. Anote só o que medir.', tabela:{k:'bomb', seq:'fixo', fixo:TEMPOS_B.map(t=>({t})), cols:[
+   { t:'Bombeamento', esconde: d=>d.modo==='resumo', nota:'Hora = hora de início + t. Anote só o que medir.', tabela:{k:'bomb', seq:'fixo', media:'nd', fixo:TEMPOS_B.map(t=>({t})), cols:[
       {k:'t', r:'t (min)', tipo:'fixo', w:.6}, {k:'h', r:'Hora', tipo:'calc', w:.8, calc:(l,d)=>somaHora(d.hini,l.t)},
       {k:'nd', r:'N.D. (m)', tipo:'num', w:1}, {k:'q', r:'Q (m³/h)', tipo:'num', w:1}]}},
-   { t:'Recuperação (anotar até voltar ao NE)', esconde: d=>d.modo==='resumo', nota:'Começa quando a bomba desliga (início + 720 min, ou o minuto real em que ela parou). t/t\' = (tempo de bombeamento + t\') / t\'.', tabela:{k:'rec', seq:'fixo', fixo:TEMPOS_B.map(t=>({t})), cols:[
+   { t:'Recuperação (anotar até voltar ao NE)', esconde: d=>d.modo==='resumo', nota:'Começa quando a bomba desliga (início + 720 min, ou o minuto real em que ela parou). t/t\' = (tempo de bombeamento + t\') / t\'.', tabela:{k:'rec', seq:'fixo', media:'nd', fixo:TEMPOS_B.map(t=>({t})), cols:[
       {k:'t', r:'t\' (min)', tipo:'fixo', w:.6}, {k:'h', r:'Hora', tipo:'calc', w:.8, calc:(l,d)=>somaHora(d.hini,tBomba(d)+l.t)},
       {k:'tt', r:'t/t\'', tipo:'calc', w:.7, calc:(l,d)=>((tBomba(d)+l.t)/l.t).toFixed(1).replace('.',',')},
       {k:'nd', r:'N.D. (m)', tipo:'num', w:1}]}},
@@ -958,12 +958,25 @@ function campoHTML(c, v, ro){
   const type = c.tipo==='date'?'date':c.tipo==='time'?'time':'text';
   return `<div style="${span}">${lab}<div class="row"><input id="${id}" type="${type}" ${tp} data-f="${c.k}" value="${esc(v==null?'':v)}" placeholder="${esc(c.ph||'')}" ${dis}>${c.neg&&!ro?`<button class="sec sinal" data-sinal="${id}" type="button" style="flex:0 0 auto;padding:10px">±</button>`:''}${c.agora&&!ro?`<button class="sec" data-agora="${c.k}" style="flex:0 0 auto;padding:10px">agora</button>`:''}</div></div>`;
 }
+/* v1.19.1: leitura perdida entre duas medidas vira MÉDIA automática, sempre marcada como não medida.
+   A média é proporcional ao tempo (no meio do caminho é a média simples das duas). Nunca passa da última leitura feita. */
+const vazioV = v => v===''||v==null||isNaN(NUM(v));
+function mediaDe(tb, d, i){ if(!tb||!tb.media) return ''; const L=d[tb.k]||[]; const l=L[i]; if(!l || !vazioV(l[tb.media])) return '';
+  let a=i-1; while(a>=0 && vazioV(L[a][tb.media])) a--; let b=i+1; while(b<L.length && vazioV(L[b][tb.media])) b++;
+  if(a<0 || b>=L.length) return '';
+  const va=NUM(L[a][tb.media]), vb=NUM(L[b][tb.media]), ta=+L[a].t, tb2=+L[b].t, t=+l.t;
+  const v = (isNaN(ta)||isNaN(tb2)||tb2===ta) ? (va+vb)/2 : va+(vb-va)*(t-ta)/(tb2-ta);
+  return v.toFixed(2).replace('.',','); }
+function mediasDaFicha(f){ const def=DEF[f.tipo]; const out={}; if(!def) return out;
+  def.blocos.filter(b=>b.tabela&&b.tabela.media).forEach(b=>{ const tb=b.tabela; const arr=[];
+    (f.dados[tb.k]||[]).forEach((l,i)=>{ const m=mediaDe(tb,f.dados,i); if(m) arr.push({t:l.t, [tb.media]:m}); }); if(arr.length) out[tb.k]=arr; }); return out; }
 function tabelaHTML(tb, d, ro){
   const linhas=d[tb.k]||[];
   let h=`<div class="linhas">`;
   linhas.forEach((l,i)=>{
-    const vazia = tb.seq==='fixo' && tb.cols.filter(c=>!['fixo','calc'].includes(c.tipo)).every(c=>l[c.k]===''||l[c.k]==null);
-    h+=`<div class="linha ${vazia?'vz':''}" data-li="${i}"><div class="lh">${tb.seq==='fixo'?(tb.rot?tb.rot(l,i):`<b>${esc(tb.cols[0].r)} = ${l.t}</b>`):`<b>Linha ${i+1}</b>`}${tb.cols.filter(c=>c.tipo==='calc').map(c=>`<span class="chip">${esc(c.r)}: <b data-calc="${tb.k}.${i}.${c.k}">${esc(String(c.calc(l,d)))}</b></span>`).join('')}${(!ro&&tb.seq!=='fixo')?`<button class="ghost" data-del="${tb.k}.${i}" style="margin-left:auto;color:var(--err)">apagar</button>`:''}</div><div class="grid">`;
+    const med=mediaDe(tb,d,i);
+    const vazia = !med && tb.seq==='fixo' && tb.cols.filter(c=>!['fixo','calc'].includes(c.tipo)).every(c=>l[c.k]===''||l[c.k]==null);
+    h+=`<div class="linha ${vazia?'vz':''}" data-li="${i}"><div class="lh">${tb.seq==='fixo'?(tb.rot?tb.rot(l,i):`<b>${esc(tb.cols[0].r)} = ${l.t}</b>`):`<b>Linha ${i+1}</b>`}${tb.media?`<span class="chip w" data-media="${tb.k}.${i}" style="${med?'':'display:none'}">média ≈ <b>${esc(med)}</b> m · não medido</span>`:''}${tb.cols.filter(c=>c.tipo==='calc').map(c=>`<span class="chip">${esc(c.r)}: <b data-calc="${tb.k}.${i}.${c.k}">${esc(String(c.calc(l,d)))}</b></span>`).join('')}${(!ro&&tb.seq!=='fixo')?`<button class="ghost" data-del="${tb.k}.${i}" style="margin-left:auto;color:var(--err)">apagar</button>`:''}</div><div class="grid">`;
     for(const c of tb.cols){ if(c.tipo==='fixo'||c.tipo==='calc') continue;
       const id=`t_${tb.k}_${i}_${c.k}`; const tp=c.tipo==='num'?'inputmode="decimal"':c.tipo==='int'?'inputmode="numeric"':''; const span=`grid-column:span ${c.tipo==='area'?4:(c.w>=1.3?2:1)}`;
       let inp;
@@ -974,7 +987,7 @@ function tabelaHTML(tb, d, ro){
           <textarea id="${id}" data-t="${tb.k}.${i}.${c.k}" style="min-height:54px;margin-top:6px" placeholder="os botões escrevem aqui; pode corrigir">${esc(l[c.k]||'')}</textarea>
           <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:6px">${i>0?`<button class="ghost" data-gidem="${tb.k}.${i}.${c.k}" style="flex:0 0 auto">Igual ao de cima</button>`:''}${tb.agua?`<button class="ghost" data-gagua="${tb.k}.${i}" style="flex:0 0 auto">💧 Água apareceu aqui</button>`:''}${tb.foto?`<button class="sec" data-gfoto="${tb.k}.${i}" style="flex:0 0 auto">📷 ${esc(tb.foto)}</button><span class="mini">${fotosDaLinha(ABERTA,tb.k,i).length||''}${fotosDaLinha(ABERTA,tb.k,i).length?' foto(s)':''}</span>`:''}</div>`; }
       else if(c.tipo==='area') inp=`<textarea id="${id}" data-t="${tb.k}.${i}.${c.k}" ${ro?'disabled':''} style="min-height:60px">${esc(l[c.k]||'')}</textarea>`;
-      else inp=`<div class="row"><input id="${id}" type="${c.tipo==='time'?'time':c.tipo==='date'?'date':'text'}" ${tp} data-t="${tb.k}.${i}.${c.k}" value="${esc(l[c.k]==null?'':l[c.k])}" ${ro?'disabled':''}>${c.neg&&!ro?`<button class="sec sinal" data-sinal="${id}" type="button" style="flex:0 0 auto;padding:8px 10px">±</button>`:''}${c.agora&&!ro?`<button class="sec" data-tagora="${tb.k}.${i}.${c.k}" style="flex:0 0 auto;padding:8px">agora</button>`:''}</div>`;
+      else inp=`<div class="row"><input id="${id}" type="${c.tipo==='time'?'time':c.tipo==='date'?'date':'text'}" ${tp} data-t="${tb.k}.${i}.${c.k}" value="${esc(l[c.k]==null?'':l[c.k])}" ${tb.media===c.k&&med?`placeholder="≈ ${esc(med)} (média)"`:''} ${ro?'disabled':''}>${c.neg&&!ro?`<button class="sec sinal" data-sinal="${id}" type="button" style="flex:0 0 auto;padding:8px 10px">±</button>`:''}${c.agora&&!ro?`<button class="sec" data-tagora="${tb.k}.${i}.${c.k}" style="flex:0 0 auto;padding:8px">agora</button>`:''}</div>`;
       h+=`<div style="${span}"><label for="${id}">${esc(c.r)}</label>${inp}</div>`; }
     h+=`</div></div>`; });
   if(!ro && tb.seq!=='fixo') h+=`<button class="big sec" data-add="${tb.k}">+ ${tb.seq==='metro'?'próximo metro':'nova linha'}</button>`;
@@ -1001,16 +1014,34 @@ function cartaoLeitura(d){
   if(!d.hini) return `<div class="card spt" id="prox" style="border-left:5px solid var(--green)"><h2>Leitura da vez</h2><div class="nota">Quando a bomba ligar, toque aqui:</div><button class="big green" data-agora="hini">Bomba ligou agora</button><button class="big sec" data-modo="resumo" style="margin-top:10px">O teste já aconteceu: lançar só o principal</button><div class="mini" style="margin-top:6px">Use quando o teste foi feito sem o app (papel, celular sem bateria). Assim a informação não se perde.</div></div>`;
   const L=leituraDaVez(d); if(!L||L.fim) return `<div class="card" id="prox"><h2>Teste encerrado</h2><div class="nota">Passou de ${tBomba(d)} + 720 min.</div></div>`;
   const nome=L.tab==='bomb'?`Bombeamento · t = ${L.t} min`:`Recuperação · t' = ${L.t} min`; const v=(d[L.tab][L.i]||{}).nd||'';
-  return `<div class="card spt" id="prox" style="border-left:5px solid var(--green)"><h2>Leitura da vez</h2><div class="mini">${esc(nome)} · às <b>${esc(L.hora)}</b> · agora ${Math.floor(L.min)} min de teste</div>
+  return `<div class="card spt" id="prox" data-chave="${L.tab}:${L.i}" style="border-left:5px solid var(--green)"><h2>Leitura da vez</h2><div class="mini">${esc(nome)} · às <b>${esc(L.hora)}</b> · agora ${Math.floor(L.min)} min de teste</div>
+   <div class="crono" id="crono"></div>
    <div class="gols" style="grid-template-columns:2fr 1fr;margin-top:8px"><div class="gol"><div class="t">N.D. (m)</div><input class="g" inputmode="decimal" id="ldv" value="${esc(v)}" placeholder="nível"></div>
    <div class="gol"><div class="t">&nbsp;</div><button class="green" id="ldvOk" data-slot="${L.tab}:${L.i}:${L.t}" style="height:58px;width:100%">Anotar</button></div></div>
    <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:6px">${L.tab==='bomb'?`<button class="sec" data-marca="estab" style="flex:1 1 45%">Nível estabilizou agora</button><button class="sec" data-marca="tp" style="flex:1 1 45%">Bomba desligou agora (antes dos 720)</button>`:`<button class="sec" data-marca="volta" style="flex:1 1 45%">Voltou ao NE agora</button>`}</div>
    <div class="mini" style="margin-top:6px">A tabela completa continua lá embaixo, para corrigir qualquer leitura.</div></div>`; }
+/* v1.19.1: cronômetro da próxima leitura — conta para trás, avisa (vibra e apita) na hora de medir
+   e passa sozinho para a leitura seguinte quando a da vez já passou */
+let CRONO=null; const CRONO_AVISOU={};
+function inicioTeste(d){ if(!d.hini||!/^\d{1,2}:\d{2}$/.test(d.hini)) return null; const [a,b]=d.hini.split(':').map(Number); const agora=new Date(); const ini=new Date(); ini.setHours(a,b,0,0); if(ini>agora) ini.setDate(ini.getDate()-1); return ini; }
+function apito(){ try{ const A=window.AudioContext||window.webkitAudioContext; if(!A) return; const ctx=apito.ctx||(apito.ctx=new A()); [0,0.35].forEach(dt=>{ const o=ctx.createOscillator(), g=ctx.createGain(); o.frequency.value=1250; g.gain.value=0.18; o.connect(g); g.connect(ctx.destination); o.start(ctx.currentTime+dt); o.stop(ctx.currentTime+dt+0.22); }); }catch(e){} }
+function tickCrono(f){ const el=$('#crono'); if(!el || ABERTA!==f.id){ clearInterval(CRONO); CRONO=null; return; }
+  const d=f.dados; const L=leituraDaVez(d); const prox=$('#prox');
+  if(!L || L.fim){ if(prox) renderProx(f); return; }
+  const chave=`${L.tab}:${L.i}`; const ldv=$('#ldv');
+  if(prox && prox.dataset.chave && prox.dataset.chave!==chave && !(ldv && ldv.value.trim() && document.activeElement===ldv)){ renderProx(f); return; }
+  const ini=inicioTeste(d); if(!ini) return; const alvo=ini.getTime()+60000*(L.tab==='bomb'?L.t:tBomba(d)+L.t); const falta=Math.round((alvo-Date.now())/1000);
+  const mmss=x=>`${Math.floor(x/60)}:${String(x%60).padStart(2,'0')}`;
+  if(falta>0){ el.className='crono'+(falta<=15?' quase':''); el.innerHTML=`Próxima leitura em <b>${mmss(falta)}</b>`; }
+  else { el.className='crono agora'; el.innerHTML=`<b>MEÇA AGORA</b> · passou ${mmss(-falta)}`;
+    const k=f.id+'|'+chave; if(!CRONO_AVISOU[k]){ CRONO_AVISOU[k]=1; try{ navigator.vibrate&&navigator.vibrate([300,150,300]); }catch(e){} apito(); } } }
+function iniciarCrono(f){ clearInterval(CRONO); CRONO=setInterval(()=>tickCrono(f),1000); tickCrono(f); }
 function ligarProx(f){
+  if($('#crono')) iniciarCrono(f);
   const lo=$('#ldvOk'); if(lo) lo.onclick=()=>{ const v=$('#ldv').value.trim(); if(!v) return toast('Digite o nível');
     /* grava na linha que o CARTÃO mostrava, não na que o relógio acha agora */
     const [tab,ii,tt]=String(lo.dataset.slot||'').split(':'); const L={tab, i:+ii, t:+tt}; if(!f.dados[L.tab]||!f.dados[L.tab][L.i]) return;
-    f.dados[L.tab][L.i].nd=v; gravar(f); toast(`Anotado: ${L.tab==='bomb'?'t':'t\''} = ${L.t} min → ${v} m`); renderProx(f); atualizarTabelaTeste(f); };
+    f.dados[L.tab][L.i].nd=v; gravar(f); toast(`Anotado: ${L.tab==='bomb'?'t':'t\''} = ${L.t} min → ${v} m`); atualizarTabelaTeste(f); atualizarCalc(f); renderProx(f); };
   document.querySelectorAll('[data-marca]').forEach(b=>b.onclick=()=>{ const L=leituraDaVez(f.dados); if(!L||L.fim) return; const k=b.dataset.marca;
     if((k==='estab'||k==='tp') && L.tab!=='bomb') return toast('Isso só vale durante o bombeamento.');
     if(k==='volta' && L.tab!=='rec') return toast('Isso só vale na recuperação, depois que a bomba desligou.');
@@ -1159,6 +1190,9 @@ function ligarEditor(f){
 }
 function atualizarCalc(f){
   const def=DEF[f.tipo]; const d=f.dados;
+  def.blocos.filter(b=>b.tabela&&b.tabela.media).forEach(b=>{ const tb=b.tabela; (d[tb.k]||[]).forEach((l,i)=>{ const m=mediaDe(tb,d,i);
+    const ch=document.querySelector(`[data-media="${tb.k}.${i}"]`); if(ch){ ch.style.display=m?'':'none'; const bb=ch.querySelector('b'); if(bb) bb.textContent=m; if(m){ const ln=ch.closest('.linha'); if(ln) ln.classList.remove('vz'); } }
+    const el=document.getElementById(`t_${tb.k}_${i}_${tb.media}`); if(el) el.placeholder = m ? `≈ ${m} (média)` : ''; }); });
   def.blocos.filter(b=>b.tabela).forEach(b=>{ const tb=b.tabela; (d[tb.k]||[]).forEach((l,i)=>tb.cols.filter(c=>c.tipo==='calc').forEach(c=>{ const el=document.querySelector(`[data-calc="${tb.k}.${i}.${c.k}"]`); if(el) el.textContent=String(c.calc(l,d)); })); });
   def.blocos.forEach(b=>(b.campos||[]).filter(c=>c.tipo==='calc').forEach(c=>{ const el=document.querySelector(`[data-calcf="${c.k}"]`); if(el) el.value=String(c.calc(d)); }));
   def.blocos.forEach(b=>(b.campos||[]).filter(c=>c.tipo==='texto').forEach(c=>{ const el=document.querySelector(`[data-textof="${c.k}"]`); if(el) el.textContent=String(c.calc(d)); }));
@@ -1527,7 +1561,10 @@ async function gerarPDF(f){
         alt=Math.max(alt,h); x+=span; }
       flush(); }
     if(b.tabela){ const tb=b.tabela; const cols=tb.cols; const tot=cols.reduce((s,cc)=>s+cc.w,0); const larg=W-2*M; const ws=cols.map(cc=>cc.w/tot*larg);
-      let linhas=d[tb.k]||[]; if(tb.seq==='fixo') linhas=linhas.filter(l=>cols.some(cc=>!['fixo','calc'].includes(cc.tipo)&&l[cc.k]!==''&&l[cc.k]!=null));
+      const todasL=d[tb.k]||[]; const medP=todasL.map((l,i)=>mediaDe(tb,d,i)); let temMed=false;
+      let linhas=todasL.map((l,i)=> medP[i] ? Object.assign({},l,{[tb.media]:'≈ '+medP[i]+' *'}) : l);
+      if(tb.seq==='fixo') linhas=linhas.filter(l=>cols.some(cc=>!['fixo','calc'].includes(cc.tipo)&&l[cc.k]!==''&&l[cc.k]!=null));
+      temMed=medP.some(Boolean);
       const cab=()=>{ garante(44); c.fillStyle='#113E6B'; c.fillRect(M,y,larg,40); c.fillStyle='#fff'; let X=M; cols.forEach((cc,i)=>{ const ls=quebra(cc.r,ws[i]-8,12,true).slice(0,2); c.font=fonte(12,true); ls.forEach((l,j)=>c.fillText(l,X+4,y+16+j*14)); X+=ws[i]; }); y+=40; };
       cab();
       if(!linhas.length){ c.fillStyle='#5B6570'; c.font=fonte(16); c.fillText('nenhuma leitura registrada',M+8,y+26); y+=38; }
@@ -1535,8 +1572,9 @@ async function gerarPDF(f){
         const qs=vals.map((v,i)=>quebra(v,ws[i]-8,15)); const h=Math.max(...qs.map(q=>q.length))*19+12;
         if(y+h>H-110){ novaPag(); cab(); }
         if(li%2){ c.fillStyle='#F3F5F8'; c.fillRect(M,y,larg,h); }
-        let X=M; qs.forEach((q,i)=>{ c.fillStyle= cols[i].tipo==='calc'?'#137F5B':'#1B2430'; c.font=fonte(15, cols[i].k==='n'); q.forEach((t,j)=>c.fillText(t,X+4,y+19+j*19)); X+=ws[i]; });
+        let X=M; qs.forEach((q,i)=>{ const est=String(vals[i]).startsWith('≈'); c.fillStyle= est?'#B45309':(cols[i].tipo==='calc'?'#137F5B':'#1B2430'); c.font=fonte(15, cols[i].k==='n'); q.forEach((t,j)=>c.fillText(t,X+4,y+19+j*19)); X+=ws[i]; });
         c.fillStyle='#D9DEE5'; c.fillRect(M,y+h,larg,1); y+=h; });
+      if(temMed){ garante(30); c.fillStyle='#B45309'; c.font=fonte(14); c.fillText('* média automática entre a leitura de antes e a de depois — não foi medido.',M+4,y+20); y+=28; }
       y+=16; }
   }
   if(def.nota){ const ls=quebra(def.nota,W-2*M-20,15); garante(ls.length*20+24); c.fillStyle='#E7F6ED'; c.fillRect(M,y,W-2*M,ls.length*20+18); c.fillStyle='#137F5B'; c.font=fonte(15); ls.forEach((l,i)=>c.fillText(l,M+10,y+22+i*20)); y+=ls.length*20+30; }
@@ -1601,6 +1639,11 @@ function nSPT(l){ if(l.g2===''||l.g2==null||l.g3===''||l.g3==null) return '';
   return pen<30 ? `${g2+g3}/${pen}` : (g2+g3); }
 function injetarCssSPT(){ if(document.getElementById('cssSPT')) return; const st=document.createElement('style'); st.id='cssSPT'; st.textContent=`
 .spt .mcard{border:2px solid var(--line);border-radius:14px;padding:12px;margin-bottom:12px;background:#fff}
+.crono{font:600 22px/1.2 system-ui,sans-serif;text-align:center;padding:12px;border-radius:12px;background:#EEF6F2;color:#137F5B;margin-top:10px}
+.crono b{font-size:34px;font-variant-numeric:tabular-nums}
+.crono.quase{background:#FFF4E5;color:#B45309}
+.crono.agora{background:#B45309;color:#fff;animation:crPisca 1s infinite}
+@keyframes crPisca{50%{opacity:.65}}
 .spt .mcard.ok{border-color:var(--green)}
 .spt .mhead{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:8px}
 .spt .mhead b{font-size:19px;color:var(--navy)}
@@ -1784,7 +1827,7 @@ async function encerrar(f){
     gravar(f);
     const pdf=await gerarPDF(f);
     await enfileirarArquivo(pdf,'ficha',base+'.pdf',{fichaId:f.id,tipo:f.tipo,versao:f.versao,avisos:av},{obra:ob});
-    const dados=new Blob([JSON.stringify({app:'campo',fichaId:f.id,tipo:f.tipo,codigo:def.codigo,sop:def.sop,versao:f.versao,obraId:f.obraId,obra:f.obraNome,por:f.por,criadoEm:f.criadoEm,encerradoEm:new Date().toISOString(),avisos:av,foraDoPadrao:!!f.foraDoPadrao,dados:Object.fromEntries(Object.entries(f.dados).map(([k,v])=>[k, (typeof v==='string'&&v.startsWith('data:image'))?'[imagem no PDF]':v]))},null,1)],{type:'application/json'});
+    const dados=new Blob([JSON.stringify({app:'campo',mediasNaoMedidas:mediasDaFicha(f),fichaId:f.id,tipo:f.tipo,codigo:def.codigo,sop:def.sop,versao:f.versao,obraId:f.obraId,obra:f.obraNome,por:f.por,criadoEm:f.criadoEm,encerradoEm:new Date().toISOString(),avisos:av,foraDoPadrao:!!f.foraDoPadrao,dados:Object.fromEntries(Object.entries(f.dados).map(([k,v])=>[k, (typeof v==='string'&&v.startsWith('data:image'))?'[imagem no PDF]':v]))},null,1)],{type:'application/json'});
     await enfileirarArquivo(dados,'ficha',base+'.json',{fichaId:f.id,tipo:f.tipo,versao:f.versao},{obra:ob});
     S.obraId=prevObra;
     f.status='encerrada'; f.encerradaEm=new Date().toISOString();
@@ -1811,7 +1854,7 @@ async function enviarParcial(f, o){ o=o||{};
       await enfileirarArquivo(pdf,'ficha',base+'.pdf',{fichaId:f.id,tipo:f.tipo,versao:f.versao,parcial:true,avisos:av},q); }
     catch(e){ delete f._parcial; } }   // PDF falhou? os dados vão do mesmo jeito
   const em=new Date().toISOString();
-  const dados=new Blob([JSON.stringify({app:'campo',parcial:true,parcialEm:em,fichaId:f.id,tipo:f.tipo,codigo:def.codigo,sop:def.sop,versao:f.versao,obraId:f.obraId,obra:f.obraNome,por:f.por,enviadoPor:S.quem||'',criadoEm:f.criadoEm,encerradoEm:null,avisos:av,dados:dadosLimpos(f.dados)},null,1)],{type:'application/json'});
+  const dados=new Blob([JSON.stringify({app:'campo',mediasNaoMedidas:mediasDaFicha(f),parcial:true,parcialEm:em,fichaId:f.id,tipo:f.tipo,codigo:def.codigo,sop:def.sop,versao:f.versao,obraId:f.obraId,obra:f.obraNome,por:f.por,enviadoPor:S.quem||'',criadoEm:f.criadoEm,encerradoEm:null,avisos:av,dados:dadosLimpos(f.dados)},null,1)],{type:'application/json'});
   await enfileirarArquivo(dados,'ficha',base+'.json',{fichaId:f.id,tipo:f.tipo,versao:f.versao,parcial:true},q);
   f.parcialEm=em; const a=todas(); const x=a.find(y=>y.id===f.id); if(x){ x.parcialEm=em; salvarTodas(a); }
 }
