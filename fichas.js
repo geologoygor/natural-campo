@@ -133,10 +133,14 @@ const DEF = {
      {k:'ne', r:'NE (m)', tipo:'num'}, {k:'vazao', r:'Vazão (m³/h)', tipo:'num'}, {k:'crivo', r:'Crivo (m)', tipo:'num'}, {k:'recip', r:'Recipiente (L)', tipo:'num'},
      {k:'exec', r:'Executor', tipo:'text', w:2, pre:'quem'}
    ]},
-   { t:'Bombeamento', nota:'Hora = hora de início + t. Anote só o que medir.', tabela:{k:'bomb', seq:'fixo', fixo:TEMPOS_B.map(t=>({t})), cols:[
+   { t:'Teste já feito — dados lançados depois', esconde: d=>d.modo!=='resumo', nota:'Só os números principais, para a informação não se perder. Escreva só o que foi medido de verdade: o que não souber, deixe em branco.', campos:[
+     {k:'fonte', r:'De onde vieram os números', tipo:'sel', w:2, op:['','Anotei no papel / caderno','Lembro de cabeça (medi, mas não anotei)','Quem mediu me passou','Outro']},
+     {k:'quem_mediu', r:'Quem fez o teste', tipo:'text', w:2},
+     {k:'lanc_obs', r:'Observações (o que faltou anotar, por quê)', tipo:'area', w:4}]},
+   { t:'Bombeamento', esconde: d=>d.modo==='resumo', nota:'Hora = hora de início + t. Anote só o que medir.', tabela:{k:'bomb', seq:'fixo', fixo:TEMPOS_B.map(t=>({t})), cols:[
       {k:'t', r:'t (min)', tipo:'fixo', w:.6}, {k:'h', r:'Hora', tipo:'calc', w:.8, calc:(l,d)=>somaHora(d.hini,l.t)},
       {k:'nd', r:'N.D. (m)', tipo:'num', w:1}, {k:'q', r:'Q (m³/h)', tipo:'num', w:1}]}},
-   { t:'Recuperação (anotar até voltar ao NE)', nota:'Começa quando a bomba desliga (início + 720 min, ou o minuto real em que ela parou). t/t\' = (tempo de bombeamento + t\') / t\'.', tabela:{k:'rec', seq:'fixo', fixo:TEMPOS_B.map(t=>({t})), cols:[
+   { t:'Recuperação (anotar até voltar ao NE)', esconde: d=>d.modo==='resumo', nota:'Começa quando a bomba desliga (início + 720 min, ou o minuto real em que ela parou). t/t\' = (tempo de bombeamento + t\') / t\'.', tabela:{k:'rec', seq:'fixo', fixo:TEMPOS_B.map(t=>({t})), cols:[
       {k:'t', r:'t\' (min)', tipo:'fixo', w:.6}, {k:'h', r:'Hora', tipo:'calc', w:.8, calc:(l,d)=>somaHora(d.hini,tBomba(d)+l.t)},
       {k:'tt', r:'t/t\'', tipo:'calc', w:.7, calc:(l,d)=>((tBomba(d)+l.t)/l.t).toFixed(1).replace('.',',')},
       {k:'nd', r:'N.D. (m)', tipo:'num', w:1}]}},
@@ -152,7 +156,8 @@ const DEF = {
     if(!d.estab) a.push('Minuto da estabilização em branco — é dado que não se recupera (SOP-008).');
     if(!d.volta) a.push('Minuto da recuperação (voltou ao NE) em branco — é dado que não se recupera (SOP-008).');
     if(d.parou && !d.tp) a.push('Escreveu que a bomba parou antes, mas o minuto em que ela desligou está em branco — sem ele a recuperação sai com horário e t/t\' errados.');
-    const nb=(d.bomb||[]).filter(l=>l.nd!==''&&l.nd!=null).length; if(nb<5) a.push(`Só ${nb} leitura(s) de ND no bombeamento.`);
+    if(d.modo==='resumo'){ if(!d.fonte) a.push('Diga de onde vieram os números (papel, de cabeça, quem passou).'); if(!d.vazao) a.push('Vazão em branco.'); if(!d.ndf) a.push('ND final em branco.'); }
+    else { const nb=(d.bomb||[]).filter(l=>l.nd!==''&&l.nd!=null).length; if(nb<5) a.push(`Só ${nb} leitura(s) de ND no bombeamento.`); }
     return a; }
  },
  poco_entrega: {
@@ -992,7 +997,8 @@ function leituraDaVez(d){ // qual linha da tabela é a leitura de agora
   if(i>=0) return {tab:'rec', i, t:TEMPOS_B[i], hora:somaHora(d.hini,T+TEMPOS_B[i]), min};
   return {fim:true, min}; }
 function cartaoLeitura(d){
-  if(!d.hini) return `<div class="card spt" id="prox" style="border-left:5px solid var(--green)"><h2>Leitura da vez</h2><div class="nota">Quando a bomba ligar, toque aqui:</div><button class="big green" data-agora="hini">Bomba ligou agora</button></div>`;
+  if(d.modo==='resumo') return `<div class="card" id="prox" style="border-left:5px solid #B45309"><h2>Teste lançado depois</h2><div class="nota">O teste já aconteceu: preencha só os números principais lá embaixo (data, hora que ligou, NE, vazão, quando estabilizou, ND final). A ficha sai marcada como <b>lançada depois</b>.</div><button class="big ghost" data-modo="vivo" style="margin-top:6px">Voltar para o teste ao vivo</button></div>`;
+  if(!d.hini) return `<div class="card spt" id="prox" style="border-left:5px solid var(--green)"><h2>Leitura da vez</h2><div class="nota">Quando a bomba ligar, toque aqui:</div><button class="big green" data-agora="hini">Bomba ligou agora</button><button class="big sec" data-modo="resumo" style="margin-top:10px">O teste já aconteceu: lançar só o principal</button><div class="mini" style="margin-top:6px">Use quando o teste foi feito sem o app (papel, celular sem bateria). Assim a informação não se perde.</div></div>`;
   const L=leituraDaVez(d); if(!L||L.fim) return `<div class="card" id="prox"><h2>Teste encerrado</h2><div class="nota">Passou de ${tBomba(d)} + 720 min.</div></div>`;
   const nome=L.tab==='bomb'?`Bombeamento · t = ${L.t} min`:`Recuperação · t' = ${L.t} min`; const v=(d[L.tab][L.i]||{}).nd||'';
   return `<div class="card spt" id="prox" style="border-left:5px solid var(--green)"><h2>Leitura da vez</h2><div class="mini">${esc(nome)} · às <b>${esc(L.hora)}</b> · agora ${Math.floor(L.min)} min de teste</div>
@@ -1012,6 +1018,11 @@ function ligarProx(f){
     if(f.dados[k] && f.dados[k]!==val && !confirm(`Já está anotado o minuto ${f.dados[k]}. Trocar por ${val}?`)) return;
     f.dados[k]=val; gravar(f); const e=$('#f_'+k); if(e) e.value=f.dados[k]; renderProx(f); atualizarCalc(f);
     toast(k==='estab'?`Estabilizou no minuto ${val}`:k==='tp'?`Bomba desligou no minuto ${val}: a recuperação conta daqui`:`Voltou ao NE no minuto ${val} da recuperação`); });
+  document.querySelectorAll('#prox [data-modo]').forEach(b=>b.onclick=()=>{ const m=b.dataset.modo;
+    if(m==='vivo' && !confirm('Voltar para o teste ao vivo? Os números já lançados ficam.')) return;
+    f.dados.modo = m==='resumo' ? 'resumo' : ''; if(m==='resumo' && !f.dados.quem_mediu) f.dados.quem_mediu=f.dados.exec||S.quem||'';
+    gravar(f); desenharEditor(); window.scrollTo(0,0); const mm=$('#main'); if(mm) mm.scrollTop=0;
+    toast(m==='resumo'?'Modo "lançar depois": preencha os números principais':'Teste ao vivo'); });
   const hb=document.querySelector('#prox [data-agora="hini"]'); if(hb) hb.onclick=()=>{ f.dados.hini=AGORA(); const e=$('#f_hini'); if(e) e.value=f.dados.hini; gravar(f); renderProx(f); desenharTabelasHora(f); };
 }
 function renderProx(f){ const p=$('#prox'); if(!p) return; const tmp=document.createElement('div'); tmp.innerHTML=cartaoLeitura(f.dados); p.replaceWith(tmp.firstElementChild); ligarProx(f); }
@@ -1048,6 +1059,7 @@ function desenharEditor(){
   if(ehGeo(f.tipo) && !ro) h+=cartaoPontos(f);
   if(ehGeo(f.tipo) && !ro) h+=cartaoGeo(f);
   def.blocos.forEach((b0,bi)=>{
+    if(b0.esconde && b0.esconde(d)) return;
     let b=b0;
     if(f.tipo==='geof_cam' && b0.img==='COMO_ANDAR_CAMINHAMENTO.png'){ const g=geoDe(d);
       b=Object.assign({},b0,{ img:figuraComoAndar(g), nota:`B e N ficam cravados ${g.rem} m além de cada ponta e não saem do lugar. Só A e M andam. O par anda de estaca em estaca até o fim da linha (estaca ${g.L}); aí aumenta ${g.a} m a distância entre os dois e volta para a estaca 0.` }); }
@@ -1466,7 +1478,9 @@ async function gerarPDF(f){
     c.fillText(`Preenchida no app de campo por ${f.por||'—'} · ${f._parcial?'PARCIAL gerada em '+fmtData(new Date()):(f.encerradaEm?'encerrada em '+fmtData(new Date(f.encerradaEm)):'gerada em '+fmtData(new Date()))} · ficha ${f.id}${f.versao>1?' · v'+f.versao:''}`,M,M+124);
     y=M+150;
     if(f._parcial){ c.fillStyle='#FFF4E5'; c.fillRect(M,y,W-2*M,40); c.fillStyle='#B45309'; c.font=fonte(19,true);
-      c.fillText('PARCIAL — ficha ainda em preenchimento. Vale o envio mais novo; o definitivo é o encerrado.',M+14,y+27); y+=56; } };
+      c.fillText('PARCIAL — ficha ainda em preenchimento. Vale o envio mais novo; o definitivo é o encerrado.',M+14,y+27); y+=56; }
+    if(d.modo==='resumo'){ c.fillStyle='#FFF4E5'; c.fillRect(M,y,W-2*M,40); c.fillStyle='#B45309'; c.font=fonte(19,true);
+      c.fillText('LANÇADA DEPOIS — o teste não foi acompanhado no app; só os números principais.',M+14,y+27); y+=56; } };
   const rodape=()=>{ paginas.forEach((p,i)=>{ const x=p.getContext('2d'); x.fillStyle='#D9DEE5'; x.fillRect(M,H-90,W-2*M,1); x.fillStyle='#8A94A0'; x.font=fonte(15); x.textAlign='center';
       x.fillText('NATURAL ENGENHARIA · R. Lírio do Vale, 24 – Andar 01, Sala F08 – Aparecida, Boa Vista/RR · (95) 98109-5431 · naturalengenhariarr@gmail.com',W/2,H-62);
       x.fillText(`Campo em branco é permitido; campo inventado, não. · Página ${i+1} de ${paginas.length}`,W/2,H-40); x.textAlign='left'; }); };
@@ -1487,6 +1501,7 @@ async function gerarPDF(f){
         c.strokeStyle='#D9DEE5'; c.lineWidth=1; c.strokeRect(M, y, lw, lh); y+=lh+18; }
       continue; }
     if(b.soSe && !b.soSe(d)) continue;
+    if(b.esconde && b.esconde(d)) continue;
     titulo(b.t);
     if(b.nota && !b.notaSoApp){ const ls=quebra(b.nota,W-2*M,15); garante(ls.length*20); c.fillStyle='#5B6570'; c.font=fonte(15); ls.forEach(l=>{ c.fillText(l,M,y+14); y+=20; }); y+=6; }
     if(b.campos){ // grade de 4 colunas
