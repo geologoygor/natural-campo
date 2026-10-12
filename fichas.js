@@ -80,6 +80,7 @@ const DEF = {
       {k:'de', r:'De (m)', tipo:'num', w:.7}, {k:'ate', r:'Até (m)', tipo:'num', w:.7},
       {k:'mat', r:'O que saiu: areia, argila, cascalho, rocha… (cor, textura)', tipo:'area', w:3.4, mat:'poco'},
       {k:'diam', r:'Ø perf.', tipo:'text', w:.7}, {k:'h', r:'Hora', tipo:'time', w:.7, agora:true}]}},
+   { perfilVivo:true, t:'Perfil do poço — vai se desenhando enquanto você lança' },
    { t:'Fim da perfuração', campos:[
      {k:'agua_a', r:'Água apareceu a (m)', tipo:'num'}, {k:'prof_final', r:'Profundidade final (m)', tipo:'num'}, {k:'fim_hora', r:'Hora de término', tipo:'time', agora:true}]},
    { t:'Parada e autorização (SOP-021) — metro a mais só com o sim do cliente', campos:[
@@ -92,6 +93,7 @@ const DEF = {
    { t:'Construção', campos:[
      {k:'rev_de', r:'Revestimento de (m)', tipo:'num'}, {k:'rev_a', r:'a (m)', tipo:'num'}, {k:'rev_d', r:'Ø', tipo:'text'},
      {k:'fil_de', r:'Filtro de (m)', tipo:'num'}, {k:'fil_a', r:'a (m)', tipo:'num'},
+     {k:'fil_trechos', r:'Mais de um trecho de filtro? Escreva todos (ex.: 21 a 27; 33 a 39)', tipo:'text', w:4},
      {k:'prefiltro', r:'Pré-filtro (tipo/volume)', tipo:'text', w:2}, {k:'desenv', r:'Desenvolvimento (como e quanto tempo)', tipo:'text', w:2},
      {k:'laje', r:'Laje (medida)', tipo:'text'}, {k:'boca', r:'Altura da boca', tipo:'text'},
      {k:'itens', r:'Pronto', tipo:'check', w:2, op:['Tampa','Cercado','Selo sanitário']}
@@ -1162,6 +1164,7 @@ function desenharEditor(){
     let b=b0;
     if(f.tipo==='geof_cam' && b0.img==='COMO_ANDAR_CAMINHAMENTO.png'){ const g=geoDe(d);
       b=Object.assign({},b0,{ img:figuraComoAndar(g), nota:`B e N ficam cravados ${g.rem} m além de cada ponta e não saem do lugar. Só A e M andam. O par anda de estaca em estaca até o fim da linha (estaca ${g.L}); aí aumenta ${g.a} m a distância entre os dois e volta para a estaca 0.` }); }
+    if(b.perfilVivo){ h+=cartaoPerfilVivo(f,b); return; }
     if(b.grafico){ h+=cartaoGrafico(f,b); return; }
     h+=`<div class="card"><h2>${esc(b.t)}</h2>${b.nota?`<div class="nota">${esc(b.nota)}</div>`:''}`;
     if(b.img) h+=`<img src="${b.img}" data-zoom="${b.img}" alt="${esc(b.t)}" style="width:100%;border:1px solid var(--line);border-radius:12px;margin-top:8px"><div class="mini">toque na figura para ampliar — abre por cima da ficha, com botão Fechar; nada se perde</div>`;
@@ -1266,6 +1269,7 @@ function atualizarCalc(f){
   def.blocos.forEach(b=>(b.campos||[]).filter(c=>c.tipo==='texto').forEach(c=>{ const el=document.querySelector(`[data-textof="${c.k}"]`); if(el) el.textContent=String(c.calc(d)); }));
   const box=$('#avisosBox'); if(box){ const av=def.avisos(d); box.innerHTML=`<h2>O que ainda falta</h2>${av.length?av.map(x=>`<div class="erro">${esc(x)}</div>`).join(''):'<div class="muted">Nada pendente.</div>'}<div class="nota">Nenhum aviso impede encerrar. Não mediu? Deixe em branco e escreva o porquê. Nunca invente.</div>`; }
   if(f.tipo==='poco_teste' && $('#prox') && !(document.activeElement&&document.activeElement.id==='ldv')) renderProx(f);
+  if(f.tipo==='poco_perf') atualizarPerfilVivo(f);
 }
 
 /* ---------------- Assinatura com o dedo ---------------- */
@@ -1564,6 +1568,180 @@ function cartaoGrafico(f,b){
     ${res}</div>`;
 }
 
+/* ---------- PERFIL DO POÇO AO VIVO (v1.20.0) ----------
+ * Desenha, no próprio celular e SEM INTERNET, o perfil litológico + construtivo parcial
+ * à medida que o perfurador lança as camadas e a construção. Mostra em vermelho o que falta
+ * (buraco entre camadas, camada sem descrição, fundo sem profundidade final etc.).
+ * É só desenho: não muda nenhum dado. O mesmo desenho vai no PDF da ficha. */
+const PV_COR={ 'Solo':['#8B6A3E','pvSolo'], 'Argila':['#B5523B','pvArg'], 'Silte':['#C9A66B','pvSil'], 'Areia':['#E9C46A','pvAre'],
+  'Cascalho':['#D4A373','pvCas'], 'Laterita':['#A0522D','pvLat'], 'Rocha alterada':['#A3A9B0','pvAlt'], 'Granito':['#7B828C','pvGra'],
+  'Gnaisse':['#8A94A0','pvGna'], 'Diabásio':['#3F4652','pvDia'], 'Arenito':['#E0B97A','pvAre'], 'Quartzo':['#E8EAED',''] };
+function pvTipo(l){ const s=l&&l._sel&&l._sel.tipos&&l._sel.tipos[0]; if(s && PV_COR[s]) return s;
+  const t=String((l&&l.mat)||'').toLowerCase();
+  const ord=[['solo','Solo'],['rocha alterada','Rocha alterada'],['alterad','Rocha alterada'],['granit','Granito'],['gnaiss','Gnaisse'],['diab','Diabásio'],['arenit','Arenito'],['quartz','Quartzo'],['later','Laterita'],['cascal','Cascalho'],['argil','Argila'],['silt','Silte'],['areia','Areia'],['arenos','Areia'],['solo','Solo'],['rocha','Granito']];
+  for(const [k,v] of ord) if(t.includes(k)) return v; return t.trim()?'Outro':''; }
+function pvCamadas(d){ return (d.perfil||[]).map((l,i)=>({ i, de:NUM(l.de), ate:NUM(l.ate), mat:String(l.mat||'').trim(), tipo:pvTipo(l), l }))
+  .filter(c=>!isNaN(c.de)||!isNaN(c.ate)); }
+function pvFaltas(d){ const F=[]; const C=(d.perfil||[]);
+  if(!C.length) F.push('Nenhuma camada lançada ainda.');
+  const cs=C.map((l,i)=>({i,de:NUM(l.de),ate:NUM(l.ate),mat:String(l.mat||'').trim()}));
+  cs.forEach(c=>{ if(isNaN(c.de)||isNaN(c.ate)) F.push(`Camada ${c.i+1}: falta o "De" ou o "Até".`); else if(!c.mat) F.push(`Camada ${c.i+1} (${fmtN(c.de)}–${fmtN(c.ate)} m): falta dizer o que saiu.`); });
+  const ok=cs.filter(c=>!isNaN(c.de)&&!isNaN(c.ate)).sort((a,b)=>a.de-b.de);
+  if(ok.length && ok[0].de>0.05) F.push(`De 0 a ${fmtN(ok[0].de)} m sem camada.`);
+  for(let k=1;k<ok.length;k++){ if(ok[k].de-ok[k-1].ate>0.05) F.push(`De ${fmtN(ok[k-1].ate)} a ${fmtN(ok[k].de)} m sem camada.`); }
+  const pf=NUM(d.prof_final); const fundo=ok.length?ok[ok.length-1].ate:NaN;
+  if(isNaN(pf)) F.push('Profundidade final ainda em branco.');
+  else if(!isNaN(fundo) && pf-fundo>0.05) F.push(`De ${fmtN(fundo)} a ${fmtN(pf)} m (até o fundo) sem camada.`);
+  if(isNaN(NUM(d.agua_a))) F.push('Onde a água apareceu ainda não foi marcado.');
+  if(isNaN(NUM(d.rev_a))) F.push('Revestimento ainda não lançado.');
+  if(!pvTrechosFiltro(d).length) F.push('Filtro ainda não lançado.');
+  if(!String(d.laje||'').trim()) F.push('Laje ainda não lançada.');
+  return F; }
+function perfilSVG(d, opt){ opt=opt||{};
+  const cs=pvCamadas(d); const num=k=>NUM(d[k]);
+  const fundos=[num('prof_final'),num('prof_ref'),num('rev_a'),num('fil_a'),num('rocha_m'),num('agua_a'),...cs.map(c=>c.ate),...cs.map(c=>c.de)].filter(x=>!isNaN(x));
+  const Z=Math.max(10, ...fundos); const W=360, T=34, H=Math.round(Math.min(640, Math.max(300, Z*6.2))); const k=(H-T-44)/Z; const y=z=>T+z*k;
+  const xL=40, wL=78, xP=150, wP=44, xC=xP+(wP-24)/2, wC=24, xT=208;
+  let s=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="100%" style="display:block;max-width:460px;margin:0 auto;background:#fff;font-family:Arial,Helvetica,sans-serif">`;
+  s+=`<defs>
+   <pattern id="pvAre" width="8" height="8" patternUnits="userSpaceOnUse"><rect width="8" height="8" fill="#E9C46A"/><circle cx="2" cy="2" r="0.9" fill="#9C7A2B"/><circle cx="6" cy="6" r="0.9" fill="#9C7A2B"/></pattern>
+   <pattern id="pvCas" width="10" height="10" patternUnits="userSpaceOnUse"><rect width="10" height="10" fill="#D4A373"/><circle cx="3" cy="3" r="2" fill="none" stroke="#7A5530" stroke-width="0.9"/><circle cx="8" cy="8" r="1.4" fill="none" stroke="#7A5530" stroke-width="0.9"/></pattern>
+   <pattern id="pvArg" width="10" height="6" patternUnits="userSpaceOnUse"><rect width="10" height="6" fill="#B5523B"/><line x1="0" y1="3" x2="10" y2="3" stroke="#7E3423" stroke-width="0.8"/></pattern>
+   <pattern id="pvSil" width="10" height="6" patternUnits="userSpaceOnUse"><rect width="10" height="6" fill="#C9A66B"/><line x1="1" y1="3" x2="5" y2="3" stroke="#8C6E3C" stroke-width="0.8"/><circle cx="8" cy="3" r="0.7" fill="#8C6E3C"/></pattern>
+   <pattern id="pvSolo" width="10" height="8" patternUnits="userSpaceOnUse"><rect width="10" height="8" fill="#8B6A3E"/><path d="M1 6 l2 -3 l2 3" fill="none" stroke="#5C4425" stroke-width="0.8"/></pattern>
+   <pattern id="pvLat" width="8" height="8" patternUnits="userSpaceOnUse"><rect width="8" height="8" fill="#A0522D"/><rect x="2" y="2" width="2.2" height="2.2" fill="#6B3519"/></pattern>
+   <pattern id="pvAlt" width="12" height="10" patternUnits="userSpaceOnUse"><rect width="12" height="10" fill="#A3A9B0"/><path d="M1 8 l4 -5 M7 9 l3 -4" stroke="#6B7280" stroke-width="0.9"/></pattern>
+   <pattern id="pvGra" width="12" height="12" patternUnits="userSpaceOnUse"><rect width="12" height="12" fill="#7B828C"/><path d="M3 2 v4 M1 4 h4 M9 7 v4 M7 9 h4" stroke="#D9DCE0" stroke-width="1"/></pattern>
+   <pattern id="pvGna" width="16" height="8" patternUnits="userSpaceOnUse"><rect width="16" height="8" fill="#8A94A0"/><path d="M0 4 q4 -3 8 0 t8 0" fill="none" stroke="#D9DCE0" stroke-width="0.9"/></pattern>
+   <pattern id="pvDia" width="8" height="8" patternUnits="userSpaceOnUse"><rect width="8" height="8" fill="#3F4652"/><path d="M0 8 l8 -8" stroke="#6B7280" stroke-width="0.8"/></pattern>
+   <pattern id="pvFalta" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="8" height="8" fill="#FDECEC"/><line x1="0" y1="0" x2="0" y2="8" stroke="#E25555" stroke-width="3"/></pattern>
+   <pattern id="pvSemDesc" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="8" height="8" fill="#F1F3F5"/><line x1="0" y1="0" x2="0" y2="8" stroke="#B8BEC6" stroke-width="2"/></pattern>
+   <pattern id="pvFil" width="6" height="5" patternUnits="userSpaceOnUse"><rect width="6" height="5" fill="#E7EEF6"/><line x1="0" y1="2.5" x2="6" y2="2.5" stroke="#113E6B" stroke-width="1.4"/></pattern>
+   <pattern id="pvFilS" width="6" height="5" patternUnits="userSpaceOnUse"><rect width="6" height="5" fill="#E8F7F0"/><line x1="0" y1="2.5" x2="6" y2="2.5" stroke="#19A878" stroke-width="1.4"/></pattern>
+   <pattern id="pvPre" width="5" height="5" patternUnits="userSpaceOnUse"><rect width="5" height="5" fill="#F3E3B5"/><circle cx="2.5" cy="2.5" r="0.9" fill="#8C6E3C"/></pattern>
+  </defs>`;
+  /* cabeçalho das colunas */
+  s+=`<text x="${xL+wL/2}" y="13" font-size="10" font-weight="700" fill="#113E6B" text-anchor="middle">O QUE SAIU</text>`;
+  s+=`<text x="${xP+wP/2}" y="13" font-size="10" font-weight="700" fill="#113E6B" text-anchor="middle">O POÇO</text>`;
+  s+=`<text x="${xT}" y="13" font-size="10" font-weight="700" fill="#113E6B">CAMADA</text>`;
+  /* régua de profundidade */
+  const passo = Z<=20?2 : Z<=50?5 : Z<=120?10 : 20;
+  for(let z=0; z<=Z+0.001; z+=passo){ s+=`<line x1="30" y1="${y(z)}" x2="36" y2="${y(z)}" stroke="#8A94A0"/><text x="27" y="${y(z)+3.5}" font-size="9" fill="#5B6570" text-anchor="end">${z}</text>`; }
+  s+=`<line x1="36" y1="${T}" x2="36" y2="${y(Z)}" stroke="#C5CBD3"/><text x="4" y="${T-8}" font-size="9" fill="#5B6570">m</text>`;
+  /* terreno */
+  s+=`<line x1="${xL-4}" y1="${T}" x2="${W-6}" y2="${T}" stroke="#5C4425" stroke-width="1.5"/>`;
+  /* faltas em vermelho: do 0 até o fundo conhecido */
+  const ok=cs.filter(c=>!isNaN(c.de)&&!isNaN(c.ate)&&c.ate>c.de).sort((a,b)=>a.de-b.de);
+  const pf=num('prof_final'); const fundoAlvo=!isNaN(pf)?pf:(ok.length?ok[ok.length-1].ate:0);
+  let cur=0; const buracos=[];
+  ok.forEach(c=>{ if(c.de-cur>0.05) buracos.push([cur,c.de]); cur=Math.max(cur,c.ate); });
+  if(fundoAlvo-cur>0.05) buracos.push([cur,fundoAlvo]);
+  buracos.forEach(([a,b])=>{ s+=`<rect x="${xL}" y="${y(a)}" width="${wL}" height="${Math.max(2,y(b)-y(a))}" fill="url(#pvFalta)" stroke="#E25555" stroke-width="1"/>`;
+    if(y(b)-y(a)>=12) s+=`<text x="${xL+wL/2}" y="${(y(a)+y(b))/2+3.5}" font-size="10" font-weight="700" fill="#B91C1C" text-anchor="middle">? falta</text>`; });
+  /* camadas */
+  let ultLab=-99;
+  ok.forEach(c=>{ const y1=y(c.de), y2=y(c.ate), h=Math.max(1.5,y2-y1);
+    const cor=PV_COR[c.tipo]; const fill = !c.mat ? 'url(#pvSemDesc)' : (cor ? (cor[1]?`url(#${cor[1]})`:cor[0]) : '#D9DEE5');
+    s+=`<rect x="${xL}" y="${y1}" width="${wL}" height="${h}" fill="${fill}" stroke="#4B5563" stroke-width="0.7"/>`;
+    const meio=(y1+y2)/2; const ly=Math.max(meio+3.5, ultLab+12); if(ly<=H-8){ ultLab=ly;
+      const desc=c.mat ? c.mat.replace(/\s+/g,' ') : 'sem descrição'; const curta=desc.length>22?desc.slice(0,21)+'…':desc;
+      s+=`<line x1="${xL+wL}" y1="${meio}" x2="${xT-3}" y2="${ly-3.5}" stroke="#C5CBD3" stroke-width="0.7"/>`;
+      s+=`<text x="${xT}" y="${ly}" font-size="9.5" fill="${c.mat?'#1B2430':'#B91C1C'}"><tspan font-weight="700">${fmtN(c.de)}–${fmtN(c.ate)} m</tspan> ${esc(curta)}</text>`; } });
+  /* o poço: perfuração, revestimento, filtro, pré-filtro, laje */
+  const fundoPoco = !isNaN(pf)?pf:(ok.length?ok[ok.length-1].ate:NaN);
+  if(!isNaN(fundoPoco) && fundoPoco>0) s+=`<rect x="${xP}" y="${T}" width="${wP}" height="${y(fundoPoco)-T}" fill="#F4EBDD" stroke="#8B6A3E" stroke-width="1"/>`;
+  const trs=pvTrechosFiltro(d);
+  if(trs.length && String(d.prefiltro||'').trim()){ const a=trs[0][0], b=trs[trs.length-1][1]; s+=`<rect x="${xP}" y="${y(a)}" width="${wP}" height="${y(b)-y(a)}" fill="url(#pvPre)"/>`; }
+  const rd=isNaN(num('rev_de'))?0:num('rev_de'), ra=num('rev_a');
+  if(!isNaN(ra)&&ra>rd) s+=`<rect x="${xC}" y="${y(rd)}" width="${wC}" height="${y(ra)-y(rd)}" fill="#FFFFFF" stroke="#113E6B" stroke-width="2.2"/>`;
+  trs.forEach(([a,b])=>{ s+=`<rect x="${xC}" y="${y(a)}" width="${wC}" height="${y(b)-y(a)}" fill="url(#pvFil)" stroke="#113E6B" stroke-width="2.2"/>`; });
+  /* sem construção lançada: mostra a SUGESTÃO tracejada em verde */
+  if(isNaN(ra) && !trs.length && opt.sug!==false){ const sg=sugestaoConstrucao(d); if(sg){
+    s+=`<rect x="${xC}" y="${T}" width="${wC}" height="${y(sg.revA)-T}" fill="none" stroke="#19A878" stroke-width="2" stroke-dasharray="4 3"/>`;
+    sg.fil.forEach(([a,b])=>{ s+=`<rect x="${xC}" y="${y(a)}" width="${wC}" height="${y(b)-y(a)}" fill="url(#pvFilS)" stroke="#19A878" stroke-width="2" stroke-dasharray="4 3"/>`; });
+    s+=`<text x="${xP+wP/2}" y="${T+ (y(sg.revA)-T)/2}" font-size="8.5" font-weight="700" fill="#137F5B" text-anchor="middle" transform="rotate(-90 ${xP+wP/2} ${T+(y(sg.revA)-T)/2})">sugestão</text>`; } }
+  if(String(d.laje||'').trim()) s+=`<rect x="${xP-12}" y="${T-6}" width="${wP+24}" height="6" fill="#9CA3AF" stroke="#4B5563" stroke-width="0.8"/>`;
+  if(!isNaN(ra)) s+=`<rect x="${xC}" y="${T-14}" width="${wC}" height="${8}" fill="#FFFFFF" stroke="#113E6B" stroke-width="2"/>`;
+  /* marcas: água, rocha, fundo, contrato */
+  const ag=num('agua_a'); if(!isNaN(ag)){ const yy=y(ag); s+=`<path d="M${xP-12} ${yy-8} h12 l-6 8 z" fill="#1F6FAE"/><line x1="${xP-14}" y1="${yy}" x2="${xP+wP+4}" y2="${yy}" stroke="#1F6FAE" stroke-dasharray="3 2"/><text x="${xP+wP+6}" y="${yy-2}" font-size="9" font-weight="700" fill="#1F6FAE">água ${fmtN(ag)} m</text>`; }
+  const ro=num('rocha_m'); if(!isNaN(ro)){ const yy=y(ro); s+=`<line x1="${xL}" y1="${yy}" x2="${xP+wP}" y2="${yy}" stroke="#7B828C" stroke-width="1.6"/><text x="${xP+wP+6}" y="${yy+10}" font-size="9" font-weight="700" fill="#4B5563">rocha ${fmtN(ro)} m</text>`; }
+  if(!isNaN(pf)){ const yy=y(pf); s+=`<line x1="${xL-4}" y1="${yy}" x2="${xP+wP+6}" y2="${yy}" stroke="#1B2430" stroke-width="1.6"/><text x="${xP+wP+6}" y="${yy+11}" font-size="9" font-weight="700" fill="#1B2430">fundo ${fmtN(pf)} m</text>`; }
+  const pr=num('prof_ref'); if(!isNaN(pr)){ const yy=y(pr); s+=`<line x1="${xL-4}" y1="${yy}" x2="${xP+wP+6}" y2="${yy}" stroke="#B9410F" stroke-width="1.2" stroke-dasharray="5 3"/><text x="${xL-4}" y="${yy-3}" font-size="9" fill="#B9410F">contrato ${fmtN(pr)} m</text>`; }
+  /* legenda curta */
+  const ly0=H-10; s+=`<rect x="${xL}" y="${ly0-8}" width="10" height="8" fill="url(#pvFalta)" stroke="#E25555"/><text x="${xL+14}" y="${ly0}" font-size="9" fill="#5B6570">falta lançar</text>`+
+     `<rect x="${xL+80}" y="${ly0-8}" width="10" height="8" fill="#fff" stroke="#113E6B" stroke-width="1.5"/><text x="${xL+94}" y="${ly0}" font-size="9" fill="#5B6570">revestimento</text>`+
+     `<rect x="${xL+166}" y="${ly0-8}" width="10" height="8" fill="url(#pvFil)" stroke="#113E6B"/><text x="${xL+180}" y="${ly0}" font-size="9" fill="#5B6570">filtro</text>`;
+  s+=`</svg>`; return s; }
+let PV_F=null;
+function blocoSugestao(d){ const sg=sugestaoConstrucao(d); if(!sg) return pvCamadas(d).length?`<div class="nota" style="margin-top:8px">💡 A sugestão de revestimento e filtro aparece quando você marcar onde a água apareceu (botão "Água apareceu aqui" na camada).</div>`:'';
+  const temCons=!isNaN(NUM(d.rev_a))||pvTrechosFiltro(d).length;
+  return `<div class="card" style="margin:10px 0 0;border:2px solid var(--green);background:#F3FBF7">
+    <h3 style="margin:0 0 6px;color:var(--green-2)">Sugestão para revestimento e filtro</h3>
+    <div style="font-size:15px;line-height:1.45">${sg.linhas.map(x=>'• '+esc(x)).join('<br>')}</div>
+    ${sg.av.map(x=>`<div class="erro" style="margin-top:6px">${esc(x)}</div>`).join('')}
+    <div class="mini" style="margin-top:6px">Feita só com as camadas e a água lançadas aqui. Arredonde para o tamanho dos tubos que você tem. Na dúvida, mande o perfil para o Ygor antes de descer o tubo.</div>
+    <button class="big ${temCons?'sec':'green'}" id="pvUsar" style="margin-top:8px">${temCons?'Trocar a construção pela sugestão':'Usar esta sugestão na ficha'}</button></div>`; }
+function corpoPerfilVivo(f){ const d=f.dados; const F=pvFaltas(d); PV_F=f;
+  return perfilSVG(d) + (F.length
+    ? `<div class="erro" style="margin-top:8px"><b>Ainda falta para fechar o perfil:</b><br>• ${F.map(esc).join('<br>• ')}</div>`
+    : `<div class="banner" style="background:var(--ok-bg);color:var(--green-2);margin-top:8px"><b>Perfil completo ✓</b> — camadas do 0 ao fundo, água, revestimento, filtro e laje.</div>`) + blocoSugestao(d); }
+document.addEventListener('click', e=>{ const b=e.target.closest('#pvUsar'); if(!b || !PV_F) return; const f=PV_F, d=f.dados; const sg=sugestaoConstrucao(d); if(!sg) return;
+  const tem=!isNaN(NUM(d.rev_a))||pvTrechosFiltro(d).length;
+  if(tem && !confirm('Já tem revestimento ou filtro lançado. Trocar pela sugestão?')) return;
+  const ant={rev_de:d.rev_de, rev_a:d.rev_a, fil_de:d.fil_de, fil_a:d.fil_a, fil_trechos:d.fil_trechos};
+  d.rev_de='0'; d.rev_a=fmtN(sg.revA);
+  if(sg.fil.length){ d.fil_de=fmtN(sg.fil[0][0]); d.fil_a=fmtN(sg.fil[sg.fil.length-1][1]); d.fil_trechos=sg.fil.length>1?textoTrechos(sg.fil):''; }
+  else { d.fil_de=''; d.fil_a=''; d.fil_trechos=''; }
+  gravar(f); desenharEditor(); const el=$('#perfilVivo'); if(el) el.scrollIntoView({block:'start'});
+  barraDesfazer('Construção preenchida pela sugestão.', ()=>{ Object.assign(d,ant); gravar(f); desenharEditor(); }); });
+function cartaoPerfilVivo(f,b){ return `<div class="card" id="perfilVivo"><h2>${esc(b.t)}</h2><div class="nota">Vai se desenhando sozinho enquanto você lança. Vermelho = o que ainda falta. Funciona sem internet.</div><div id="pvCorpo" style="margin-top:8px;border:1px solid var(--line);border-radius:12px;overflow:hidden;padding:4px 2px">${corpoPerfilVivo(f)}</div></div>`; }
+function atualizarPerfilVivo(f){ const el=$('#pvCorpo'); if(el) el.innerHTML=corpoPerfilVivo(f); }
+async function imgPerfilSVG(d){ let svg=perfilSVG(d,{sug:false}); const vb=/viewBox="0 0 (\d+) (\d+)"/.exec(svg); if(vb) svg=svg.replace('width="100%"', `width="${vb[1]*2}" height="${vb[2]*2}"`); return await new Promise(ok=>{ const im=new Image(); im.onload=()=>ok(im); im.onerror=()=>ok(null); im.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg); }); }
+/* ---------- SUGESTÃO DE REVESTIMENTO E FILTRO (v1.20.0) ----------
+ * Regra simples, só com o que foi lançado na ficha (roda sem internet):
+ *  · filtro só em camada que dá água (areia, cascalho, arenito) ABAIXO de onde a água apareceu,
+ *    meio metro afastado de cada contato; argila e silte nunca recebem filtro (entopem);
+ *  · rocha sã (granito, gnaisse, diabásio): o tubo liso desce até entrar 1 m na rocha sã e,
+ *    abaixo disso, o poço fica aberto na rocha, sem tubo nem filtro;
+ *  · tubo liso no fundo (decantador) de até 2 m abaixo do último filtro.
+ * É sugestão: quem decide é o responsável técnico. */
+const PV_AQUI=['Areia','Cascalho','Arenito'], PV_SA=['Granito','Gnaisse','Diabásio','Quartzo'];
+const r1=x=>Math.round(x*10)/10;
+function pvTrechosFiltro(d){ const t=String(d.fil_trechos||'').trim(); const out=[];
+  if(t){ for(const m of t.matchAll(/(\d+(?:[.,]\d+)?)\s*(?:a|–|-|até)\s*(\d+(?:[.,]\d+)?)/gi)){ const a=NUM(m[1]), b=NUM(m[2]); if(!isNaN(a)&&!isNaN(b)&&b>a) out.push([a,b]); } }
+  if(!out.length){ const a=NUM(d.fil_de), b=NUM(d.fil_a); if(!isNaN(a)&&!isNaN(b)&&b>a) out.push([a,b]); }
+  return out; }
+function sugestaoConstrucao(d){
+  const ok=pvCamadas(d).filter(c=>!isNaN(c.de)&&!isNaN(c.ate)&&c.ate>c.de).sort((a,b)=>a.de-b.de);
+  if(!ok.length) return null;
+  const pf=NUM(d.prof_final); const fundo=!isNaN(pf)?pf:ok[ok.length-1].ate;
+  const na=NUM(d.agua_a); const av=[];
+  if(isNaN(na)) return null;   /* sem saber onde a água apareceu, não dá para sugerir filtro */
+  if(isNaN(pf)) av.push('Profundidade final ainda em branco: a sugestão usa a última camada lançada.');
+  const sa=ok.find(c=>PV_SA.includes(c.tipo)); const ro=NUM(d.rocha_m);
+  const topoSa = sa ? sa.de : (!isNaN(ro)?ro:NaN);
+  const filtros=[];
+  if(!isNaN(na)) ok.forEach(c=>{ if(!PV_AQUI.includes(c.tipo)) return; if(!isNaN(topoSa) && c.de>=topoSa) return;
+    let a=c.de+0.5, b=c.ate-0.5; if(!isNaN(na)) a=Math.max(a, na+0.5); if(!isNaN(topoSa)) b=Math.min(b, topoSa-0.5);
+    if(b-a>=1) filtros.push([r1(a),r1(b)]); });
+  /* junta trechos encostados (camadas de areia em sequência) */
+  const fil=[]; filtros.forEach(t=>{ const u=fil[fil.length-1]; if(u && t[0]-u[1]<=1.05) u[1]=t[1]; else fil.push(t.slice()); });
+  let revA, abertoDe=NaN, tipo;
+  if(!isNaN(topoSa)){ revA=r1(Math.min(fundo, topoSa+1)); abertoDe=revA<fundo?revA:NaN; tipo=fil.length?'misto':'cristalino'; }
+  else { revA=r1(fundo); tipo=fil.length?'sedimentar':'sem-aquifero'; }
+  let decant=null;
+  if(fil.length && isNaN(abertoDe)){ const fimF=fil[fil.length-1][1]; const sobra=r1(revA-fimF); if(sobra>=0.5) decant=[fimF, r1(Math.min(revA, fimF+2))]; if(revA-fimF>2.05) revA=r1(fimF+2); }
+  const linhas=[];
+  linhas.push(`Tubo liso (revestimento) de 0 a ${fmtN(revA)} m${fil.length?', trocando por filtro nos trechos abaixo':''}.`);
+  fil.forEach(t=>linhas.push(`Filtro de ${fmtN(t[0])} a ${fmtN(t[1])} m — camada que dá água, abaixo do nível.`));
+  if(decant) linhas.push(`Tubo liso no fundo (decantador) de ${fmtN(decant[0])} a ${fmtN(decant[1])} m.`);
+  if(!isNaN(abertoDe)) linhas.push(`De ${fmtN(abertoDe)} a ${fmtN(fundo)} m: poço aberto na rocha sã, sem tubo e sem filtro. O tubo entra 1 m na rocha sã para firmar.`);
+  if(tipo==='sem-aquifero' && !isNaN(na)) av.push('Nenhuma camada de areia, cascalho ou arenito abaixo da água — o app não acha onde pôr filtro. Ligue para o Ygor antes de descer o tubo.');
+  if(ok.some(c=>['Argila','Silte'].includes(c.tipo) && !isNaN(na) && c.ate>na)) linhas.push('Argila e silte ficam atrás de tubo liso: filtro ali entope.');
+  if(isNaN(topoSa) && ok.some(c=>c.tipo==='Rocha alterada')) av.push('Tem rocha alterada mas ainda não chegou na rocha sã: o tubo desce até onde a parede firma.');
+  return { tipo, revA, fil, decant, abertoDe, fundo, linhas, av }; }
+function textoTrechos(fil){ return fil.map(t=>`${fmtN(t[0])} a ${fmtN(t[1])}`).join('; '); }
+
 /* ---------------- PDF no layout da ficha ---------------- */
 async function gerarPDF(f){
   const def=DEF[f.tipo]; const d=f.dados;
@@ -1592,6 +1770,11 @@ async function gerarPDF(f){
   const valor=(cp,v)=>{ if(cp.tipo==='calc'){ const r=cp.calc(d); return r===''||r==null?'—':String(r); } if(cp.tipo==='date' && /^\d{4}-\d{2}-\d{2}$/.test(v||'')) return v.split('-').reverse().join('/'); if(cp.tipo==='check') return (cp.op.map(o=>((v||[]).includes(o)?'☑ ':'☐ ')+o)).join('   '); return v==null||v===''?'—':String(v); };
   novaPag();
   for(const b of def.blocos){
+    if(b.perfilVivo){ const im=await imgPerfilSVG(d); if(im){ const lw=Math.min(W-2*M, 760), lh=lw*im.height/im.width;
+        if(y+lh+70>H-110) novaPag(); titulo('Perfil do poço (desenho da ficha)'); c.drawImage(im, M+(W-2*M-lw)/2, y, lw, lh); y+=lh+18;
+        const F=pvFaltas(d); if(F.length){ c.fillStyle='#B91C1C'; c.font=fonte(15,true); garante(24); c.fillText('Faltava no perfil quando a ficha foi gerada:',M,y+14); y+=22; c.font=fonte(15);
+          F.forEach(t=>{ quebra('• '+t,W-2*M,15).forEach(l=>{ garante(20); c.fillText(l,M,y+14); y+=20; }); }); y+=8; } }
+      continue; }
     if(b.grafico){
       let g=GEOF_PIX[f.id+'_'+b.grafico], r=GEOF_CACHE[f.id+'_'+b.grafico]||f.dados['_fig_'+b.grafico];
       if(!g){ g=document.createElement('canvas'); g.width=1240; g.height=1000;
