@@ -268,7 +268,7 @@ button.mini{padding:8px 12px;font-size:14px;margin-top:6px}
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.19.3';
+const APP_VERSAO = '1.19.4';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -656,7 +656,7 @@ function lembrarCopiaCel(){ if(!(EH_IOS && S.salvarCel && S.obraId)) return; con
 function cartaoCopiaCelInicio(){ if(!S.salvarCel || !EH_IOS) return ''; const n=fotosSemCopia().length; if(!n) return '';
   return `<div class="card" style="border:2px solid var(--err);background:#FEF3F2"><b style="font-size:17px">📱 ${n} foto${n===1?'':'s'} ainda não ${n===1?'está salva':'estão salvas'} neste iPhone</b><div class="nota">Toque no botão e escolha <b>Salvar ${n===1?'imagem':n+' imagens'}</b>. O iPhone não deixa o app salvar sozinho.</div><button class="big" id="salvarCelIni" style="margin-top:8px">Salvar no celular agora</button></div>`; }
 function cartaoCopiaCel(ob){ if(!S.salvarCel) return ''; const n=fotosSemCopia(ob.id).length; if(!n) return '';
-  return `<div class="card" style="border-left:5px solid var(--navy)"><b>📱 ${n} foto(s) ainda não estão salvas neste celular</b><div class="nota">${EH_IOS?'No iPhone o sistema pede um toque: toque abaixo e escolha <b>Salvar ${n} imagens</b>.':'Toque abaixo para salvar na pasta Downloads do celular.'}</div><button class="big sec" id="salvarCel" style="margin-top:8px">Salvar no celular</button></div>`; }
+  return `<div class="card" style="border-left:5px solid var(--navy)"><b>📱 ${n} foto(s) ainda não estão salvas neste celular</b><div class="nota">${EH_IOS?`No iPhone o sistema pede um toque: toque abaixo e escolha <b>Salvar ${n===1?'imagem':n+' imagens'}</b>.`:'Toque abaixo para salvar na pasta Downloads do celular.'}</div><button class="big sec" id="salvarCel" style="margin-top:8px">Salvar no celular</button></div>`; }
 
 async function miniatura(bmp){ const oc=document.createElement('canvas'); const k=Math.min(1,520/Math.max(bmp.width,bmp.height)); oc.width=Math.round(bmp.width*k); oc.height=Math.round(bmp.height*k); desenhoLiso(oc.getContext('2d')).drawImage(bmp,0,0,oc.width,oc.height); return oc.toDataURL('image/jpeg',0.72); }
 async function enfileirarArquivo(blob, tipo, nome, extra, opt){
