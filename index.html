@@ -268,7 +268,7 @@ button.mini{padding:8px 12px;font-size:14px;margin-top:6px}
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.18.0';
+const APP_VERSAO = '1.18.1';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -1156,7 +1156,7 @@ function agLocalObra(id){ const e=agEventos().find(x=>x.obraId===id && x.onde); 
 function telaHoje(tar,g){
   const h0=hoje(); const ev=agEventos().filter(e=>e.data>=h0);
   const meus=S.quemId?agMeus(ev):[]; const deHoje=meus.filter(e=>e.data===h0);
-  const fim=new Date(h0+'T12:00:00'); fim.setDate(fim.getDate()+7); const fimIso=fim.toISOString().slice(0,10);
+  const fim=new Date(h0+'T12:00:00'); fim.setDate(fim.getDate()+30); const fimIso=fim.toISOString().slice(0,10);
   const prox=meus.filter(e=>e.data>h0 && e.data<=fimIso);
   let h=`<div class="hoje-cab"><div class="muted">${S.quem?esc(S.quem.split(' ')[0])+', hoje é':'Hoje é'}</div><div class="hoje-data">${esc(agDiaLongo(h0))}</div></div>`;
   if(!agTemDados()) return h+`<div class="card"><div class="muted">A agenda ainda não veio para este celular. Com internet, toque em <b>Atualizar lista</b> na aba Obras.</div></div>`;
@@ -1169,7 +1169,7 @@ function telaHoje(tar,g){
   const fazer=g.atrasadas.concat(g.hoje);
   h+=`<div class="card"><h2>Fazer hoje</h2>`+(fazer.length? fazer.slice(0,5).map(agLinhaTarefa).join('') + (fazer.length>5?`<button class="big ghost" data-ini="tarefas">Ver as outras ${fazer.length-5} →</button>`:'')
       : `<div class="vazio ok">✓ Nada atrasado e nada vencendo hoje.</div>`)+`</div>`;
-  if(prox.length) h+=`<div class="card"><h2>Próximos 7 dias</h2>`+prox.map(e=>agLinhaCurta(e)).join('')+`</div>`;
+  if(prox.length) h+=`<div class="card"><h2>Próximos 30 dias</h2>`+prox.map(e=>agLinhaCurta(e)).join('')+`</div>`;
   return h+agEmpresa(ev);
 }
 function agEmpresa(ev){ const lim=new Date(Date.now()+14*864e5).toISOString().slice(0,10);
