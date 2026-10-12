@@ -1089,30 +1089,39 @@ function ligarProx(f){
 }
 /* v1.19.2: calculadora de vazão com cronômetro — dentro da ficha do teste (não sai da tela)
    e como ficha própria (FC-VAZÃO). O estado do cronômetro fica fora do cartão: re-desenhar não zera. */
-const CQ={};
-function cartaoCalcVazao(f){ const d=f.dados; const st=CQ[f.id]||(CQ[f.id]={t0:null, s:'', l:(f.tipo==='poco_teste'?d.recip:'')||''});
-  const q=qBalde(st.l,st.s); const ehTeste=f.tipo==='poco_teste';
-  return `<div class="card spt" id="calcQ" style="border-left:5px solid #2F6F8F"><h2>${ehTeste?'Medir a vazão aqui mesmo':'Medir com balde e cronômetro'}</h2>
-   <div class="mini">Toque em <b>Começar</b> quando a água começar a cair no balde e em <b>Parar</b> quando encher.</div>
-   <div class="gols" style="grid-template-columns:1fr 1fr;margin-top:8px"><div class="gol"><div class="t">Balde (litros)</div><input class="g" inputmode="decimal" id="cqL" value="${esc(st.l)}" placeholder="litros"></div>
-   <div class="gol"><div class="t">Encheu em (segundos)</div><input class="g" inputmode="decimal" id="cqS" value="${esc(st.s)}" placeholder="seg"></div></div>
-   <button class="big ${st.t0?'danger':'sec'}" id="cqCrono" style="margin-top:8px">${st.t0?'■ Parar':'▶ Começar a contar'}</button>
-   <div class="crono" id="cqRes">${isNaN(q)?'Vazão: —':`Vazão = <b>${fmtQ(q)}</b> m³/h`}</div>
-   ${ehTeste?`<button class="big green" id="cqUsar" style="margin-top:8px" ${isNaN(q)?'disabled':''}>Usar esta vazão no teste</button><div class="mini" style="margin-top:4px">Vai para o campo "Vazão" e, no teste ao vivo, também para a leitura da vez.</div>`
-            :`<button class="big green" id="cqUsar" style="margin-top:8px" ${isNaN(q)?'disabled':''}>Anotar esta medição</button>`}</div>`; }
+const CQ={}; const BALDES=['10','18','20','50','200'];
+const litrosH = q => isNaN(q)?'':String(Math.round(q*1000)).replace(/\B(?=(\d{3})+(?!\d))/g,'.');
+function cartaoCalcVazao(f){ const d=f.dados; const st=CQ[f.id]||(CQ[f.id]={t0:null, s:'', l:(f.tipo==='poco_teste'?d.recip:'')||'', dig:false});
+  const q=qBalde(st.l,st.s); const ehTeste=f.tipo==='poco_teste'; const outro = st.l && !BALDES.includes(String(st.l));
+  return `<div class="card spt cq" id="calcQ" style="border-left:5px solid #2F6F8F"><h2>${ehTeste?'Medir a vazão aqui mesmo':'Medir a vazão'}</h2>
+   <div class="sub">1 · Qual balde?</div>
+   <div class="chips" id="cqB">${BALDES.map(v=>`<button data-bl="${v}" class="${String(st.l)===v?'on':''}">${v==='200'?'Tambor 200 L':v+' L'}</button>`).join('')}<button data-bl="outro" class="${outro?'on':''}">Outro</button></div>
+   <input id="cqL" inputmode="decimal" value="${esc(outro?st.l:'')}" placeholder="quantos litros?" style="margin-top:6px;${outro?'':'display:none'}">
+   <div class="sub" style="margin-top:12px">2 · Toque quando a água começar a cair no balde</div>
+   <button class="cqbt ${st.t0?'on':''}" id="cqCrono" ${st.l?'':'disabled'}>${st.t0?'■ ENCHEU':'▶ COMEÇAR'}</button>
+   <div class="cqseg" id="cqSeg">${st.t0?'0 s':(st.s?`encheu em ${esc(st.s)} s`:'')}</div>
+   <div class="cqres" id="cqRes">${isNaN(q)?'':`Vazão: <b>${fmtQ(q)} m³/h</b><small>${litrosH(q)} litros por hora</small>`}</div>
+   <button class="big green" id="cqUsar" style="margin-top:8px;${isNaN(q)?'display:none':''}">${ehTeste?'Usar esta vazão':'Guardar esta medição'}</button>
+   <button class="ghost" id="cqDig" style="font-size:13px;margin-top:4px">${st.dig?'esconder':'Mediu com outro relógio? Digite os segundos'}</button>
+   <input id="cqS" inputmode="decimal" value="${esc(st.s)}" placeholder="segundos" style="${st.dig?'':'display:none'}"></div>`; }
 function ligarCalcVazao(f){ const box=$('#calcQ'); if(!box) return; const st=CQ[f.id]; const d=f.dados;
-  const pinta=()=>{ const q=qBalde(st.l,st.s); const r=$('#cqRes'); if(r) r.innerHTML=isNaN(q)?'Vazão: —':`Vazão = <b>${fmtQ(q)}</b> m³/h`; const u=$('#cqUsar'); if(u) u.disabled=isNaN(q); };
-  $('#cqL').oninput=e=>{ st.l=e.target.value; pinta(); }; $('#cqS').oninput=e=>{ st.s=e.target.value; pinta(); };
+  const pinta=()=>{ const q=qBalde(st.l,st.s); const r=$('#cqRes'); if(r) r.innerHTML=isNaN(q)?'':`Vazão: <b>${fmtQ(q)} m³/h</b><small>${litrosH(q)} litros por hora</small>`;
+    const u=$('#cqUsar'); if(u) u.style.display=isNaN(q)?'none':''; const bt=$('#cqCrono'); if(bt && !st.t0) bt.disabled=!st.l; };
+  box.querySelectorAll('[data-bl]').forEach(b=>b.onclick=()=>{ box.querySelectorAll('[data-bl]').forEach(x=>x.classList.toggle('on',x===b)); const li=$('#cqL');
+    if(b.dataset.bl==='outro'){ li.style.display=''; li.focus(); st.l=li.value; } else { li.style.display='none'; st.l=b.dataset.bl; } pinta(); });
+  $('#cqL').oninput=e=>{ st.l=e.target.value; pinta(); };
+  $('#cqS').oninput=e=>{ st.s=e.target.value; const sg=$('#cqSeg'); if(sg) sg.textContent=st.s?`encheu em ${st.s} s`:''; pinta(); };
+  $('#cqDig').onclick=()=>{ st.dig=!st.dig; $('#cqS').style.display=st.dig?'':'none'; $('#cqDig').textContent=st.dig?'esconder':'Mediu com outro relógio? Digite os segundos'; };
   const bt=$('#cqCrono'); clearInterval(st.iv);
-  const corre=()=>{ st.iv=setInterval(()=>{ if(!st.t0||!document.body.contains(bt)){ clearInterval(st.iv); return; } const x=((Date.now()-st.t0)/1000).toFixed(1).replace('.',','); $('#cqS').value=x; bt.textContent=`■ Parar · ${x} s`; },100); };
+  const corre=()=>{ st.iv=setInterval(()=>{ if(!st.t0||!document.body.contains(bt)){ clearInterval(st.iv); return; } $('#cqSeg').textContent=Math.floor((Date.now()-st.t0)/1000)+' s'; },200); };
   if(st.t0) corre();
-  bt.onclick=()=>{ if(!st.t0){ st.t0=Date.now(); st.s=''; bt.className='big danger'; bt.textContent='■ Parar · 0,0 s'; corre(); try{ navigator.vibrate&&navigator.vibrate(60); }catch(e){} }
-    else { clearInterval(st.iv); st.s=((Date.now()-st.t0)/1000).toFixed(1).replace('.',','); st.t0=null; $('#cqS').value=st.s; bt.className='big sec'; bt.textContent='▶ Começar de novo'; pinta(); try{ navigator.vibrate&&navigator.vibrate([60,60,60]); }catch(e){} } };
+  bt.onclick=()=>{ if(!st.t0){ st.t0=Date.now(); st.s=''; bt.classList.add('on'); bt.textContent='■ ENCHEU'; $('#cqSeg').textContent='0 s'; pinta(); corre(); try{ navigator.vibrate&&navigator.vibrate(60); }catch(e){} }
+    else { clearInterval(st.iv); st.s=((Date.now()-st.t0)/1000).toFixed(1).replace('.',','); st.t0=null; $('#cqS').value=st.s; bt.classList.remove('on'); bt.textContent='▶ MEDIR DE NOVO'; $('#cqSeg').textContent=`encheu em ${st.s} s`; pinta(); try{ navigator.vibrate&&navigator.vibrate([60,60,60]); }catch(e){} } };
   $('#cqUsar').onclick=()=>{ const q=qBalde(st.l,st.s); if(isNaN(q)) return; const v=fmtQ(q);
-    if(f.tipo==='poco_teste'){ d.vazao=v; if(!d.recip && st.l) d.recip=st.l; let extra='';
+    if(f.tipo==='poco_teste'){ d.vazao=v; if(!d.recip && st.l) d.recip=String(st.l); let extra='';
       if(!d.modo){ const L=leituraDaVez(d); if(L && !L.fim && L.tab==='bomb' && d.bomb && d.bomb[L.i]){ d.bomb[L.i].q=v; extra=` e na leitura de ${L.t} min`; const e=$(`#t_bomb_${L.i}_q`); if(e) e.value=v; } }
-      gravar(f); const e1=$('#f_vazao'); if(e1) e1.value=v; const e2=$('#f_recip'); if(e2&&d.recip) e2.value=d.recip; atualizarCalc(f); toast(`Vazão ${v} m³/h no campo Vazão${extra}`,3500); }
-    else { (d.med=d.med||[]).push({l:String(st.l), s:String(st.s)}); st.s=''; gravar(f); toast(`Medição ${d.med.length}: ${v} m³/h`); desenharEditor(); } };
+      gravar(f); const e1=$('#f_vazao'); if(e1) e1.value=v; const e2=$('#f_recip'); if(e2&&d.recip) e2.value=d.recip; atualizarCalc(f); toast(`Vazão ${v} m³/h anotada${extra}`,3500); }
+    else { (d.med=d.med||[]).push({l:String(st.l), s:String(st.s)}); st.s=''; gravar(f); toast(`Medição ${d.med.length} guardada: ${v} m³/h`); desenharEditor(); } };
 }
 function renderProx(f){ const p=$('#prox'); if(!p) return; const tmp=document.createElement('div'); tmp.innerHTML=cartaoLeitura(f.dados); p.replaceWith(tmp.firstElementChild); ligarProx(f); }
 function atualizarTabelaTeste(f){ for(const k of ['bomb','rec']) (f.dados[k]||[]).forEach((l,i)=>{ const el=$(`#t_${k}_${i}_nd`); if(el && document.activeElement!==el) el.value=l.nd==null?'':l.nd; }); }
@@ -1698,6 +1707,14 @@ function nSPT(l){ if(l.g2===''||l.g2==null||l.g3===''||l.g3==null) return '';
   return pen<30 ? `${g2+g3}/${pen}` : (g2+g3); }
 function injetarCssSPT(){ if(document.getElementById('cssSPT')) return; const st=document.createElement('style'); st.id='cssSPT'; st.textContent=`
 .spt .mcard{border:2px solid var(--line);border-radius:14px;padding:12px;margin-bottom:12px;background:#fff}
+.cq .sub{font-weight:700;color:var(--navy);margin-top:4px}
+.cqbt{display:block;width:100%;min-height:96px;margin-top:6px;border-radius:18px;font-size:30px;font-weight:800;background:var(--green);color:#fff}
+.cqbt.on{background:#C0392B}
+.cqbt:disabled{background:#B7C3BE}
+.cqseg{text-align:center;font:700 26px/1.3 system-ui,sans-serif;color:#2F6F8F;min-height:34px;margin-top:6px}
+.cqres{text-align:center;font:600 22px/1.3 system-ui,sans-serif;color:#137F5B;margin-top:4px}
+.cqres b{font-size:38px;display:block}
+.cqres small{display:block;font-size:16px;color:var(--muted);font-weight:500}
 .crono{font:600 22px/1.2 system-ui,sans-serif;text-align:center;padding:12px;border-radius:12px;background:#EEF6F2;color:#137F5B;margin-top:10px}
 .crono b{font-size:34px;font-variant-numeric:tabular-nums}
 .crono.quase{background:#FFF4E5;color:#B45309}
