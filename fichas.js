@@ -1617,7 +1617,6 @@ function perfilSVG(d, opt){ opt=opt||{};
    <pattern id="pvFalta" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="8" height="8" fill="#FDECEC"/><line x1="0" y1="0" x2="0" y2="8" stroke="#E25555" stroke-width="3"/></pattern>
    <pattern id="pvSemDesc" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="8" height="8" fill="#F1F3F5"/><line x1="0" y1="0" x2="0" y2="8" stroke="#B8BEC6" stroke-width="2"/></pattern>
    <pattern id="pvFil" width="6" height="5" patternUnits="userSpaceOnUse"><rect width="6" height="5" fill="#E7EEF6"/><line x1="0" y1="2.5" x2="6" y2="2.5" stroke="#113E6B" stroke-width="1.4"/></pattern>
-   <pattern id="pvFilS" width="6" height="5" patternUnits="userSpaceOnUse"><rect width="6" height="5" fill="#E8F7F0"/><line x1="0" y1="2.5" x2="6" y2="2.5" stroke="#19A878" stroke-width="1.4"/></pattern>
    <pattern id="pvPre" width="5" height="5" patternUnits="userSpaceOnUse"><rect width="5" height="5" fill="#F3E3B5"/><circle cx="2.5" cy="2.5" r="0.9" fill="#8C6E3C"/></pattern>
   </defs>`;
   /* cabeçalho das colunas */
@@ -1655,11 +1654,6 @@ function perfilSVG(d, opt){ opt=opt||{};
   const rd=isNaN(num('rev_de'))?0:num('rev_de'), ra=num('rev_a');
   if(!isNaN(ra)&&ra>rd) s+=`<rect x="${xC}" y="${y(rd)}" width="${wC}" height="${y(ra)-y(rd)}" fill="#FFFFFF" stroke="#113E6B" stroke-width="2.2"/>`;
   trs.forEach(([a,b])=>{ s+=`<rect x="${xC}" y="${y(a)}" width="${wC}" height="${y(b)-y(a)}" fill="url(#pvFil)" stroke="#113E6B" stroke-width="2.2"/>`; });
-  /* sem construção lançada: mostra a SUGESTÃO tracejada em verde */
-  if(isNaN(ra) && !trs.length && opt.sug!==false){ const sg=sugestaoConstrucao(d); if(sg){
-    s+=`<rect x="${xC}" y="${T}" width="${wC}" height="${y(sg.revA)-T}" fill="none" stroke="#19A878" stroke-width="2" stroke-dasharray="4 3"/>`;
-    sg.fil.forEach(([a,b])=>{ s+=`<rect x="${xC}" y="${y(a)}" width="${wC}" height="${y(b)-y(a)}" fill="url(#pvFilS)" stroke="#19A878" stroke-width="2" stroke-dasharray="4 3"/>`; });
-    s+=`<text x="${xP+wP/2}" y="${T+ (y(sg.revA)-T)/2}" font-size="8.5" font-weight="700" fill="#137F5B" text-anchor="middle" transform="rotate(-90 ${xP+wP/2} ${T+(y(sg.revA)-T)/2})">sugestão</text>`; } }
   if(String(d.laje||'').trim()) s+=`<rect x="${xP-12}" y="${T-6}" width="${wP+24}" height="6" fill="#9CA3AF" stroke="#4B5563" stroke-width="0.8"/>`;
   if(!isNaN(ra)) s+=`<rect x="${xC}" y="${T-14}" width="${wC}" height="${8}" fill="#FFFFFF" stroke="#113E6B" stroke-width="2"/>`;
   /* marcas: água, rocha, fundo, contrato */
@@ -1672,31 +1666,19 @@ function perfilSVG(d, opt){ opt=opt||{};
      `<rect x="${xL+80}" y="${ly0-8}" width="10" height="8" fill="#fff" stroke="#113E6B" stroke-width="1.5"/><text x="${xL+94}" y="${ly0}" font-size="9" fill="#5B6570">revestimento</text>`+
      `<rect x="${xL+166}" y="${ly0-8}" width="10" height="8" fill="url(#pvFil)" stroke="#113E6B"/><text x="${xL+180}" y="${ly0}" font-size="9" fill="#5B6570">filtro</text>`;
   s+=`</svg>`; return s; }
-let PV_F=null;
 function blocoSugestao(d){ const sg=sugestaoConstrucao(d); if(!sg) return pvCamadas(d).length?`<div class="nota" style="margin-top:8px">💡 A sugestão de revestimento e filtro aparece quando você marcar onde a água apareceu (botão "Água apareceu aqui" na camada).</div>`:'';
-  const temCons=!isNaN(NUM(d.rev_a))||pvTrechosFiltro(d).length;
   return `<div class="card" style="margin:10px 0 0;border:2px solid var(--green);background:#F3FBF7">
     <h3 style="margin:0 0 6px;color:var(--green-2)">Sugestão para revestimento e filtro</h3>
     <div style="font-size:15px;line-height:1.45">${sg.linhas.map(x=>'• '+esc(x)).join('<br>')}</div>
     ${sg.av.map(x=>`<div class="erro" style="margin-top:6px">${esc(x)}</div>`).join('')}
-    <div class="mini" style="margin-top:6px">Feita só com as camadas e a água lançadas aqui. Arredonde para o tamanho dos tubos que você tem. Na dúvida, mande o perfil para o Ygor antes de descer o tubo.</div>
-    <button class="big ${temCons?'sec':'green'}" id="pvUsar" style="margin-top:8px">${temCons?'Trocar a construção pela sugestão':'Usar esta sugestão na ficha'}</button></div>`; }
-function corpoPerfilVivo(f){ const d=f.dados; const F=pvFaltas(d); PV_F=f;
+    <div class="mini" style="margin-top:6px">É só uma sugestão, feita com as camadas e a água lançadas aqui. Quem decide é você: lance na Construção o que for descer no poço, arredondando para o tamanho dos tubos que tem. Na dúvida, mande o perfil para o Ygor antes de descer o tubo.</div></div>`; }
+function corpoPerfilVivo(f){ const d=f.dados; const F=pvFaltas(d);
   return perfilSVG(d) + (F.length
     ? `<div class="erro" style="margin-top:8px"><b>Ainda falta para fechar o perfil:</b><br>• ${F.map(esc).join('<br>• ')}</div>`
     : `<div class="banner" style="background:var(--ok-bg);color:var(--green-2);margin-top:8px"><b>Perfil completo ✓</b> — camadas do 0 ao fundo, água, revestimento, filtro e laje.</div>`) + blocoSugestao(d); }
-document.addEventListener('click', e=>{ const b=e.target.closest('#pvUsar'); if(!b || !PV_F) return; const f=PV_F, d=f.dados; const sg=sugestaoConstrucao(d); if(!sg) return;
-  const tem=!isNaN(NUM(d.rev_a))||pvTrechosFiltro(d).length;
-  if(tem && !confirm('Já tem revestimento ou filtro lançado. Trocar pela sugestão?')) return;
-  const ant={rev_de:d.rev_de, rev_a:d.rev_a, fil_de:d.fil_de, fil_a:d.fil_a, fil_trechos:d.fil_trechos};
-  d.rev_de='0'; d.rev_a=fmtN(sg.revA);
-  if(sg.fil.length){ d.fil_de=fmtN(sg.fil[0][0]); d.fil_a=fmtN(sg.fil[sg.fil.length-1][1]); d.fil_trechos=sg.fil.length>1?textoTrechos(sg.fil):''; }
-  else { d.fil_de=''; d.fil_a=''; d.fil_trechos=''; }
-  gravar(f); desenharEditor(); const el=$('#perfilVivo'); if(el) el.scrollIntoView({block:'start'});
-  barraDesfazer('Construção preenchida pela sugestão.', ()=>{ Object.assign(d,ant); gravar(f); desenharEditor(); }); });
 function cartaoPerfilVivo(f,b){ return `<div class="card" id="perfilVivo"><h2>${esc(b.t)}</h2><div class="nota">Vai se desenhando sozinho enquanto você lança. Vermelho = o que ainda falta. Funciona sem internet.</div><div id="pvCorpo" style="margin-top:8px;border:1px solid var(--line);border-radius:12px;overflow:hidden;padding:4px 2px">${corpoPerfilVivo(f)}</div></div>`; }
 function atualizarPerfilVivo(f){ const el=$('#pvCorpo'); if(el) el.innerHTML=corpoPerfilVivo(f); }
-async function imgPerfilSVG(d){ let svg=perfilSVG(d,{sug:false}); const vb=/viewBox="0 0 (\d+) (\d+)"/.exec(svg); if(vb) svg=svg.replace('width="100%"', `width="${vb[1]*2}" height="${vb[2]*2}"`); return await new Promise(ok=>{ const im=new Image(); im.onload=()=>ok(im); im.onerror=()=>ok(null); im.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg); }); }
+async function imgPerfilSVG(d){ let svg=perfilSVG(d); const vb=/viewBox="0 0 (\d+) (\d+)"/.exec(svg); if(vb) svg=svg.replace('width="100%"', `width="${vb[1]*2}" height="${vb[2]*2}"`); return await new Promise(ok=>{ const im=new Image(); im.onload=()=>ok(im); im.onerror=()=>ok(null); im.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg); }); }
 /* ---------- SUGESTÃO DE REVESTIMENTO E FILTRO (v1.20.0) ----------
  * Regra simples, só com o que foi lançado na ficha (roda sem internet):
  *  · filtro só em camada que dá água (areia, cascalho, arenito) ABAIXO de onde a água apareceu,
