@@ -436,7 +436,10 @@ async function abrir(ob, id) {
   Object.assign(V, { aberto: true, ob, m, el, cv: $('#mpvCv'), k: 1, tx: 0, ty: 0, ptrs: new Map(), seguir: false, alvo: null, medir: null, pop: null, detalhe: null, camadas: [], fora: null, trilha: V.trilha && V.trilha.obraId === ob.id ? V.trilha : null });
   V.ctx = V.cv.getContext('2d'); ligarVisual(); redimensionar();
   $('#mpvAv').className = 'av on'; $('#mpvAv').textContent = 'Abrindo o mapa…';
-  try { await carregarMapa(m); } catch (e) { $('#mpvAv').className = 'av on w'; $('#mpvAv').textContent = 'Não consegui abrir este mapa: ' + (e.message || e); return; }
+  try { await Promise.race([carregarMapa(m), new Promise((_, er) => setTimeout(() => er(new Error('demorou demais')), 30000))]); }
+  catch (e) { if (/demorou/.test(e.message || '')) { try { if (pdfjs.worker) { URL.revokeObjectURL(pdfjs.worker); pdfjs.worker = null; } } catch (x) {} }
+    $('#mpvAv').className = 'av on w'; $('#mpvAv').innerHTML = esc('Não consegui abrir este mapa: ' + (e.message || e) + '. ') + '<button id="mpvDeNovo" style="margin-top:8px;width:100%">Tentar de novo</button>';
+    const dn = $('#mpvDeNovo'); if (dn) dn.onclick = () => abrir(ob, id); return; }
   await carregarCamadas(); V.marcas = await MDB.obra('marcas', ob.id); enquadrar(); avisos(); iniciarGPSmapa(); pedir();
 }
 async function carregarMapa(m) {
