@@ -98,3 +98,16 @@ v1.23.0 (17/10/2026)
     mudança (e na hora se o app for para segundo plano); trilha em gravação manda cópia parcial a cada
     10 min; áudio do diário segue sozinho 60 s depois de parar (dá para ouvir/regravar antes).
   - Medição terminada vira registro (KML) da obra; ponto tem "Compartilhar".
+
+v1.23.2 (17/10/2026)
+  - Compartilhar sem sair do app: só a janela "Compartilhar" do celular (volta sozinha ao app);
+    nada abre link nem navega para fora. Em cada mapa da lista: "🛰 Para GPS" · "⤴ Compartilhar" · "✕ Tirar".
+    No mapa (☰): compartilhar o mapa, os pinos/trilhas e as camadas; no ponto: Compartilhar.
+    KML que o Android não manda direto vira escolha: texto com coordenadas e link do Google Maps
+    (abre em qualquer celular) ou salvar o arquivo (no iPhone não oferece salvar — pode prender a tela).
+    O voltar do celular fecha a escolha.
+  - 🛰 Para GPS: GPX (Garmin BaseCamp/Explore/eTrex/GPSMAP, Avenza, OsmAnd…) — pontos como waypoints,
+    linhas/trilhas/áreas como tracks, nomes sem acento até 30 caracteres; ou CSV (Excel BR: ; e vírgula)
+    com lat/lon e UTM.
+  - Sem internet de verdade (Wi-Fi sem internet, sinal fraco) o envio não fica martelando: espera
+    30 s, 1, 2, 5, até 10 min entre tentativas; a rede voltar ou "Enviar agora" zeram a espera.

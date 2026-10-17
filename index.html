@@ -260,16 +260,16 @@ button.mini{padding:8px 12px;font-size:14px;margin-top:6px}
 <div class="toast" id="toast"></div>
 <canvas id="cv" class="hide"></canvas>
 
-<script src="geofisica.js?v=1.23.0"></script>
-<script src="fichas.js?v=1.23.0"></script>
-<script src="mapas.js?v=1.23.0"></script>
+<script src="geofisica.js?v=1.23.2"></script>
+<script src="fichas.js?v=1.23.2"></script>
+<script src="mapas.js?v=1.23.2"></script>
 <script>
 /* ============================================================
    CAMPO · Natural Engenharia — app de campo (PWA)
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.23.0';
+const APP_VERSAO = '1.23.2';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -420,7 +420,8 @@ function pintarFila(){
   b.disabled = false; /* v1.22.0: SEMPRE ativo — mandar dado tem que ser fácil; sem pendência, o toque só confirma que está tudo no Drive */
   const nota = (outras? ` · <span class="muted">${outras} de outras obras</span>`:'') + (parc? `<br><span style="font-weight:700">📋 ${parc} ficha(s) aberta(s) com dado novo — "Enviar agora" manda o que já tem (parcial)</span>`:'') + (esperando.length? `<br><span style="color:var(--err);font-weight:700">🎙 ${esperando.length} áudio gravado ainda no celular — toque em Enviar agora</span>`:'');
   if(pend.length===0 && !esperando.length) t.innerHTML = `<b>${hojeEnv? (S.obraId?'Tudo enviado desta obra.':'Tudo enviado.') : (S.obraId?'Nada na fila desta obra.':'Nada na fila.')}</b> ${hojeEnv? hojeEnv+' arquivo(s) hoje.':''} ${navigator.onLine?'':'Sem internet.'}${nota}`;
-  else t.innerHTML = `<b>${pend.length+esperando.length} ainda no celular${S.obraId?' (desta obra)':''}</b>${err.length?` · <span style="color:var(--err)">${err.length} com erro</span>`:''} · ${navigator.onLine?'com internet':'sem internet — sobe sozinho depois'}${nota}`;
+  else { const esp=S.semRedeAte&&Date.now()<S.semRedeAte? Math.ceil((S.semRedeAte-Date.now())/60000):0;
+    t.innerHTML = `<b>${pend.length+esperando.length} ainda no celular${S.obraId?' (desta obra)':''}</b>${err.length?` · <span style="color:var(--err)">${err.length} com erro</span>`:''} · ${!navigator.onLine?'sem internet — guardado, sobe sozinho quando pegar sinal':esp?`sinal sem internet — tenta de novo sozinho em ${esp} min`:'com internet'}${nota}`; }
 }
 
 /* ---------------- EXIF: leitura (GPS, data, orientação) ---------------- */
@@ -697,10 +698,18 @@ async function enviarTudoAgora(){
   if(!pend.length){ toast('Nada pendente: tudo o que foi feito neste celular já chegou ao Drive ✓ (veja "Enviados" na tela inicial).',4500); render(); return; }
   for(const it of pend.filter(x=>x.status==='erro')){ it.status='pendente'; it.erro=null; await DB.put(it); }
   if(!navigator.onLine){ toast(`Sem internet agora: ${pend.length} item(ns) guardado(s) no celular. Sobem sozinhos quando pegar sinal (deixe o app aberto).`,5000); render(); return; }
-  toast(`Enviando ${pend.length} item(ns)…`); await recarregarFila(); render(); enviarFila();
+  redeOk(); toast(`Enviando ${pend.length} item(ns)…`); await recarregarFila(); render(); enviarFila(true);
 }
-async function enviarFila(){
+/* v1.23.1: sem internet de verdade (Wi-Fi sem internet, sinal fraco) o app NÃO fica martelando:
+   depois de uma falha de rede espera 30 s, 1, 2, 5 e no máximo 10 min antes de tentar de novo, sozinho.
+   A rede voltar (evento online) ou o toque em "Enviar agora" zeram a espera. Nada se perde: fica guardado no celular. */
+const ESPERAS_REDE=[30e3,60e3,120e3,300e3,600e3];
+function falhaDeRede(){ S.falhasRede=(S.falhasRede||0)+1; S.semRedeAte=Date.now()+ESPERAS_REDE[Math.min(S.falhasRede-1,ESPERAS_REDE.length-1)]; clearTimeout(S.tRede); S.tRede=setTimeout(()=>enviarFila(),S.semRedeAte-Date.now()+500); }
+function redeOk(){ S.falhasRede=0; S.semRedeAte=0; clearTimeout(S.tRede); }
+window.addEventListener('online',()=>{ redeOk(); setTimeout(()=>enviarFila(),1500); });
+async function enviarFila(forcar){
   if(S.enviando || !navigator.onLine) return; if(!S.cfg.script){ pintarFila(); return; }
+  if(!forcar && S.semRedeAte && Date.now()<S.semRedeAte){ pintarFila(); return; }
   S.enviando=true; pintarFila();
   try{
     const fila=S.fila.filter(x=>x.status==='pendente'||x.status==='erro').sort((a,b)=>((a.blob&&a.blob.size)||0)-((b.blob&&b.blob.size)||0));
@@ -711,12 +720,12 @@ async function enviarFila(){
         const corpo={ token:S.cfg.token, acao:'enviar', id:it.id, obraId:it.obraId, obraNome:it.obraNome, pastaId:it.pastaId, quem:it.quem, tipo:it.tipo, slot:it.slot, slotTitulo:it.slotTitulo, nome:it.nome, mime:it.mime, meta:it.meta, criadoEm:it.criadoEm, b64: await b64(it.blob) };
         const r=await fetch(S.cfg.script,{method:'POST',body:JSON.stringify(corpo),signal:ac.signal}); clearTimeout(lim);
         const j=await r.json().catch(()=>({ok:false,erro:'resposta inválida'}));
-        if(j.ok){ it.status='enviado'; it.enviadoEm=new Date().toISOString(); it.url=j.url||null; it.pasta=j.pasta||null; it.marco=j.marco||null; it.transito=!!j.transito; it.erro=null; it.erroEm=null;
+        if(j.ok){ redeOk(); it.status='enviado'; it.enviadoEm=new Date().toISOString(); it.url=j.url||null; it.pasta=j.pasta||null; it.marco=j.marco||null; it.transito=!!j.transito; it.erro=null; it.erroEm=null;
           try{ const at=await DB.get(it.id); if(at&&at.noCel) it.noCel=true; }catch(_){}
           /* v1.17.0: foto da câmera que ainda não foi salva no celular guarda o arquivo até ser salva (iPhone pede um toque) */
           if(!(S.salvarCel && it.tipo==='foto' && it.meta?.origem==='camera' && !it.meta?.original && !it.noCel)) it.blob=null; }
         else { it.status='erro'; it.erro=j.erro||('HTTP '+r.status); it.erroEm=new Date().toISOString(); }
-      }catch(e){ if(e instanceof TypeError || e.name==='AbortError' || !navigator.onLine){ it.status='pendente'; it.erro=null; await DB.put(it);
+      }catch(e){ if(e instanceof TypeError || e.name==='AbortError' || !navigator.onLine){ it.status='pendente'; it.erro=null; await DB.put(it); if(!grande) falhaDeRede();
           if(grande && navigator.onLine) continue;   /* vídeo grande caiu no sinal fraco: os pequenos de trás ainda tentam */
           break; } it.status='erro'; it.erro=String(e.message||e); it.erroEm=new Date().toISOString(); }
       await DB.put(it); pintarFila();
