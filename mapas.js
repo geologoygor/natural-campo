@@ -89,6 +89,52 @@ function utmI(E, N, z, sul) {
   const chi = Math.asin(Math.sin(xp) / Math.cosh(ep)); let phi = chi; for (let j = 1; j <= 3; j++) phi += DE[j - 1] * Math.sin(2 * j * chi);
   const lon0 = ((z - 1) * 6 - 180 + 3) * RAD; return [phi / RAD, (lon0 + Math.atan(Math.sinh(ep) / Math.cos(xp))) / RAD];
 }
+/* UTM inverso para qualquer elipsoide (SAD 69 usa o UGGI-67) */
+function utmIe(E, N, z, sul, a, f) { const n = f / (2 - f), A_ = a / (1 + n) * (1 + n * n / 4 + n ** 4 / 64);
+  const be = [n / 2 - 2 * n * n / 3 + 37 * n ** 3 / 96, n * n / 48 + n ** 3 / 15, 17 * n ** 3 / 480], de = [2 * n - 2 * n * n / 3 - 2 * n ** 3, 7 * n * n / 3 - 8 * n ** 3 / 5, 56 * n ** 3 / 15];
+  const xi = (N - (sul ? 1e7 : 0)) / (K0 * A_), eta = (E - 500000) / (K0 * A_); let xp = xi, ep = eta;
+  for (let j = 1; j <= 3; j++) { xp -= be[j - 1] * Math.sin(2 * j * xi) * Math.cosh(2 * j * eta); ep -= be[j - 1] * Math.cos(2 * j * xi) * Math.sinh(2 * j * eta); }
+  const chi = Math.asin(Math.sin(xp) / Math.cosh(ep)); let phi = chi; for (let j = 1; j <= 3; j++) phi += de[j - 1] * Math.sin(2 * j * chi);
+  return [phi / RAD, (((z - 1) * 6 - 180 + 3) * RAD + Math.atan(Math.sinh(ep) / Math.cos(xp))) / RAD]; }
+/* SAD 69 → SIRGAS 2000: translação geocêntrica do IBGE (R.PR 1/2005): ΔX −67,35 m · ΔY +3,88 m · ΔZ −38,22 m */
+function sad69ParaSirgas(lat, lon) { const a1 = 6378160, f1 = 1 / 298.25, a2 = 6378137, f2 = 1 / 298.257222101;
+  const e1 = f1 * (2 - f1), e2 = f2 * (2 - f2), p = lat * RAD, l = lon * RAD, Nn = a1 / Math.sqrt(1 - e1 * Math.sin(p) ** 2);
+  const X = Nn * Math.cos(p) * Math.cos(l) - 67.35, Y = Nn * Math.cos(p) * Math.sin(l) + 3.88, Z = Nn * (1 - e1) * Math.sin(p) - 38.22;
+  const r = Math.hypot(X, Y); let p2 = Math.atan2(Z, r * (1 - e2)); for (let i = 0; i < 6; i++) { const N2 = a2 / Math.sqrt(1 - e2 * Math.sin(p2) ** 2); p2 = Math.atan2(Z + e2 * N2 * Math.sin(p2), r); }
+  return [p2 / RAD, Math.atan2(Y, X) / RAD]; }
+/* Lê coordenada em qualquer formato comum. Devolve {lat, lon, nome, fmt} (datum da entrada) ou {erro}. zonaPadrao/sulPadrao: do mapa aberto. */
+function lerCoordTexto(linha, zonaPadrao, sulPadrao) {
+  let t = String(linha || '').replace(/[′’´`]/g, "'").replace(/[″”“]|''/g, '"').replace(/[º˚]/g, '°').trim(); if (!t) return null;
+  let nome = ''; /* nome antes da coordenada: "A4-V1: …", "Porteira - …", "P3 = …" (rótulo de eixo como E=, N=, Lat: não é nome) */
+  const mn = /^(.{1,40}?)\s*(?::|=|\s[-–]\s|\t)\s*(?=[-+]?\d|[NSLOEW]\s*\d)/.exec(t);
+  if (mn && /[A-Za-zÀ-ú]/.test(mn[1]) && !/^\s*(lat(itude)?|lon(gitude)?|utm|e|n|x|y|este|norte|zona|fuso)\s*$/i.test(mn[1]) && !/\d\s*[°']/.test(mn[1])) { nome = mn[1].trim(); t = t.slice(mn[0].length); }
+  t = t.replace(/(^|[^\d.,])(\d{1,3}(?:\.\d{3}){1,2})(,\d+)?(?![\d.])/g, (m0, a, n, d) => { const v = +n.replace(/\./g, ''); return v >= 100000 ? a + v + (d || '') : m0; });
+  /* Brasil: lat entre −34 e +6, lon entre −74 e −28 — serve para saber a ordem quando não há letra */
+  const ordemBR = (a, b) => (a >= -75 && a <= -28 && b >= -35 && b <= 7 && !(b >= -75 && b <= -28));
+  const hemi = h => h ? (/[SWO]/i.test(h) ? -1 : 1) : 0, ehLat = h => /[NS]/i.test(h || ''), num = x => parseFloat(String(x).replace(',', '.'));
+  // graus, minutos, segundos (com ou sem segundos)
+  const rG = /([NSLOEW])?\s*(\d{1,3})\s*[°d\s]\s*(\d{1,2}(?:[.,]\d+)?)\s*['m]?\s*(?:(\d{1,2}(?:[.,]\d+)?)\s*(?:"|s)?)?\s*([NSLOEW])?/gi;
+  const gs = []; let m; const tg = t.replace(/(\d)\s*°/g, '$1°');
+  if (/°|'|"/.test(tg)) { while ((m = rG.exec(tg)) && gs.length < 2) { if (!/°/.test(m[0]) && !/'/.test(m[0])) continue; const h = (m[1] || m[5] || '').toUpperCase(); const v = (+m[2] + num(m[3]) / 60 + (m[4] ? num(m[4]) / 3600 : 0)); gs.push({ v, h }); }
+    if (gs.length === 2) { let [a, b] = gs; if ((ehLat(b.h) && !ehLat(a.h)) || (!a.h && !b.h && a.v > 28 && b.v < 7)) [a, b] = [b, a];
+      let lat = a.v * (hemi(a.h) || (sulPadrao ? -1 : 1)), lon = b.v * (hemi(b.h) || -1); /* sem letra: longitude oeste (Brasil) */
+      return { lat, lon, nome, fmt: gs.some(g => /\d/.test('')) ? 'GMS' : 'graus-minutos-segundos' }; } }
+  const rGM = /(\d{1,3})\s+(\d{1,2}(?:[.,]\d+)?)\s*([NSLOEW])/gi; const gm = []; while ((m = rGM.exec(t)) && gm.length < 2) gm.push({ v: +m[1] + num(m[2]) / 60, h: m[3].toUpperCase() });
+  if (gm.length === 2) { let [a, b] = gm; if (ehLat(b.h) && !ehLat(a.h)) [a, b] = [b, a]; return { lat: a.v * hemi(a.h), lon: b.v * hemi(b.h), nome, fmt: 'graus-minutos' }; }
+  // UTM: dois números grandes (E ~6 dígitos, N 6–7 dígitos), zona opcional
+  const nums = (t.match(/[-+]?\d+(?:[.,]\d+)?/g) || []).map(num);
+  const grandes = nums.filter(x => Math.abs(x) >= 1000);
+  if (grandes.length >= 2) { const mz = /(?:zona|fuso)\s*:?\s*(\d{1,2})\s*([NS])?/i.exec(t) || /(?:^|[\s(;])(\d{1,2})\s*([NS])(?![a-z]|\s*[:=])/i.exec(t);
+    let z = mz && +mz[1] >= 1 && +mz[1] <= 60 ? +mz[1] : zonaPadrao, sul = mz && mz[2] ? /S/i.test(mz[2]) : sulPadrao; if (!z || z < 1 || z > 60) return { erro: 'faltou a zona UTM' };
+    let E = grandes[0], N = grandes[1]; const iN = t.search(/N\s*[:=]\s*\d|N\s+\d{6,7}/i), iE = t.search(/E\s*[:=]\s*\d|E\s+\d{6}/i);
+    if (iN >= 0 && iE >= 0 && iN < iE) { N = grandes[0]; E = grandes[1]; } else if (E > 1000000 || (E > 900000 && N < 900000)) { [E, N] = [N, E]; }
+    if (E < 100000 || E > 900000) return { erro: 'E fora do intervalo UTM (100.000 a 900.000)' };
+    return { utm: { E, N, z, sul }, nome, fmt: 'UTM' }; }
+  // graus decimais (com ou sem letras)
+  const dec = (t.match(/[-+]?\d+(?:[.,]\d+)?\s*[NSLOEW]?/gi) || []).map(x => ({ v: num(x), h: (x.match(/[NSLOEW]/i) || [''])[0].toUpperCase() })).filter(x => isFinite(x.v));
+  if (dec.length >= 2) { let [a, b] = dec; if ((ehLat(b.h) && !ehLat(a.h)) || (Math.abs(a.v) > 90 && Math.abs(b.v) <= 90) || (!a.h && !b.h && ordemBR(a.v, b.v))) [a, b] = [b, a];
+    const lat = a.h ? Math.abs(a.v) * hemi(a.h) : a.v, lon = b.h ? Math.abs(b.v) * hemi(b.h) : b.v; return { lat, lon, nome, fmt: 'graus decimais' }; }
+  return { erro: 'não reconheci o formato' }; }
 function dist(a, b) { const R = 6371008.8, dφ = (b[0] - a[0]) * RAD, dλ = (b[1] - a[1]) * RAD; const h = Math.sin(dφ / 2) ** 2 + Math.cos(a[0] * RAD) * Math.cos(b[0] * RAD) * Math.sin(dλ / 2) ** 2; return 2 * R * Math.asin(Math.min(1, Math.sqrt(h))); }
 function rumo(a, b) { const φ1 = a[0] * RAD, φ2 = b[0] * RAD, dλ = (b[1] - a[1]) * RAD; return (Math.atan2(Math.sin(dλ) * Math.cos(φ2), Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(dλ)) / RAD + 360) % 360; }
 function cardeal(g) { return ['N', 'NE', 'L', 'SE', 'S', 'SO', 'O', 'NO'][Math.round(g / 45) % 8]; }
@@ -355,7 +401,7 @@ function tela(ob) {
   <div class="row" style="margin-top:10px"><button class="sec" id="mpAtualizar">Buscar no Drive</button><button class="sec" id="mpImportar">Mapa do celular</button></div>
   <input type="file" id="mpArq" accept=".pdf,.tif,.tiff,.kml,.kmz,.gpx,application/pdf,image/tiff,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz,application/gpx+xml" multiple style="display:none">
   <div class="nota">Formatos: PDF georreferenciado (como o do Avenza), GeoTIFF, KML/KMZ do Google Earth e GPX. Mapa que chegou por WhatsApp: salve no celular e toque em "Mapa do celular".</div></div>
-  <div class="card"><h2>Pinos e trilhas desta obra</h2><div id="mpMarcas"><div class="muted">Carregando…</div></div></div>`;
+  <div class="card"><h2>Pinos, trilhas e medições desta obra</h2><div class="nota">Tudo que você marca é guardado na hora no celular e vai sozinho para o Drive da obra.</div><div id="mpMarcas"><div class="muted">Carregando…</div></div></div>`;
 }
 function ligar(ob) {
   cssUmaVez(); OB_ATUAL = ob; pintarLista(ob);
@@ -414,8 +460,8 @@ async function pintarMarcas(ob) {
   const el = $('#mpMarcas'); if (!el) return; const ms = (await MDB.obra('marcas', ob.id)).sort((a, b) => a.criadoEm < b.criadoEm ? 1 : -1); const p = posAgora();
   if (!ms.length) { el.innerHTML = '<div class="muted">Nenhum ainda. Dentro do mapa: 📍 Marcar guarda o ponto onde você está; ⏺ Trilha grava o caminho. Tudo sobe para o Drive da obra em KML.</div>'; return; }
   el.innerHTML = ms.map(m => m.tipo === 'pino'
-    ? `<div class="chk" style="align-items:center"><span>📍</span><span style="flex:1"><b>${esc(m.nome)}</b><br><small class="muted">${esc(window.fmtCoordCurta ? fmtCoordCurta({ lat: m.lat, lon: m.lon }, APP() ? APP().fmt : 'utm') : m.lat + ',' + m.lon)}${p ? ' · a ' + fmtDist(dist([p.lat, p.lon], [m.lat, m.lon])) : ''} · ${m.enviado ? 'no Drive ✓' : 'vai para o Drive'}</small></span></div>`
-    : `<div class="chk" style="align-items:center"><span>〰</span><span style="flex:1"><b>${esc(m.nome)}</b><br><small class="muted">${fmtDist(compLL(m.pts))} · ${m.pts.length} pontos · ${m.enviado ? 'no Drive ✓' : 'vai para o Drive'}</small></span></div>`).join('');
+    ? `<div class="chk" style="align-items:center"><span>📍</span><span style="flex:1"><b>${esc(m.nome)}</b><br><small class="muted">${esc(window.fmtCoordCurta ? fmtCoordCurta({ lat: m.lat, lon: m.lon }, APP() ? APP().fmt : 'utm') : m.lat + ',' + m.lon)}${p ? ' · a ' + fmtDist(dist([p.lat, p.lon], [m.lat, m.lon])) : ''} · ${m.enviado ? 'na fila / no Drive ✓' : 'vai para o Drive sozinho'}</small></span></div>`
+    : `<div class="chk" style="align-items:center"><span>${m.tipo === 'medida' ? '📏' : '〰'}</span><span style="flex:1"><b>${esc(m.nome)}</b><br><small class="muted">${fmtDist(m.comp || compLL(m.pts))}${m.area ? ' · ' + fmtArea(m.area) : ''} · ${m.pts.length} pontos · ${m.enviado ? 'na fila / no Drive ✓' : 'vai para o Drive sozinho'}</small></span></div>`).join('');
 }
 
 /* ============================================================
@@ -443,7 +489,7 @@ function cssUmaVez() {
 #mpv .ac{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}#mpv .ac button{padding:10px 4px;font-size:13px;background:#E8F1FA;color:var(--navy)}#mpv .ac button.on{background:var(--err);color:#fff}#mpv .ac button.m{background:var(--green);color:#fff}
 #mpv .sheet{position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:16px 16px 0 0;box-shadow:0 -6px 24px rgba(0,0,0,.2);padding:14px 14px calc(14px + var(--sab));max-height:72%;overflow-y:auto;display:none;z-index:5;touch-action:pan-y}#mpv .sheet.on{display:block}
 #mpv .sheet h3{margin:0 0 8px;color:var(--navy);font-size:16px}#mpv .sheet .lin{display:flex;gap:8px;margin-top:10px}#mpv .sheet .lin button{flex:1}
-#mpv .sheet .geo{font-size:12px;margin:6px 0}`;
+#mpv .sheet .geo{font-size:12px;margin:6px 0}#mpv .sheet .seg{flex-wrap:wrap}#mpv .sheet .seg button{padding:9px 8px;font-size:14px;flex:1 1 auto}#mpv .sheet textarea{min-height:110px;font-size:14px}#mpv .sheet .row input{min-width:0}`;
   document.head.appendChild(st);
 }
 async function abrir(ob, id) {
@@ -542,7 +588,7 @@ function desenhar() {
   if (V.geo) {
     for (const cm of V.camadas) if (cm.on) feicoes(c, cm.f, '#E11D48');
     if (V.vetPx) feicoes(c, V.vetPx, '#E11D48');
-    for (const m of V.marcas || []) { if (m.tipo === 'trilha') linhaLL(c, m.pts, '#7C3AED', 3.5); }
+    for (const m of V.marcas || []) { if (m.tipo === 'trilha') linhaLL(c, m.pts, '#7C3AED', 3.5); else if (m.tipo === 'medida') linhaLL(c, m.pts, '#0284C7', 2.5, m.fechado); }
     if (V.trilha && V.trilha.pts.length > 1) linhaLL(c, V.trilha.pts, '#DC2626', 4);
     for (const m of V.marcas || []) if (m.tipo === 'pino') pino(c, m.lat, m.lon, V.alvo && V.alvo.id === m.id ? '#DC2626' : '#F59E0B', m.nome);
     if (V.alvo && !V.alvo.id) pino(c, V.alvo.lat, V.alvo.lon, '#DC2626', V.alvo.nome);
@@ -667,18 +713,23 @@ function popPonto(m, nome, desc) { if (!V.geo) return; const [lat, lon] = V.geo.
   s.querySelector('#shIr').onclick = () => { V.alvo = { lat, lon, nome: nome || 'ponto escolhido' }; fecharSheet(); painelNav(); avisos(); pedir(); };
   s.querySelector('#shPino').onclick = async () => { const p = await novoPino(lat, lon, null, nome); fecharSheet(); popPino(p); };
   s.querySelector('#shCop').onclick = () => copiar(lat, lon); s.querySelector('#shFe').onclick = fecharSheet; }
+function compartilhar(nome, lat, lon) { const u = window.toUTM ? toUTM(lat, lon) : null;
+  const t = `${nome || 'Ponto'} — ${V.ob ? V.ob.nome : ''}\nLat ${lat.toFixed(6)}, Lon ${lon.toFixed(6)}${u ? `\nUTM ${u.zone}${u.hemi} E ${u.e} N ${u.n} (SIRGAS 2000)` : ''}\nhttps://maps.google.com/?q=${lat.toFixed(6)},${lon.toFixed(6)}`;
+  if (navigator.share) navigator.share({ title: nome || 'Ponto', text: t }).catch(() => {}); else copiar(lat, lon); }
 function copiar(lat, lon) { const u = window.toUTM ? toUTM(lat, lon) : null; const t = (u ? `UTM ${u.zone}${u.hemi} E ${u.e} N ${u.n} (SIRGAS 2000) / ` : '') + `${lat.toFixed(6)}, ${lon.toFixed(6)}`; try { navigator.clipboard.writeText(t).then(() => toast('Coordenada copiada')); } catch (e) { prompt('Coordenada', t); } }
 function popPino(p) { const s = sheet(`<h3>📍 Pino</h3><label>Nome</label><input id="shNome" value="${esc(p.nome)}"><label>Observação</label><input id="shNota" value="${esc(p.nota || '')}" placeholder="opcional">${blocoCoord(p.lat, p.lon)}<div class="muted">${p.acc ? `marcado com GPS ±${Math.round(p.acc)} m · ` : 'marcado no mapa · '}${window.fmtData ? fmtData(p.criadoEm) : ''} · ${esc(p.quem || '')}</div>${linhaDistDeMim(p.lat, p.lon)}
-  <div class="lin"><button id="shIr">➜ Ir até</button><button class="sec" id="shOk">Salvar</button></div><div class="lin"><button class="ghost" id="shCop">Copiar coordenada</button><button class="ghost" id="shDel" style="color:var(--err)">Apagar</button></div>`);
-  const salvar = async () => { p.nome = s.querySelector('#shNome').value.trim() || p.nome; p.nota = s.querySelector('#shNota').value.trim(); p.enviado = false; await MDB.put('marcas', p); pedir(); };
+  <div class="lin"><button id="shIr">➜ Ir até</button><button class="sec" id="shOk">Salvar</button></div><div class="lin"><button class="ghost" id="shCop">Copiar coordenada</button><button class="ghost" id="shShare">Compartilhar</button><button class="ghost" id="shDel" style="color:var(--err)">Apagar</button></div>`);
+  const salvar = async () => { const nn = s.querySelector('#shNome').value.trim() || p.nome, nt = s.querySelector('#shNota').value.trim(); if (nn === p.nome && nt === (p.nota || '')) return; p.nome = nn; p.nota = nt; p.enviado = false; await MDB.put('marcas', p); pedir(); agendarEnvio(V.ob); };
+  s.querySelector('#shNome').onchange = salvar; s.querySelector('#shNota').onchange = salvar; /* salva sozinho ao sair do campo */
   s.querySelector('#shOk').onclick = async () => { await salvar(); fecharSheet(); toast('Pino salvo'); };
   s.querySelector('#shIr').onclick = async () => { await salvar(); V.alvo = { id: p.id, lat: p.lat, lon: p.lon, nome: p.nome }; fecharSheet(); painelNav(); avisos(); pedir(); };
   s.querySelector('#shCop').onclick = () => copiar(p.lat, p.lon);
+  s.querySelector('#shShare').onclick = () => compartilhar(p.nome, p.lat, p.lon);
   s.querySelector('#shDel').onclick = async () => { await MDB.del('marcas', p.id); V.marcas = V.marcas.filter(x => x.id !== p.id); if (V.alvo && V.alvo.id === p.id) { V.alvo = null; painelNav(); } fecharSheet(); pedir(); toast('Pino apagado'); }; }
 async function novoPino(lat, lon, acc, nome) {
   const n = (V.marcas || []).filter(m => m.tipo === 'pino').length + 1; const quem = (APP() && APP().quem) || '';
   const p = { id: uid('P'), obraId: V.ob.id, tipo: 'pino', nome: nome || 'P' + String(n).padStart(2, '0'), lat, lon, acc: acc || null, alt: V.pos && acc ? V.pos.alt : null, nota: '', quem, criadoEm: new Date().toISOString(), enviado: false };
-  await MDB.put('marcas', p); V.marcas.push(p); pedir(); return p;
+  await MDB.put('marcas', p); V.marcas.push(p); pedir(); agendarEnvio(V.ob); return p;
 }
 async function acao(a, b) {
   if (a === 'pino') { if (!V.geo) return toast('Este mapa não tem georreferência.'); const p = V.pos; if (!p) return toast('Ainda sem GPS. Para marcar um ponto do mapa, segure o dedo nele.', 3500);
@@ -693,58 +744,120 @@ function painelMedir() { const pts = V.medir; const area = pts.length > 2 ? area
   <div class="lin"><button class="sec" id="mdGps" ${V.pos ? '' : 'disabled'}>+ onde estou</button><button class="sec" id="mdDesf" ${pts.length ? '' : 'disabled'}>Desfazer</button></div><div class="lin"><button class="ghost" id="mdLimpa">Limpar</button><button id="mdFim">Terminar</button></div>`);
   s.querySelector('#mdGps').onclick = () => { V.medir.push([V.pos.lat, V.pos.lon]); painelMedir(); pedir(); };
   s.querySelector('#mdDesf').onclick = () => { V.medir.pop(); painelMedir(); pedir(); }; s.querySelector('#mdLimpa').onclick = () => { V.medir = []; painelMedir(); pedir(); };
-  s.querySelector('#mdFim').onclick = () => { V.medir = null; s.classList.remove('on'); V.sheetAberto = false; pedir(); }; }
+  s.querySelector('#mdFim').onclick = async () => { const pts = V.medir || []; V.medir = null; s.classList.remove('on'); V.sheetAberto = false;
+    if (pts.length >= 2) { const n = (V.marcas || []).filter(m => m.tipo === 'medida').length + 1; const fech = pts.length > 2;
+      const md = { id: uid('M'), obraId: V.ob.id, tipo: 'medida', nome: 'Medição ' + n, pts: pts.map(q => [q[0], q[1]]), fechado: fech, comp: compLL(pts), perim: fech ? compLL(pts, true) : null, area: fech ? areaLL(pts) : null, quem: (APP() && APP().quem) || '', criadoEm: new Date().toISOString(), enviado: false };
+      await MDB.put('marcas', md); V.marcas.push(md); agendarEnvio(V.ob); toast(`${md.nome} guardada: ${fmtDist(md.comp)}${fech ? ' · ' + fmtArea(md.area) : ''}. Vai para o Drive sozinha.`, 3500); }
+    pedir(); }; }
 async function sheetMais() {
   const outros = (await MDB.obra('mapas', V.ob.id)).filter(m => m.id !== V.m.id && !m.camada);
   const pinos = (V.marcas || []).filter(m => m.tipo === 'pino'), trilhas = (V.marcas || []).filter(m => m.tipo === 'trilha'); const pend = (V.marcas || []).filter(m => !m.enviado).length;
-  const s = sheet(`<h3>Ir para uma coordenada</h3><div class="row"><input id="ccA" placeholder="${APP() && APP().fmt === 'utm' ? 'E (ex.: 756432)' : 'Lat (ex.: 2,8213)'}" inputmode="decimal"><input id="ccB" placeholder="${APP() && APP().fmt === 'utm' ? 'N (ex.: 312456)' : 'Lon (ex.: -60,6721)'}" inputmode="decimal"></div><div class="nota">${APP() && APP().fmt === 'utm' ? `UTM na zona deste mapa (${V.geo ? V.geo.z + (V.geo.sul ? 'S' : 'N') : '—'}), SIRGAS 2000.` : 'Graus decimais.'} Muda o formato em Ajustes do app.</div><div class="lin"><button id="ccIr">➜ Ir até</button></div>
+  const s = sheet(`<button class="big" id="ccAbrir">📌 Plotar coordenada / ir até um ponto</button><div class="nota">UTM, graus decimais, graus-minutos-segundos ou colar o texto (memorial, WhatsApp, Google Earth). SIRGAS 2000, WGS 84 ou SAD 69.</div>
   ${V.camadas.length ? `<h3 style="margin-top:14px">Camadas por cima</h3>${V.camadas.map(c => `<label class="chk" style="text-transform:none;letter-spacing:0;font-size:15px;color:var(--ink);margin:0;font-weight:400"><input type="checkbox" data-cam="${esc(c.id)}" ${c.on ? 'checked' : ''}><span>${esc(c.nome)}</span></label>`).join('')}` : ''}
   <h3 style="margin-top:14px">Pinos (${pinos.length})</h3>${pinos.length ? pinos.map(p => `<div class="chk" style="align-items:center"><span style="flex:1"><b>${esc(p.nome)}</b>${V.pos ? `<br><small class="muted">a ${fmtDist(dist([V.pos.lat, V.pos.lon], [p.lat, p.lon]))}</small>` : ''}</span><button class="sec" data-ir="${esc(p.id)}" style="padding:8px 12px">➜ Ir</button></div>`).join('') : '<div class="muted">Nenhum. 📍 Marcar guarda onde você está; segurar o dedo no mapa marca outro ponto.</div>'}
   ${trilhas.length ? `<h3 style="margin-top:14px">Trilhas (${trilhas.length})</h3>${trilhas.map(t => `<div class="muted">〰 ${esc(t.nome)} · ${fmtDist(compLL(t.pts))}</div>`).join('')}` : ''}
   <div class="lin"><button class="${pend ? 'green' : 'sec'}" id="shEnv" ${pend ? '' : 'disabled'}>${pend ? `Mandar ${pend} marcação(ões) ao Drive` : 'Tudo já foi para o Drive ✓'}</button></div>
   ${outros.length ? `<h3 style="margin-top:14px">Trocar de mapa</h3>${outros.map(m => `<button class="obra" data-mapa="${esc(m.id)}" style="margin-bottom:6px"><b>🗺 ${esc(m.nome.replace(/\.[^.]+$/, ''))}</b><small>${esc(m.resumo || '')}</small></button>`).join('')}` : ''}
   ${V.geo ? `<div class="nota" style="margin-top:12px">Sobre este mapa: UTM ${V.geo.z}${V.geo.sul ? 'S' : 'N'} · ajuste da georreferência ${V.geo.residuo < 1 ? 'menor que 1 m' : '±' + br(V.geo.residuo, 1) + ' m'}${V.geo.aviso ? ' · ' + esc(V.geo.aviso) : ''}</div>` : ''}`);
-  s.querySelector('#ccIr').onclick = () => { const a = parseFloat(String(s.querySelector('#ccA').value).replace(/\./g, utmFmt() ? '' : '.').replace(',', '.')), b = parseFloat(String(s.querySelector('#ccB').value).replace(/\./g, utmFmt() ? '' : '.').replace(',', '.'));
-    if (!isFinite(a) || !isFinite(b)) return toast('Preencha os dois números.'); let ll;
-    if (utmFmt()) { if (!V.geo) return toast('Este mapa não tem georreferência.'); ll = utmI(a, b, V.geo.z, V.geo.sul); } else ll = [a, b];
-    if (Math.abs(ll[0]) > 90 || Math.abs(ll[1]) > 180) return toast('Coordenada inválida.');
-    V.alvo = { lat: ll[0], lon: ll[1], nome: 'coordenada digitada' }; fecharSheet(); if (V.geo) { const q = V.geo.ll2px(ll[0], ll[1]); V.tx = V.cw / 2 - q[0] * V.k; V.ty = V.ch / 2 - q[1] * V.k; } painelNav(); avisos(); pedir(); };
+  s.querySelector('#ccAbrir').onclick = () => sheetCoord();
   s.querySelectorAll('[data-cam]').forEach(i => i.onchange = () => { const c = V.camadas.find(x => x.id === i.dataset.cam); c.on = i.checked; const d = LSx.get('mpCamDesl_' + V.ob.id, {}); d[c.id] = c.on ? 0 : 1; LSx.set('mpCamDesl_' + V.ob.id, d); pedir(); });
   s.querySelectorAll('[data-ir]').forEach(b => b.onclick = () => { const p = pinos.find(x => x.id === b.dataset.ir); V.alvo = { id: p.id, lat: p.lat, lon: p.lon, nome: p.nome }; fecharSheet(); painelNav(); avisos(); pedir(); });
   s.querySelectorAll('[data-mapa]').forEach(b => b.onclick = () => abrir(V.ob, b.dataset.mapa));
   s.querySelector('#shEnv').onclick = async () => { await enviarMarcas(V.ob); fecharSheet(); };
 }
 
+/* ---------------- plotar coordenada (qualquer formato) ---------------- */
+function sheetCoord() {
+  const z0 = V.geo ? V.geo.z : 20, s0 = V.geo ? V.geo.sul : false; const fm = LSx.get('ccFmt', 'utm'), dt = LSx.get('ccDatum', 'sirgas');
+  const B = (k, t) => `<button data-f="${k}" class="${fm === k ? 'on' : ''}">${t}</button>`, inp = (id, ph, im) => `<input id="${id}" placeholder="${ph}" inputmode="${im || 'decimal'}" autocomplete="off">`;
+  const campos = {
+    utm: `<div class="row"><label style="margin:0">Zona</label><label style="margin:0">Hemisfério</label></div><div class="row"><input id="cZ" value="${z0}" inputmode="numeric"><div class="seg" id="cH"><button data-h="N" class="${s0 ? '' : 'on'}">N</button><button data-h="S" class="${s0 ? 'on' : ''}">S</button></div></div><div class="row" style="margin-top:8px">${inp('cE', 'E (ex.: 707601)')}${inp('cN', 'N (ex.: 286304)')}</div>`,
+    dec: `<div class="row">${inp('cLa', 'Lat (ex.: 2,588889)', 'text')}${inp('cLo', 'Lon (ex.: -61,132778)', 'text')}</div><div class="nota">Sul e Oeste com sinal de menos, ou escreva a letra: 2,5888 N · 61,1327 O.</div>`,
+    gms: ['Lat', 'Lon'].map((q, i) => `<label>${q === 'Lat' ? 'Latitude' : 'Longitude'}</label><div class="row" style="gap:6px">${inp('c' + q + 'G', 'graus °', 'numeric')}${inp('c' + q + 'M', "min '", 'numeric')}${inp('c' + q + 'S', 'seg "')}<div class="seg" data-q="${q}" style="flex:0 0 auto">${i === 0 ? `<button data-h="N" class="${s0 ? '' : 'on'}">N</button><button data-h="S" class="${s0 ? 'on' : ''}">S</button>` : `<button data-h="O" class="on">O</button><button data-h="L">L</button>`}</div></div>`).join(''),
+    gm: ['Lat', 'Lon'].map((q, i) => `<label>${q === 'Lat' ? 'Latitude' : 'Longitude'}</label><div class="row" style="gap:6px">${inp('c' + q + 'G', 'graus °', 'numeric')}${inp('c' + q + 'M', "min,decimal '")}<div class="seg" data-q="${q}" style="flex:0 0 auto">${i === 0 ? `<button data-h="N" class="${s0 ? '' : 'on'}">N</button><button data-h="S" class="${s0 ? 'on' : ''}">S</button>` : `<button data-h="O" class="on">O</button><button data-h="L">L</button>`}</div></div>`).join(''),
+    txt: `<textarea id="cTx" placeholder="Cole aqui. Um ponto por linha, pode ter nome antes. Exemplos:\nA4-V1: 02°35'20&quot;N 61°09'01&quot;W\n2.588889, -61.150278\n20N 705655 286302\nE=705654,92 N=286301,95"></textarea><div class="nota">Aceita UTM (com ou sem zona), graus decimais, graus-minutos-segundos e graus-minutos. Vários pontos de uma vez: um por linha.</div>` };
+  const s = sheet(`<h3>📌 Plotar coordenada</h3><div class="seg" id="cF" style="flex-wrap:wrap">${B('utm', 'UTM')}${B('dec', 'Graus dec.')}${B('gms', 'G° M\' S"')}${B('gm', "G° M,m'")}${B('txt', 'Colar texto')}</div>
+    <div id="cCampos" style="margin-top:8px">${campos[fm]}</div>
+    <label>Datum da coordenada</label><div class="seg" id="cD"><button data-d="sirgas" class="${dt === 'sirgas' ? 'on' : ''}">SIRGAS 2000 / WGS 84</button><button data-d="sad" class="${dt === 'sad' ? 'on' : ''}">SAD 69</button></div>
+    ${fm === 'txt' ? '' : `<label>Nome do ponto (opcional)</label><input id="cNome" placeholder="ex.: afloramento, porteira, A4-V1" autocomplete="off">`}
+    <div class="geo" id="cPrev" style="margin-top:10px;font-size:13px">Preencha a coordenada.</div>
+    <div class="lin"><button class="green" id="cPlot">📍 Plotar no mapa</button><button id="cIr">➜ Ir até</button></div><div class="lin"><button class="ghost" id="cVolta">‹ Voltar</button></div>`);
+  s.querySelectorAll('#cF button').forEach(b => b.onclick = () => { LSx.set('ccFmt', b.dataset.f); sheetCoord(); });
+  s.querySelectorAll('#cD button').forEach(b => b.onclick = () => { LSx.set('ccDatum', b.dataset.d); s.querySelectorAll('#cD button').forEach(x => x.classList.toggle('on', x === b)); prev(); });
+  s.querySelectorAll('.seg[data-q] button, #cH button').forEach(b => b.onclick = () => { b.parentNode.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); prev(); });
+  s.querySelector('#cVolta').onclick = () => sheetMais();
+  const v = id => { const e = s.querySelector('#' + id); return e ? String(e.value).trim() : ''; }, nn = x => parseFloat(String(x).replace(/\s/g, '').replace(',', '.'));
+  const hOn = sel => { const b = s.querySelector(sel + ' button.on'); return b ? b.dataset.h : ''; };
+  function ler() { // → lista de {lat, lon (SIRGAS), nome, orig} ou {erro}
+    const sad = LSx.get('ccDatum', 'sirgas') === 'sad', f = LSx.get('ccFmt', 'utm'); const out = [];
+    const fecha = (lat, lon, nome, orig) => { if (!isFinite(lat) || !isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return { erro: 'coordenada fora do mundo: confira os números' }; if (sad) [lat, lon] = sad69ParaSirgas(lat, lon); return { lat, lon, nome, orig }; };
+    const deUtm = (E, N, z, sul, nome, orig) => { if (!isFinite(E) || !isFinite(N)) return { erro: 'preencha E e N' }; if (E < 100000 || E > 900000) return { erro: 'E fora do intervalo UTM (100.000 a 900.000) — será que E e N estão trocados?' };
+      const ll = sad ? utmIe(E, N, z, sul, 6378160, 1 / 298.25) : utmI(E, N, z, sul); return fecha(ll[0], ll[1], nome, orig); };
+    if (f === 'utm') { const z = parseInt(v('cZ'), 10); if (!(z >= 1 && z <= 60)) return [{ erro: 'zona UTM de 1 a 60 (Roraima: 20 ou 21)' }]; out.push(deUtm(nn(v('cE').replace(/\./g, '')), nn(v('cN').replace(/\./g, '')), z, hOn('#cH') === 'S', v('cNome'), `UTM ${z}${hOn('#cH')} E ${v('cE')} N ${v('cN')}`)); }
+    else if (f === 'dec') { const r = lerCoordTexto(v('cLa') + ' ; ' + v('cLo'), z0, s0); out.push(r && !r.erro && !r.utm ? fecha(r.lat, r.lon, v('cNome'), `${v('cLa')} ${v('cLo')}`) : { erro: 'preencha lat e lon' }); }
+    else if (f === 'gms' || f === 'gm') { const g = q => { const G = nn(v('c' + q + 'G')), M = nn(v('c' + q + 'M') || 0), S = f === 'gms' ? nn(v('c' + q + 'S') || 0) : 0; if (!isFinite(G) || M >= 60 || S >= 60) return NaN; const h = hOn(`.seg[data-q="${q}"]`); return (G + M / 60 + S / 3600) * (/[SO]/.test(h) ? -1 : 1); };
+      out.push(fecha(g('Lat'), g('Lon'), v('cNome'), f.toUpperCase())); }
+    else { const linhas = v('cTx').split(/\n+/).filter(x => x.trim()); if (!linhas.length) return [{ erro: 'cole pelo menos uma coordenada' }];
+      linhas.forEach((l, i) => { const r = lerCoordTexto(l, z0, s0); if (!r || r.erro) { out.push({ erro: `linha ${i + 1}: ${r ? r.erro : 'vazia'}` }); return; }
+        out.push(r.utm ? deUtm(r.utm.E, r.utm.N, r.utm.z, r.utm.sul, r.nome, l.trim()) : fecha(r.lat, r.lon, r.nome, l.trim())); }); }
+    return out; }
+  function prev() { const el = s.querySelector('#cPrev'); const r = ler(); const ok = r.filter(x => !x.erro), er = r.filter(x => x.erro);
+    if (!ok.length) { el.innerHTML = er.length && (v('cE') || v('cN') || v('cLa') || v('cLaG') || v('cTx')) ? '⚠ ' + esc(er[0].erro) : 'Preencha a coordenada.'; return; }
+    el.innerHTML = ok.slice(0, 4).map(p => { const u = window.toUTM ? toUTM(p.lat, p.lon) : null; const dentroMapa = V.geo && V.geo.moldura ? dentro(V.geo.ll2px(p.lat, p.lon), V.geo.moldura) : true;
+      return `${p.nome ? '<b>' + esc(p.nome) + '</b> · ' : ''}${p.lat.toFixed(6).replace('.', ',')}, ${p.lon.toFixed(6).replace('.', ',')}${u ? ` · UTM ${u.zone}${u.hemi} E ${br(u.e)} N ${br(u.n)}` : ''}${V.pos ? ` · a ${fmtDist(dist([V.pos.lat, V.pos.lon], [p.lat, p.lon]))} de você` : ''}${dentroMapa ? '' : ' · <b>fora deste mapa</b>'}`; }).join('<br>') +
+      (ok.length > 4 ? `<br>… e mais ${ok.length - 4}` : '') + (er.length ? `<br>⚠ ${er.length} linha(s) não lida(s): ${esc(er[0].erro)}` : '') + (LSx.get('ccDatum', 'sirgas') === 'sad' ? '<br><small>Convertido de SAD 69 para SIRGAS 2000.</small>' : ''); }
+  s.querySelectorAll('input,textarea').forEach(e => e.oninput = prev); prev();
+  s.querySelector('#cPlot').onclick = async () => { const ok = ler().filter(x => !x.erro); if (!ok.length) return toast('Confira a coordenada.');
+    for (const p of ok) { const pn = await novoPino(p.lat, p.lon, null, p.nome || undefined); pn.nota = 'digitado: ' + (p.orig || '') + (LSx.get('ccDatum', 'sirgas') === 'sad' ? ' (SAD 69 convertido)' : ''); pn.digitado = true; await MDB.put('marcas', pn); }
+    fecharSheetForca(); const p = ok[0]; if (V.geo) { const q = V.geo.ll2px(p.lat, p.lon); V.tx = V.cw / 2 - q[0] * V.k; V.ty = V.ch / 2 - q[1] * V.k; } pedir(); toast(ok.length === 1 ? 'Ponto plotado ✓ (toque nele para ir até)' : `${ok.length} pontos plotados ✓`); };
+  s.querySelector('#cIr').onclick = () => { const ok = ler().filter(x => !x.erro); if (!ok.length) return toast('Confira a coordenada.'); const p = ok[0];
+    V.alvo = { lat: p.lat, lon: p.lon, nome: p.nome || 'coordenada digitada' }; fecharSheetForca(); if (V.geo) { const q = V.geo.ll2px(p.lat, p.lon); V.tx = V.cw / 2 - q[0] * V.k; V.ty = V.ch / 2 - q[1] * V.k; } painelNav(); avisos(); pedir(); };
+}
+function fecharSheetForca() { const s = $('#mpvSh'); if (s) { s.classList.remove('on'); V.sheetAberto = false; } }
+
 /* ---------------- trilha ---------------- */
 async function iniciarTrilha() {
   if (!V.geo) return toast('Este mapa não tem georreferência.');
-  V.trilha = { id: uid('T'), obraId: V.ob.id, tipo: 'trilha', nome: 'Trilha ' + (window.fmtData ? fmtData(new Date()) : new Date().toLocaleString('pt-BR')), pts: [], quem: (APP() && APP().quem) || '', criadoEm: new Date().toISOString(), enviado: false };
+  V.trilha = { id: uid('T'), obraId: V.ob.id, tipo: 'trilha', nome: 'Trilha ' + (window.fmtData ? fmtData(new Date()) : new Date().toLocaleString('pt-BR')), pts: [], quem: (APP() && APP().quem) || '', criadoEm: new Date().toISOString(), enviado: false, inicio: Date.now() };
   await MDB.put('marcas', V.trilha); try { V.wake = await navigator.wakeLock.request('screen'); } catch (e) {}
   pintarBotaoTrilha(); gravarPontoTrilha(); toast('Gravando a trilha. Deixe o app aberto: a tela fica acesa sozinha.', 4000);
 }
 async function gravarPontoTrilha() { const t = V.trilha, p = V.pos; if (!t || !p || p.acc > 35) return; const ult = t.pts[t.pts.length - 1];
   if (ult && dist(ult, [p.lat, p.lon]) < Math.max(3, p.acc / 3)) return; t.pts.push([p.lat, p.lon, p.alt == null ? null : Math.round(p.alt * 10) / 10, Date.now()]);
-  if (t.pts.length % 5 === 1) MDB.put('marcas', t).catch(() => {}); pintarBotaoTrilha(); }
+  if (t.pts.length % 5 === 1) MDB.put('marcas', t).catch(() => {}); if (Date.now() - (t.ultParcial || t.inicio || 0) > 600000) enviarTrilhaParcial(t); pintarBotaoTrilha(); }
 async function pararTrilha() { const t = V.trilha; V.trilha = null; try { V.wake && V.wake.release(); } catch (e) {} V.wake = null;
   if (t.pts.length < 2) { await MDB.del('marcas', t.id); toast('Trilha muito curta: não guardei.'); }
   else { await MDB.put('marcas', t); V.marcas = await MDB.obra('marcas', V.ob.id); toast(`Trilha guardada: ${fmtDist(compLL(t.pts))}. Vai para o Drive da obra.`, 3500); enviarMarcas(V.ob, true); }
   pintarBotaoTrilha(); pedir(); }
 function pintarBotaoTrilha() { const b = V.el && V.el.querySelector('[data-a="trilha"]'); if (!b) return; b.classList.toggle('on', !!V.trilha); b.textContent = V.trilha ? `⏹ ${fmtDist(compLL(V.trilha.pts))}` : '⏺ Trilha'; painelCoord(); }
 
-/* ---------------- envio ao Drive (KML na pasta da obra, pela fila do app) ---------------- */
+/* ---------------- envio ao Drive (KML na pasta da obra, pela fila do app) ----------------
+   v1.22.3: tudo que se marca, edita ou mede vai SOZINHO para a fila (15 s depois da última mudança);
+   com internet sobe na hora, sem internet fica guardado e sobe quando pegar sinal. */
+const AGENDA = {};
+function agendarEnvio(ob) { if (!ob) return; clearTimeout(AGENDA[ob.id]); AGENDA[ob.id] = setTimeout(() => enviarMarcas(ob, true), 15000); }
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') for (const id in AGENDA) { clearTimeout(AGENDA[id]); const ob = (APP() && APP().pacote && APP().pacote.obras || []).find(o => o.id === id); if (ob) enviarMarcas(ob, true); } });
 function kmlDe(itens, ob) {
   const x = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
-  const pm = itens.map(m => m.tipo === 'pino'
+  const pm = itens.map(m => m.tipo === 'medida'
+    ? `<Placemark><name>${x(m.nome)}</name><description>${x(`${fmtDist(m.comp)}${m.fechado ? ' · perímetro ' + fmtDist(m.perim) + ' · área ' + fmtArea(m.area) : ''} · ${m.quem || ''} · ${m.criadoEm}`)}</description><styleUrl>#medida</styleUrl>${m.fechado ? `<Polygon><outerBoundaryIs><LinearRing><coordinates>${m.pts.concat([m.pts[0]]).map(p => `${p[1].toFixed(7)},${p[0].toFixed(7)}`).join(' ')}</coordinates></LinearRing></outerBoundaryIs></Polygon>` : `<LineString><coordinates>${m.pts.map(p => `${p[1].toFixed(7)},${p[0].toFixed(7)}`).join(' ')}</coordinates></LineString>`}</Placemark>`
+    : m.tipo === 'pino'
     ? `<Placemark><name>${x(m.nome)}</name><description>${x([m.nota, m.acc ? 'GPS ±' + Math.round(m.acc) + ' m' : 'marcado no mapa', m.quem, m.criadoEm].filter(Boolean).join(' · '))}</description><styleUrl>#pino</styleUrl><Point><coordinates>${m.lon.toFixed(7)},${m.lat.toFixed(7)}${m.alt != null ? ',' + m.alt : ''}</coordinates></Point></Placemark>`
     : `<Placemark><name>${x(m.nome)}</name><description>${x(`${fmtDist(compLL(m.pts))} · ${m.quem || ''}`)}</description><styleUrl>#trilha</styleUrl><LineString><tessellate>1</tessellate><coordinates>${m.pts.map(p => `${p[1].toFixed(7)},${p[0].toFixed(7)}${p[2] != null ? ',' + p[2] : ''}`).join(' ')}</coordinates></LineString></Placemark>`).join('\n');
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${x(ob.nome)} — marcações de campo</name><Style id="pino"><IconStyle><color>ff0b9ef5</color></IconStyle></Style><Style id="trilha"><LineStyle><color>ffed3a7c</color><width>3</width></LineStyle></Style>\n${pm}\n</Document></kml>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${x(ob.nome)} — marcações de campo</name><Style id="pino"><IconStyle><color>ff0b9ef5</color></IconStyle></Style><Style id="trilha"><LineStyle><color>ffed3a7c</color><width>3</width></LineStyle></Style><Style id="medida"><LineStyle><color>ffc78402</color><width>2</width></LineStyle><PolyStyle><color>33c78402</color></PolyStyle></Style>\n${pm}\n</Document></kml>`;
 }
 async function enviarMarcas(ob, quieto) {
   const pend = (await MDB.obra('marcas', ob.id)).filter(m => !m.enviado && (m.tipo === 'pino' || (m.pts && m.pts.length > 1)) && !(V.trilha && V.trilha.id === m.id)); if (!pend.length) return;
-  if (typeof window.enfileirarArquivo !== 'function') return; const nome = `${window.hoje ? hoje() : new Date().toISOString().slice(0, 10)}_marcacoes_mapa_${window.slug ? slug((APP() && APP().quem) || 'campo') : 'campo'}.kml`;
+  if (typeof window.enfileirarArquivo !== 'function') return;
+  if (enviarMarcas.ocupado) { agendarEnvio(ob); return; } enviarMarcas.ocupado = true; const nome = `${window.hoje ? hoje() : new Date().toISOString().slice(0, 10)}_marcacoes_mapa_${window.slug ? slug((APP() && APP().quem) || 'campo') : 'campo'}.kml`;
   try { await enfileirarArquivo(new Blob([kmlDe(pend, ob)], { type: 'application/vnd.google-earth.kml+xml' }), 'mapa', nome, { pinos: pend.filter(m => m.tipo === 'pino').length, trilhas: pend.filter(m => m.tipo === 'trilha').length }, { obra: ob, quieto: true });
     for (const m of pend) { m.enviado = true; await MDB.put('marcas', m); } if (V.aberto) V.marcas = await MDB.obra('marcas', ob.id); if (!quieto) toast('Marcações na fila para o Drive da obra ✓'); } catch (e) { if (!quieto) toast('Não consegui pôr na fila: ' + (e.message || e)); }
+  finally { enviarMarcas.ocupado = false; }
 }
+/* trilha em gravação: cópia parcial na fila a cada 10 min (celular que apaga no meio do caminho não perde o trajeto) */
+async function enviarTrilhaParcial(t) { if (!t || t.pts.length < 2 || typeof window.enfileirarArquivo !== 'function' || !V.ob) return; t.ultParcial = Date.now();
+  const nome = `${hoje()}_trilha_parcial_${slug((APP() && APP().quem) || 'campo')}.kml`;
+  try { await enfileirarArquivo(new Blob([kmlDe([Object.assign({}, t, { nome: t.nome + ' (parcial, ainda gravando)' })], V.ob)], { type: 'application/vnd.google-earth.kml+xml' }), 'mapa', nome, { trilhaParcial: t.id, pontos: t.pts.length }, { obra: V.ob, quieto: true }); } catch (e) {} }
 
 /* ---------------- fechar ---------------- */
 function fecharVisual(trocando) {
@@ -770,5 +883,5 @@ async function sincronizarTudo(forcar) { // abre o app com internet → mapas de
 setTimeout(() => sincronizarTudo(false), 20000);
 async function baixarTodas() { const obs = (APP() && APP().pacote && APP().pacote.obras) || []; let n = 0; for (const ob of obs) { if (!ob.pastaId) continue; await sincronizar(ob, { silencioso: true }); n++; } return n; }
 window.MAPAS = { tela, ligar, abrir, voltar, aberto: () => !!V.aberto, auto: ob => sincronizar(ob, { silencioso: true }), baixarTodas, sincronizarTudo, contar,
-  _t: { lerGeoPDF, criarGeo, utmF, utmI, lerKML, lerGPX, analisar, unzip, dist, rumo, areaLL, epsgInfo } };
+  _t: { lerCoordTexto, sad69ParaSirgas, utmIe, lerGeoPDF, criarGeo, utmF, utmI, lerKML, lerGPX, analisar, unzip, dist, rumo, areaLL, epsgInfo } };
 })();

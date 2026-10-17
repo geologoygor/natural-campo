@@ -260,16 +260,16 @@ button.mini{padding:8px 12px;font-size:14px;margin-top:6px}
 <div class="toast" id="toast"></div>
 <canvas id="cv" class="hide"></canvas>
 
-<script src="geofisica.js?v=1.22.2"></script>
-<script src="fichas.js?v=1.22.2"></script>
-<script src="mapas.js?v=1.22.2"></script>
+<script src="geofisica.js?v=1.23.0"></script>
+<script src="fichas.js?v=1.23.0"></script>
+<script src="mapas.js?v=1.23.0"></script>
 <script>
 /* ============================================================
    CAMPO · Natural Engenharia — app de campo (PWA)
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.22.2';
+const APP_VERSAO = '1.23.0';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -678,6 +678,13 @@ async function enfileirarRegistro(obj, nome){
 
 /* ---------------- Envio (Apps Script) ---------------- */
 function b64(blob){ return new Promise((ok,er)=>{ const r=new FileReader(); r.onload=()=>ok(String(r.result).split(',')[1]); r.onerror=er; r.readAsDataURL(blob); }); }
+/* v1.22.3: dado gravado em campo vai SOZINHO para a fila — o áudio do diário espera só 60 s (para ouvir/regravar) e segue sem ninguém pedir */
+const AUDIO_AUTO_MS=60000;
+async function autoAudios(tudo){ let n=0; for(const it of (S.fila||[])){ if(it.status!=='aguardando') continue; if(!tudo && Date.now()-new Date(it.criadoEm).getTime()<AUDIO_AUTO_MS) continue;
+    it.status='pendente'; it.erro=null; await DB.put(it); n++; }
+  if(n){ await recarregarFila(); if(!(window.FICHAS && FICHAS.aberta())) render(); if(navigator.onLine) enviarFila(); } }
+setInterval(()=>autoAudios(false),10000);
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='hidden') autoAudios(true); });
 /* v1.22.0: UM toque manda tudo o que está no celular, sem exigir requisito nenhum:
    áudio gravado que ainda não passou pelo "Enviar" do Diário, fichas abertas (como PARCIAL) e a fila inteira, de todas as obras. */
 async function enviarTudoAgora(){
@@ -1406,7 +1413,8 @@ function telaDiario(ob){
   const it=audioDaVez(ob);
   if(it && !gravando){ const src=urlAudio(it);
     if(src) h+=`<audio controls src="${src}" style="width:100%;margin-top:8px"></audio>`;
-    if(it.status==='aguardando') h+=`<button class="big green" id="audEnviar" style="margin-top:12px">Enviar áudio ao escritório</button><button class="big ghost" id="descartar" style="margin-top:8px">Apagar e regravar</button><div class="nota" style="text-align:center">Ouça antes, se quiser. Ele só sai do celular quando você tocar em Enviar.</div>`;
+    if(it.status==='aguardando'){ const falta=Math.max(0,Math.ceil((AUDIO_AUTO_MS-(Date.now()-new Date(it.criadoEm).getTime()))/1000));
+      h+=`<button class="big green" id="audEnviar" style="margin-top:12px">Enviar agora</button><button class="big ghost" id="descartar" style="margin-top:8px">Apagar e regravar</button><div class="nota" style="text-align:center">Já está guardado no celular. Vai sozinho para o escritório${falta?` em <b id="audFalta">${falta}</b> s`:' agora'} — dá tempo de ouvir e, se quiser, apagar e regravar.</div>`; }
     else if(it.status==='enviado') h+=`<div class="geo" style="color:var(--green);text-align:center;font-size:18px;margin-top:12px">✓ Áudio enviado ao escritório às ${esc(fmtData(it.enviadoEm||new Date()).slice(11))}</div>`;
     else if(it.status==='erro') h+=`<div class="erro" style="margin-top:12px">Não subiu: ${esc(it.erro||'erro')}. Ele continua guardado e tenta de novo sozinho.</div><button class="big sec" id="audReenviar" style="margin-top:8px">Tentar de novo agora</button>`;
     else h+=`<div class="geo" style="color:#8A5200;text-align:center;font-size:17px;margin-top:12px">⏳ Enviado para a fila — ${navigator.onLine?'subindo agora…':'sobe sozinho quando pegar sinal'}</div><button class="big ghost" id="descartar" style="margin-top:8px">Cancelar e regravar</button>`;
@@ -1415,6 +1423,7 @@ function telaDiario(ob){
 }
 function ligarDiario(ob){
   ligarAvanco(ob);
+  clearInterval(S.audTick); const af=$('#audFalta'); if(af) S.audTick=setInterval(()=>{ const e=$('#audFalta'); if(!e){ clearInterval(S.audTick); return; } const n=Math.max(0,(+e.textContent||0)-1); e.textContent=n; },1000);
   $('#rec').onclick=gravar;
   const d=$('#descartar'); if(d) d.onclick=async()=>{ const it=audioDaVez(ob); if(it && it.status!=='enviado'){ await DB.del(it.id); await recarregarFila(); toast('Áudio apagado'); } else if(it) toast('Esse já tinha sido enviado; o novo vai junto'); REC.blob=null; REC.ultimoId=null; render(); };
   const en=$('#audEnviar'); if(en) en.onclick=async()=>{ const it=audioDaVez(ob); if(!it) return; it.status='pendente'; it.erro=null; await DB.put(it); REC.ultimoId=it.id; await recarregarFila(); render();

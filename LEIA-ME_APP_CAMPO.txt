@@ -89,3 +89,12 @@ v1.22.0 (17/10/2026)
     rótulos de pontos não se sobrepõem.
   - Robô v1.6: CLAUDE/campo_obras_fixas.json = obras do app fora do painel (prospecção),
     somadas à lista do painel até a data 'ate'. Primeira: Reconhecimento Área Mucajaí.
+
+v1.23.0 (17/10/2026)
+  - Mapa › ☰ › "📌 Plotar coordenada": UTM (qualquer zona/hemisfério), graus decimais, G° M' S",
+    G° M,m' e "Colar texto" (reconhece o formato sozinho, vários pontos, um por linha, com nome);
+    datum SIRGAS 2000/WGS 84 ou SAD 69 (convertido pelos parâmetros do IBGE); Plotar como pino ou Ir até.
+  - Tudo que é gerado em campo vai SOZINHO para a fila: pinos/edições/medições 15 s depois da última
+    mudança (e na hora se o app for para segundo plano); trilha em gravação manda cópia parcial a cada
+    10 min; áudio do diário segue sozinho 60 s depois de parar (dá para ouvir/regravar antes).
+  - Medição terminada vira registro (KML) da obra; ponto tem "Compartilhar".
