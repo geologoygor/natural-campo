@@ -236,17 +236,19 @@ async function unzip(u8) { // leitor de .zip mínimo (KMZ)
     out[nome] = () => met === 0 ? Promise.resolve(dados) : inflar(dados, 'deflate-raw'); }
   return out;
 }
-function corKML(t) { t = String(t || '').trim(); if (!/^[0-9a-f]{8}$/i.test(t)) return null; const a = parseInt(t.slice(0, 2), 16) / 255; return `rgba(${parseInt(t.slice(6, 8), 16)},${parseInt(t.slice(4, 6), 16)},${parseInt(t.slice(2, 4), 16)},${Math.max(.35, a).toFixed(2)})`; }
+function corKML(t, preench) { t = String(t || '').trim(); if (!/^[0-9a-f]{8}$/i.test(t)) return null; const a = parseInt(t.slice(0, 2), 16) / 255;
+  const al = preench ? Math.min(.14, a) : Math.max(.6, a); /* contorno forte; preenchimento quase transparente para não esconder a imagem do mapa */
+  return `rgba(${parseInt(t.slice(6, 8), 16)},${parseInt(t.slice(4, 6), 16)},${parseInt(t.slice(2, 4), 16)},${al.toFixed(2)})`; }
 function coordsKML(t) { return String(t || '').trim().split(/\s+/).map(c => c.split(',').map(Number)).filter(c => c.length >= 2 && isFinite(c[0]) && isFinite(c[1])).map(c => [c[1], c[0]]); }
 async function lerKML(txt, arquivos) {
   const doc = new DOMParser().parseFromString(txt, 'application/xml'); const tag = (el, n) => [...el.getElementsByTagName(n)];
   const filho = (el, n) => { const x = el.getElementsByTagName(n)[0]; return x ? x.textContent.trim() : ''; };
-  const estilos = {}; for (const s of tag(doc, 'Style')) { const id = s.getAttribute('id'); if (!id) continue; const ls = s.getElementsByTagName('LineStyle')[0], ps = s.getElementsByTagName('PolyStyle')[0]; estilos[id] = { linha: ls && corKML(filho(ls, 'color')), area: ps && corKML(filho(ps, 'color')) }; }
+  const estilos = {}; for (const s of tag(doc, 'Style')) { const id = s.getAttribute('id'); if (!id) continue; const ls = s.getElementsByTagName('LineStyle')[0], ps = s.getElementsByTagName('PolyStyle')[0]; estilos[id] = { linha: ls && corKML(filho(ls, 'color')), area: ps && (filho(ps, 'fill') === '0' ? 'rgba(0,0,0,0)' : corKML(filho(ps, 'color'), true)) }; }
   for (const m of tag(doc, 'StyleMap')) { const id = m.getAttribute('id'); const p = tag(m, 'Pair').find(x => filho(x, 'key') === 'normal'); if (id && p) estilos[id] = estilos[filho(p, 'styleUrl').replace('#', '')] || null; }
   const feicoes = [];
   for (const pm of tag(doc, 'Placemark')) { const nome = filho(pm, 'name'); const desc = (pm.getElementsByTagName('description')[0] || {}).textContent || '';
     const st = estilos[filho(pm, 'styleUrl').replace('#', '')] || {}; const inl = pm.getElementsByTagName('Style')[0]; let cor = st.linha, corA = st.area;
-    if (inl) { const ls = inl.getElementsByTagName('LineStyle')[0], ps = inl.getElementsByTagName('PolyStyle')[0]; if (ls) cor = corKML(filho(ls, 'color')) || cor; if (ps) corA = corKML(filho(ps, 'color')) || corA; }
+    if (inl) { const ls = inl.getElementsByTagName('LineStyle')[0], ps = inl.getElementsByTagName('PolyStyle')[0]; if (ls) cor = corKML(filho(ls, 'color')) || cor; if (ps) corA = (filho(ps, 'fill') === '0' ? 'rgba(0,0,0,0)' : corKML(filho(ps, 'color'), true)) || corA; }
     for (const g of tag(pm, 'Point')) feicoes.push({ tipo: 'ponto', nome, desc, c: coordsKML(filho(g, 'coordinates')) });
     for (const g of tag(pm, 'LineString')) feicoes.push({ tipo: 'linha', nome, desc, c: coordsKML(filho(g, 'coordinates')), cor });
     for (const g of tag(pm, 'Polygon')) { const ob = g.getElementsByTagName('outerBoundaryIs')[0] || g; feicoes.push({ tipo: 'area', nome, desc, c: coordsKML(filho(ob, 'coordinates')), cor, corA }); }
@@ -556,7 +558,7 @@ function desenhar() {
 }
 function rumoTela() { const p = V.pos; if (V.bussola != null) return V.bussola; if (p && p.hd != null && p.vel > 0.8) return p.hd; return null; }
 function feicoes(c, fs, cor) {
-  for (const f of fs) { if (f.tipo === 'ponto') continue; c.beginPath(); f.p.forEach((q, i) => { const s = m2s(q[0], q[1]); i ? c.lineTo(s[0], s[1]) : c.moveTo(s[0], s[1]); }); if (f.tipo === 'area') { c.closePath(); c.fillStyle = f.corA || 'rgba(225,29,72,.10)'; c.fill(); }
+  for (const f of fs) { if (f.tipo === 'ponto') continue; c.beginPath(); f.p.forEach((q, i) => { const s = m2s(q[0], q[1]); i ? c.lineTo(s[0], s[1]) : c.moveTo(s[0], s[1]); }); if (f.tipo === 'area') { c.closePath(); c.fillStyle = f.corA || 'rgba(225,29,72,.08)'; c.fill(); }
     c.lineWidth = 4.5; c.strokeStyle = 'rgba(255,255,255,.85)'; c.stroke(); c.lineWidth = 2.5; c.strokeStyle = f.cor || cor; c.stroke(); }
   c.font = '600 12px system-ui,sans-serif';
   for (const f of fs) { if (f.tipo !== 'ponto') continue; const s = m2s(f.p[0][0], f.p[0][1]); if (s[0] < -40 || s[1] < -40 || s[0] > V.cw + 40 || s[1] > V.ch + 40) continue;
