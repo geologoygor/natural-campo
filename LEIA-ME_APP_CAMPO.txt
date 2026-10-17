@@ -121,3 +121,16 @@ v1.24.0 (17/10/2026) — MEDIR no estilo do Avenza, melhorado
   - Comprimento de cada segmento escrito no mapa.
   - Voltar, ✕ ou fechar o mapa no meio da medição NÃO perde nada: salva (✕ pergunta "Salvar ou Descartar").
     Medição salva vai sozinha para o Drive em KML e pode ir "Para GPS".
+
+v1.25.0 (17/10/2026) — recursos do Avenza Pro
+  - Ficha do ponto: categoria com cor (afloramento, amostra, estrutura, água, acesso, controle, outro), litologia,
+    amostra nº, atitude (dir. de mergulho/mergulho) digitada ou "📐 Medir" com o celular deitado na rocha (aproximado),
+    observação e FOTOS ligadas ao ponto (câmera ou galeria; foto carimbada com a coordenada vai para a fila com o id do ponto).
+    Tudo salva sozinho; KML leva os atributos (ExtendedData), CSV ganha as colunas.
+  - ☰ "🔎 Buscar no mapa": pontos, medições, trilhas e feições das camadas, do mais perto ao mais longe; ver ou ➜ ir até.
+  - 🔔 Alertas: vibra e apita ao chegar no destino do "Ir até" e ao entrar/sair das áreas (camadas e medições) —
+    liga/desliga no ☰; a linha de baixo mostra "dentro: Área A4".
+  - Trilha: tocar no botão durante a gravação mostra distância, tempo, velocidade média, subida/descida, com ⏸ Pausar /
+    ▶ Retomar / ⏹ Parar e salvar; estatísticas vão no KML.
+  - Importa Shapefile (.zip com .shp/.dbf/.prj): pontos, linhas e polígonos, UTM (SIRGAS/WGS/SAD 69) ou geográficas;
+    nome tirado da tabela; vira camada por cima dos mapas (do celular; o Drive ainda não lista .zip).

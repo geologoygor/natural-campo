@@ -260,16 +260,16 @@ button.mini{padding:8px 12px;font-size:14px;margin-top:6px}
 <div class="toast" id="toast"></div>
 <canvas id="cv" class="hide"></canvas>
 
-<script src="geofisica.js?v=1.24.0"></script>
-<script src="fichas.js?v=1.24.0"></script>
-<script src="mapas.js?v=1.24.0"></script>
+<script src="geofisica.js?v=1.25.0"></script>
+<script src="fichas.js?v=1.25.0"></script>
+<script src="mapas.js?v=1.25.0"></script>
 <script>
 /* ============================================================
    CAMPO · Natural Engenharia — app de campo (PWA)
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.24.0';
+const APP_VERSAO = '1.25.0';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -630,8 +630,9 @@ async function enfileirarFoto(blobOriginal, opts){
     await guardar({ id:id+'o', tipo:'foto', obraId:ob.id, obraNome:ob.nome, pastaId:ob.pastaId||null, quem:S.quem, slot:opts.slot, slotTitulo:opts.slotTitulo, nome:nomeBase+'_original.jpg', mime:'image/jpeg', blob:await inserirExif(blobOriginal.type==='image/jpeg'?blobOriginal:carimbo,{data,gps:pos?{lat:pos.lat,lon:pos.lon,alt:pos.alt}:null,desc:ob.nome}), thumb:null, meta:Object.assign({},meta,{original:true}), status:'pendente', criadoEm:new Date().toISOString() }); }
   else if(S.original && opts.fonte==='galeria'){
     await guardar({ id:id+'o', tipo:'foto', obraId:ob.id, obraNome:ob.nome, pastaId:ob.pastaId||null, quem:S.quem, slot:opts.slot, slotTitulo:opts.slotTitulo, nome:nomeBase+'_original.'+(blobOriginal.type.split('/')[1]||'jpg').replace('jpeg','jpg'), mime:blobOriginal.type||'image/jpeg', blob:blobOriginal, thumb:null, meta:Object.assign({},meta,{original:true}), status:'pendente', criadoEm:new Date().toISOString() }); }
-  await recarregarFila(); render(); toast('Foto guardada na fila'+(pos?'':(opts.fonte==='camera'&&S.pos?' — SEM coordenada (GPS desatualizado: espere fixar)':' — sem coordenada')));
+  await recarregarFila(); if(!opts.semRender) render(); toast('Foto guardada na fila'+(pos?'':(opts.fonte==='camera'&&S.pos?' — SEM coordenada (GPS desatualizado: espere fixar)':' — sem coordenada')));
   if(navigator.onLine) enviarFila();
+  return { id, thumb };
 }
 /* ---------- CÓPIA NO CELULAR (v1.17.0) ----------
  * Pedido do Ygor (09/10/2026): foto tirada pelo app fica salva também no celular, Android e iPhone.

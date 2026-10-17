@@ -22,7 +22,7 @@ const LIB = {
 };
 const LIMITE_AUTO = 40 * 1024 * 1024;   // mapa até 40 MB baixa sozinho ao abrir a obra; maior pede um toque
 const PARTE = 5 * 1024 * 1024;           // o robô entrega o arquivo em partes de 5 MB (sinal fraco não perde tudo)
-const EXT_OK = /\.(pdf|tif|tiff|kml|kmz|gpx)$/i;
+const EXT_OK = /\.(pdf|tif|tiff|kml|kmz|gpx|zip)$/i;
 
 /* ---------------- utilidades ---------------- */
 const $ = (s, el = document) => el.querySelector(s);
@@ -109,7 +109,7 @@ async function compartilharMapa(m) { // um mapa guardado no celular (da lista ou
 const semAcento = x => String(x || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\x20-\x7E]/g, '').trim();
 const nomeGPS = (x, i) => (semAcento(x) || ('PT' + String(i + 1).padStart(3, '0'))).slice(0, 30); /* Garmin: até ~30 caracteres, sem acento */
 function feicoesUniformes(itens) { // marcações do app e feições de KML/GPX no mesmo formato
-  return itens.map(m => m.tipo === 'pino' ? { tipo: 'ponto', nome: m.nome, desc: m.nota, c: [[m.lat, m.lon, m.alt]] }
+  return itens.map(m => m.tipo === 'pino' ? { tipo: 'ponto', nome: m.nome, desc: [attrTexto(m), m.nota].filter(Boolean).join(' · '), c: [[m.lat, m.lon, m.alt]], pino: m }
     : m.tipo === 'trilha' ? { tipo: 'linha', nome: m.nome, c: m.pts, trilha: true }
     : m.tipo === 'medida' ? { tipo: m.fechado ? 'area' : 'linha', nome: m.nome, c: m.pts } : m); }
 function gpxDe(titulo, itens) {
@@ -118,9 +118,9 @@ function gpxDe(titulo, itens) {
   const trk = fs.filter(f => f.tipo !== 'ponto' && f.c.length > 1).map(f => { const c = f.tipo === 'area' ? f.c.concat([f.c[0]]) : f.c;
     return `<trk><name>${x(nomeGPS(f.nome, i++))}</name><trkseg>${c.map(p => `<trkpt lat="${p[0].toFixed(8)}" lon="${p[1].toFixed(8)}">${p[2] != null && isFinite(p[2]) ? `<ele>${(+p[2]).toFixed(1)}</ele>` : ''}${f.trilha && p[3] ? `<time>${new Date(p[3]).toISOString()}</time>` : ''}</trkpt>`).join('')}</trkseg></trk>`; }).join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="App de campo - Natural Engenharia" xmlns="http://www.topografix.com/GPX/1/1"><metadata><name>${x(titulo)}</name><time>${new Date().toISOString()}</time></metadata>\n${wpt}\n${trk}\n</gpx>\n`; }
-function csvDe(itens) { const fs = feicoesUniformes(itens); const L = ['nome;tipo;vertice;latitude;longitude;utm_zona;utm_E;utm_N;datum']; const n = v => String(v).replace('.', ',');
+function csvDe(itens) { const fs = feicoesUniformes(itens); const L = ['nome;tipo;vertice;latitude;longitude;utm_zona;utm_E;utm_N;datum;categoria;litologia;amostra;dir_mergulho;mergulho;observacao']; const n = v => String(v).replace('.', ',');
   for (const f of fs) f.c.forEach((p, k) => { const u = window.toUTM ? toUTM(p[0], p[1]) : null;
-    L.push([`"${String(f.nome || '').replace(/"/g, "'")}"`, f.tipo, f.c.length > 1 ? k + 1 : '', n(p[0].toFixed(8)), n(p[1].toFixed(8)), u ? u.zone + u.hemi : '', u ? u.e : '', u ? u.n : '', 'SIRGAS 2000'].join(';')); });
+    L.push([`"${String(f.nome || '').replace(/"/g, "'")}"`, f.tipo, f.c.length > 1 ? k + 1 : '', n(p[0].toFixed(8)), n(p[1].toFixed(8)), u ? u.zone + u.hemi : '', u ? u.e : '', u ? u.n : '', 'SIRGAS 2000', ...(f.pino ? [f.pino.cat ? nomeCat(f.pino.cat) : '', (f.pino.attr || {}).lito || '', (f.pino.attr || {}).amostra || '', (f.pino.attr || {}).dirMerg ?? '', (f.pino.attr || {}).merg ?? '', `"${String(f.pino.nota || '').replace(/"/g, "'").replace(/\n/g, ' ')}"`] : ['', '', '', '', '', ''])].join(';')); });
   return '﻿' + L.join('\r\n') + '\r\n'; } /* BOM + ponto e vírgula: abre certo no Excel em português */
 async function paraGPS(titulo, itens) {
   if (!itens || !itens.length) return toast('Nada para converter.');
@@ -364,6 +364,33 @@ async function unzip(u8) { // leitor de .zip mínimo (KMZ)
     out[nome] = () => met === 0 ? Promise.resolve(dados) : inflar(dados, 'deflate-raw'); }
   return out;
 }
+/* ---------------- SHAPEFILE (.zip com .shp + .dbf + .prj) ---------------- */
+function lerSHP(shpU8, dbfU8, prjTxt, cpg) {
+  const dv = new DataView(shpU8.buffer, shpU8.byteOffset, shpU8.byteLength); if (dv.getInt32(0) !== 9994) throw new Error('arquivo .shp inválido');
+  // registros da tabela (.dbf)
+  let linhas = [], campos = [];
+  if (dbfU8) { const d = new DataView(dbfU8.buffer, dbfU8.byteOffset, dbfU8.byteLength); const nr = d.getUint32(4, true), hl = d.getUint16(8, true), rl = d.getUint16(10, true);
+    const dec = new TextDecoder(/utf/i.test(cpg || '') ? 'utf-8' : 'windows-1252');
+    for (let o = 32; o < hl - 1 && dbfU8[o] !== 0x0D; o += 32) { let nome = ''; for (let k = 0; k < 11 && dbfU8[o + k]; k++) nome += String.fromCharCode(dbfU8[o + k]); campos.push({ nome, tipo: String.fromCharCode(dbfU8[o + 11]), len: dbfU8[o + 16] }); }
+    for (let r = 0; r < nr; r++) { let o = hl + r * rl; if (dbfU8[o] === 0x2A) { linhas.push(null); continue; } o++; const reg = {}; for (const c of campos) { reg[c.nome] = dec.decode(dbfU8.subarray(o, o + c.len)).trim(); o += c.len; } linhas.push(reg); } }
+  const cNome = campos.find(c => /^(nome|name|denomina|label|rotulo|r[oó]tulo|id|ident|codigo|c[oó]d)/i.test(c.nome) && c.tipo === 'C') || campos.find(c => c.tipo === 'C');
+  // projeção (.prj)
+  const prj = String(prjTxt || ''); let conv, aviso = '';
+  const sad = /SAD.?69|South_American_1969/i.test(prj); const mz = /zone[_ ]?(\d{1,2})\s*([NS])/i.exec(prj) || /UTM[_ ]?(\d{1,2})([NS])/i.exec(prj);
+  if (mz) { const z = +mz[1], sul = /S/i.test(mz[2]); conv = (x, y) => { const ll = sad ? utmIe(x, y, z, sul, 6378160, 1 / 298.25) : utmI(x, y, z, sul); return sad ? sad69ParaSirgas(ll[0], ll[1]) : ll; }; }
+  else if (/PROJCS/i.test(prj)) throw new Error('projeção do shapefile não reconhecida (use UTM ou geográficas)');
+  else conv = (x, y) => { if (Math.abs(x) <= 180 && Math.abs(y) <= 90) return sad ? sad69ParaSirgas(y, x) : [y, x]; aviso = 'sem .prj: considerei UTM 20N SIRGAS 2000'; return utmI(x, y, 20, false); };
+  const feicoes = []; let o = 100, i = 0;
+  while (o + 8 <= shpU8.byteLength) { const len = dv.getInt32(o + 4) * 2; const c = o + 8; o = c + len; const tipo = dv.getInt32(c, true); const reg = linhas[i++]; if (reg === null) continue;
+    const nome = reg && cNome ? reg[cNome.nome] : ''; const desc = reg ? campos.filter(k => k !== cNome && reg[k.nome]).slice(0, 8).map(k => `${k.nome}: ${reg[k.nome]}`).join(' · ') : '';
+    const base = tipo % 10; if (tipo === 0) continue;
+    if (base === 1) { feicoes.push({ tipo: 'ponto', nome, desc, c: [conv(dv.getFloat64(c + 4, true), dv.getFloat64(c + 12, true))] }); continue; }
+    if (base === 8) { const n = dv.getInt32(c + 36, true); for (let k = 0; k < n; k++) feicoes.push({ tipo: 'ponto', nome, desc, c: [conv(dv.getFloat64(c + 40 + k * 16, true), dv.getFloat64(c + 48 + k * 16, true))] }); continue; }
+    if (base === 3 || base === 5) { const np = dv.getInt32(c + 36, true), nPts = dv.getInt32(c + 40, true), pi = c + 44, pt = pi + np * 4;
+      for (let k = 0; k < np; k++) { const a = dv.getInt32(pi + k * 4, true), b = k + 1 < np ? dv.getInt32(pi + (k + 1) * 4, true) : nPts; const cc = [];
+        for (let j = a; j < b; j++) cc.push(conv(dv.getFloat64(pt + j * 16, true), dv.getFloat64(pt + j * 16 + 8, true)));
+        if (cc.length > 1) feicoes.push({ tipo: base === 5 ? 'area' : 'linha', nome: nome + (np > 1 ? ` (${k + 1})` : ''), desc, c: cc }); } } }
+  return { feicoes, sobre: [], fmt: 'Shapefile', aviso }; }
 function corKML(t, preench) { t = String(t || '').trim(); if (!/^[0-9a-f]{8}$/i.test(t)) return null; const a = parseInt(t.slice(0, 2), 16) / 255;
   const al = preench ? Math.min(.14, a) : Math.max(.6, a); /* contorno forte; preenchimento quase transparente para não esconder a imagem do mapa */
   return `rgba(${parseInt(t.slice(6, 8), 16)},${parseInt(t.slice(4, 6), 16)},${parseInt(t.slice(2, 4), 16)},${al.toFixed(2)})`; }
@@ -414,7 +441,9 @@ function tipoDe(nome, u8) {
 async function vetorDe(tipo, u8) { // KML/KMZ/GPX → {feicoes, sobre, arquivos}
   if (tipo === 'gpx') return lerGPX(new TextDecoder().decode(u8));
   if (tipo === 'kml') return lerKML(new TextDecoder().decode(u8), {});
-  const z = await unzip(u8); const k = Object.keys(z).find(n => /\.kml$/i.test(n)); if (!k) throw new Error('KMZ sem KML dentro');
+  const z = await unzip(u8); const k = Object.keys(z).find(n => /\.kml$/i.test(n));
+  if (!k) { const sh = Object.keys(z).find(n => /\.shp$/i.test(n)); if (!sh) throw new Error('o .zip não tem KML nem shapefile (.shp)'); const base = sh.replace(/\.shp$/i, ''), ach = ext => Object.keys(z).find(n => n.toLowerCase() === (base + ext).toLowerCase());
+    const dec = new TextDecoder(); return lerSHP(await z[sh](), ach('.dbf') ? await z[ach('.dbf')]() : null, ach('.prj') ? dec.decode(await z[ach('.prj')]()) : '', ach('.cpg') ? dec.decode(await z[ach('.cpg')]()) : ''); }
   const r = await lerKML(new TextDecoder().decode(await z[k]()), z); r.arquivos = z; return r;
 }
 async function analisar(nome, blob) { // o que a lista precisa saber sem abrir o mapa
@@ -423,7 +452,7 @@ async function analisar(nome, blob) { // o que a lista precisa saber sem abrir o
     if (tipo === 'pdf') { const g = await lerGeoPDF(u8); if (g) { r.geo = true; r.bboxLL = g.bboxLL; r.resumo = 'PDF georreferenciado'; r.aviso = g.aviso; } else r.resumo = 'PDF sem georreferência (só para ver)'; }
     else if (tipo === 'tif') { const G = await geotiff(); const t = await G.fromArrayBuffer(u8.buffer); const im = await t.getImage(); const gg = geoTif(im); if (gg) { r.geo = true; r.bboxLL = bboxDe(gg.pares.map(p => [p[0], p[1]])); r.resumo = 'GeoTIFF'; r.aviso = gg.aviso; } else r.resumo = 'TIFF sem georreferência'; }
     else if (tipo === 'kml' || tipo === 'kmz' || tipo === 'gpx') { const v = await vetorDe(tipo, u8); const ll = v.feicoes.flatMap(f => f.c).concat(v.sobre.flatMap(s => s.cantos)); if (ll.length) { r.geo = true; r.bboxLL = bboxDe(ll); }
-      r.resumo = `${tipo.toUpperCase()} · ${v.feicoes.length} feiç${v.feicoes.length === 1 ? 'ão' : 'ões'}${v.sobre.length ? ' + imagem' : ''}`; r.camada = !v.sobre.length; }
+      r.resumo = `${v.fmt || tipo.toUpperCase()} · ${v.feicoes.length} feiç${v.feicoes.length === 1 ? 'ão' : 'ões'}${v.sobre.length ? ' + imagem' : ''}${v.aviso ? ' · ' + v.aviso : ''}`; r.camada = !v.sobre.length; }
     else r.resumo = 'formato não reconhecido';
   } catch (e) { r.resumo = 'não consegui ler: ' + (e.message || e); }
   return r;
@@ -481,8 +510,8 @@ function tela(ob) {
   <div id="mpPronto"></div>
   <div id="mpLista"><div class="muted">Carregando…</div></div>
   <div class="row" style="margin-top:10px"><button class="sec" id="mpAtualizar">Buscar no Drive</button><button class="sec" id="mpImportar">Mapa do celular</button></div>
-  <input type="file" id="mpArq" accept=".pdf,.tif,.tiff,.kml,.kmz,.gpx,application/pdf,image/tiff,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz,application/gpx+xml" multiple style="display:none">
-  <div class="nota">Formatos: PDF georreferenciado (como o do Avenza), GeoTIFF, KML/KMZ do Google Earth e GPX. Mapa que chegou por WhatsApp: salve no celular e toque em "Mapa do celular".</div></div>
+  <input type="file" id="mpArq" accept=".pdf,.tif,.tiff,.kml,.kmz,.gpx,.zip,application/zip,application/pdf,image/tiff,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz,application/gpx+xml" multiple style="display:none">
+  <div class="nota">Formatos: PDF georreferenciado (como o do Avenza), GeoTIFF, KML/KMZ do Google Earth, GPX e Shapefile (.zip). Mapa que chegou por WhatsApp: salve no celular e toque em "Mapa do celular".</div></div>
   <div class="card"><h2>Pinos, trilhas e medições desta obra</h2><div class="nota">Tudo que você marca é guardado na hora no celular e vai sozinho para o Drive da obra.</div><div id="mpMarcas"><div class="muted">Carregando…</div></div></div>`;
 }
 function ligar(ob) {
@@ -493,6 +522,7 @@ function ligar(ob) {
   $('#mpArq').onchange = async e => { const fs = [...e.target.files]; e.target.value = ''; for (const f of fs) await importar(ob, f); pintarLista(ob); };
 }
 async function importar(ob, f) {
+  if (/\.(shp|dbf|shx|prj)$/i.test(f.name)) return toast('Shapefile: mande o .zip com .shp, .dbf e .prj juntos.', 4500);
   const an = await analisar(f.name, f); if (!an.tipo) return toast(`${f.name}: formato não reconhecido`, 3500);
   await MDB.put('mapas', Object.assign({ id: uid('c_'), obraId: ob.id, nome: f.name, origem: 'celular', tamanho: f.size, blob: f, criadoEm: new Date().toISOString() }, an));
   toast(an.geo ? `${f.name}: pronto para usar ✓` : `${f.name}: guardado, mas ${an.resumo}`, 3500);
@@ -579,7 +609,7 @@ function cssUmaVez() {
 #mpv .ac{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}#mpv .ac button{padding:10px 4px;font-size:13px;background:#E8F1FA;color:var(--navy)}#mpv .ac button.on{background:var(--err);color:#fff}#mpv .ac button.m{background:var(--green);color:#fff}
 #mpv .sheet{position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:16px 16px 0 0;box-shadow:0 -6px 24px rgba(0,0,0,.2);padding:14px 14px calc(14px + var(--sab));max-height:72%;overflow-y:auto;display:none;z-index:5;touch-action:pan-y}#mpv .sheet.on{display:block}
 #mpv .sheet h3{margin:0 0 8px;color:var(--navy);font-size:16px}#mpv .sheet .lin{display:flex;gap:8px;margin-top:10px}#mpv .sheet .lin button{flex:1}
-#mpv .sheet .geo{font-size:12px;margin:6px 0}
+#mpv .sheet .geo{font-size:12px;margin:6px 0}#mpv .sheet .chips{display:flex;flex-wrap:wrap;gap:6px}#mpv .sheet .chips button{flex:0 0 auto;background:#fff;color:var(--navy);border:1.5px solid var(--line);padding:7px 11px;font-size:13px;border-radius:999px}#mpv .sheet .thumbs{grid-template-columns:repeat(auto-fill,minmax(70px,1fr))}
 #mpv .medTop{position:absolute;left:10px;right:10px;top:10px;background:rgba(255,255,255,.96);border-radius:14px;box-shadow:0 4px 16px rgba(0,0,0,.2);padding:10px 44px 10px 12px;display:none;z-index:3}
 #mpv.medindo .medTop{display:block}#mpv.medindo .av,#mpv.medindo .nav{display:none!important}#mpv.medindo .fab{display:none}
 #mpv .medTop .mt1{font-size:16px;color:#0C4A6E;line-height:1.45}#mpv .medTop .mt2{font-size:12px;color:var(--muted);margin-top:4px;font-family:ui-monospace,Menlo,monospace}
@@ -688,7 +718,7 @@ function desenhar() {
     if (V.vetPx) feicoes(c, V.vetPx, '#E11D48');
     for (const m of V.marcas || []) { if (m.tipo === 'trilha') linhaLL(c, m.pts, '#7C3AED', 3.5); else if (m.tipo === 'medida') linhaLL(c, m.pts, '#0284C7', 2.5, m.fechado); }
     if (V.trilha && V.trilha.pts.length > 1) linhaLL(c, V.trilha.pts, '#DC2626', 4);
-    for (const m of V.marcas || []) if (m.tipo === 'pino') pino(c, m.lat, m.lon, V.alvo && V.alvo.id === m.id ? '#DC2626' : '#F59E0B', m.nome);
+    for (const m of V.marcas || []) if (m.tipo === 'pino') pino(c, m.lat, m.lon, V.alvo && V.alvo.id === m.id ? '#DC2626' : (m.cat ? corCat(m.cat) : '#F59E0B'), m.nome + (m.fotos && m.fotos.length ? ' 📷' : ''));
     if (V.alvo && !V.alvo.id) pino(c, V.alvo.lat, V.alvo.lon, '#DC2626', V.alvo.nome);
     desenharMedida(c);
     const p = V.pos; if (p) {
@@ -733,27 +763,40 @@ function iniciarGPSmapa() {
   if (!navigator.geolocation) return; try { if (window.iniciarGPS) iniciarGPS(); } catch (e) {}
   V.watch = navigator.geolocation.watchPosition(g => { V.pos = { lat: g.coords.latitude, lon: g.coords.longitude, acc: g.coords.accuracy, alt: g.coords.altitude, hd: g.coords.heading, vel: g.coords.speed, t: Date.now() };
     if (APP()) { APP().pos = { lat: V.pos.lat, lon: V.pos.lon, acc: V.pos.acc, alt: V.pos.alt }; APP().posEm = Date.now(); }
-    gravarPontoTrilha(); if (V.seguir) centrarEm(V.pos); avisos(); painelCoord(); painelNav(); pedir(); },
+    gravarPontoTrilha(); verificarAreas(); if (V.seguir) centrarEm(V.pos); avisos(); painelCoord(); painelNav(); pedir(); },
   e => { V.gpsErro = e; painelCoord(); }, { enableHighAccuracy: true, maximumAge: 2000, timeout: 30000 });
   /* reserva: se o celular entregar a posição só para o GPS do app, o mapa usa a mesma (nunca fica "procurando" com o app tendo posição) */
   V.reserva = setInterval(() => { const A = APP(); if (!V.aberto || !A || !A.pos || !A.posEm) return; if (V.pos && V.pos.t >= A.posEm) return; if (Date.now() - A.posEm > 15000) return;
     V.pos = { lat: A.pos.lat, lon: A.pos.lon, acc: A.pos.acc, alt: A.pos.alt, hd: null, vel: null, t: A.posEm }; V.gpsErro = null;
-    gravarPontoTrilha(); if (V.seguir) centrarEm(V.pos); avisos(); painelCoord(); painelNav(); pedir(); }, 1000);
+    gravarPontoTrilha(); verificarAreas(); if (V.seguir) centrarEm(V.pos); avisos(); painelCoord(); painelNav(); pedir(); }, 1000);
 }
 function centrarEm(p) { if (!V.geo) return; const q = V.geo.ll2px(p.lat, p.lon); V.tx = V.cw / 2 - q[0] * V.k; V.ty = V.ch / 2 - q[1] * V.k; pedir(); }
 function txtCoord(lat, lon) { if (APP() && APP().fmt === 'utm' && window.toUTM) { const u = toUTM(lat, lon); return `UTM ${u.zone}${u.hemi}  E ${br(u.e)}  N ${br(u.n)}`; } return `${lat.toFixed(6).replace('.', ',')}  ${lon.toFixed(6).replace('.', ',')}`; }
 function painelCoord() { const el = $('#mpvCo'); if (!el) return; const p = V.pos;
   if (!p) { el.textContent = V.gpsErro ? (window.textoErroGPS && APP() && APP().gpsErro ? textoErroGPS() : 'GPS sem resposta. Confira se a localização está ligada e permitida para o app.') : 'Procurando GPS… (a céu aberto fixa mais rápido)'; return; }
-  el.textContent = `${txtCoord(p.lat, p.lon)}  ±${Math.round(p.acc)} m${p.alt != null ? '  ·  alt ' + Math.round(p.alt) + ' m' : ''}${V.trilha ? '  ·  trilha ' + fmtDist(compLL(V.trilha.pts)) : ''}`; }
+  el.textContent = `${txtCoord(p.lat, p.lon)}  ±${Math.round(p.acc)} m${p.alt != null ? '  ·  alt ' + Math.round(p.alt) + ' m' : ''}${V.trilha ? '  ·  trilha ' + fmtDist(compLL(V.trilha.pts)) + (V.trilha.pausado ? ' (pausada)' : '') : ''}${V.dentroDe && V.dentroDe.size ? '  ·  dentro: ' + [...V.dentroDe].join(', ') : ''}`; }
 function avisos() { const el = $('#mpvAv'); if (!el) return; let t = '', w = false;
   if (!V.geo) { t = 'Este arquivo não tem georreferência: dá para ver e dar zoom, mas o ponto azul não aparece. Peça ao escritório o PDF georreferenciado.'; w = true; }
   else if (V.pos && V.geo.moldura) { const q = V.geo.ll2px(V.pos.lat, V.pos.lon); if (!dentro(q, V.geo.moldura)) { const d = distPoli(q, V.geo.moldura) / V.geo.pxm; const c = V.geo.moldura.reduce((a, p) => [a[0] + p[0] / V.geo.moldura.length, a[1] + p[1] / V.geo.moldura.length], [0, 0]); const cl = V.geo.px2ll(c[0], c[1]);
       t = `Você está fora deste mapa: a ${fmtDist(d)} da borda, mapa a ${cardeal(rumo([V.pos.lat, V.pos.lon], cl))}. A seta azul aponta onde você está; ◎ leva até lá.`; } }
   else if (V.geo.aviso) t = V.geo.aviso;
   if (V.alvo && $('#mpvNav').classList.contains('on')) t = ''; el.className = 'av' + (t ? ' on' : '') + (w ? ' w' : ''); el.textContent = t; }
+/* ---------------- 🔔 ALERTAS (Avenza Pro: proximidade) — vibra, apita e mostra; funciona sem internet ---------------- */
+let AUDIO = null;
+function alertar(msg, forte) { try { navigator.vibrate && navigator.vibrate(forte ? [250, 120, 250, 120, 400] : [200, 100, 200]); } catch (e) {}
+  try { AUDIO = AUDIO || new (window.AudioContext || window.webkitAudioContext)(); const o = AUDIO.createOscillator(), g = AUDIO.createGain(); o.frequency.value = forte ? 880 : 660; o.connect(g); g.connect(AUDIO.destination); g.gain.setValueAtTime(.25, AUDIO.currentTime); g.gain.exponentialRampToValueAtTime(.001, AUDIO.currentTime + .6); o.start(); o.stop(AUDIO.currentTime + .6); } catch (e) {}
+  toast(msg, 4500); }
+function areasAtivas() { const out = []; for (const c of V.camadas || []) if (c.on) for (const f of c.f) if (f.tipo === 'area' && f.c.length > 2) out.push({ nome: f.nome || c.nome, c: f.c });
+  for (const f of V.vet || []) if (f.tipo === 'area' && f.c.length > 2) out.push({ nome: f.nome || 'Área', c: f.c });
+  for (const m of V.marcas || []) if (m.tipo === 'medida' && m.fechado) out.push({ nome: m.nome, c: m.pts }); return out; }
+function dentroLL(p, poli) { let c = false; for (let i = 0, j = poli.length - 1; i < poli.length; j = i++) { const a = poli[i], b = poli[j]; if ((a[0] > p[0]) !== (b[0] > p[0]) && p[1] < (b[1] - a[1]) * (p[0] - a[0]) / (b[0] - a[0]) + a[1]) c = !c; } return c; }
+function verificarAreas() { if (!V.pos) return; const agora = new Set(areasAtivas().filter(a => dentroLL([V.pos.lat, V.pos.lon], a.c)).map(a => a.nome));
+  if (V.dentroDe && LSx.get('alertaAreas', true) && (V.pos.acc || 0) < 40) { for (const n of agora) if (!V.dentroDe.has(n)) alertar('🔔 Entrou: ' + n); for (const n of V.dentroDe) if (!agora.has(n)) alertar('🔔 Saiu: ' + n); }
+  V.dentroDe = agora; }
 function painelNav() { const el = $('#mpvNav'); if (!el) return; if (!V.alvo) { el.classList.remove('on'); return; } const p = V.pos; el.classList.add('on');
   if (!p) { el.innerHTML = `<div class="seta">⌖</div><div class="tx"><b>${esc(V.alvo.nome)}</b><small>esperando o GPS…</small></div><button class="ghost" id="mpvNavX">✕</button>`; }
   else { const d = dist([p.lat, p.lon], [V.alvo.lat, V.alvo.lon]), r = rumo([p.lat, p.lon], [V.alvo.lat, V.alvo.lon]); const h = rumoTela(); const chegou = d <= Math.max(8, (p.acc || 0));
+    if (chegou && !V.alvo.avisado) { V.alvo.avisado = true; alertar('🔔 Você chegou: ' + V.alvo.nome, true); } else if (!chegou && V.alvo.avisado && d > Math.max(30, 3 * (p.acc || 0))) V.alvo.avisado = false;
     el.innerHTML = `<div class="seta" style="transform:rotate(${h != null ? r - h : r}deg);${chegou ? 'background:var(--green)' : ''}">${chegou ? '✓' : '↑'}</div><div class="tx"><b>${chegou ? 'Você chegou' : fmtDist(d)}</b><small>${esc(V.alvo.nome)} · rumo ${Math.round(r)}° ${cardeal(r)}${h == null ? ' · seta pelo norte (ligue a 🧭)' : ''}</small></div><button class="ghost" id="mpvNavX">✕</button>`; }
   $('#mpvNavX').onclick = () => { V.alvo = null; painelNav(); avisos(); pedir(); }; }
 async function ligarBussola() {
@@ -815,15 +858,68 @@ function compartilhar(nome, lat, lon) { const u = window.toUTM ? toUTM(lat, lon)
   const t = `${nome || 'Ponto'} — ${V.ob ? V.ob.nome : ''}\nLat ${lat.toFixed(6)}, Lon ${lon.toFixed(6)}${u ? `\nUTM ${u.zone}${u.hemi} E ${u.e} N ${u.n} (SIRGAS 2000)` : ''}\nhttps://maps.google.com/?q=${lat.toFixed(6)},${lon.toFixed(6)}`;
   compartilharTexto(nome || 'Ponto', t); }
 function copiar(lat, lon) { const u = window.toUTM ? toUTM(lat, lon) : null; const t = (u ? `UTM ${u.zone}${u.hemi} E ${u.e} N ${u.n} (SIRGAS 2000) / ` : '') + `${lat.toFixed(6)}, ${lon.toFixed(6)}`; try { navigator.clipboard.writeText(t).then(() => toast('Coordenada copiada')); } catch (e) { prompt('Coordenada', t); } }
-function popPino(p) { const s = sheet(`<h3>📍 Pino</h3><label>Nome</label><input id="shNome" value="${esc(p.nome)}"><label>Observação</label><input id="shNota" value="${esc(p.nota || '')}" placeholder="opcional">${blocoCoord(p.lat, p.lon)}<div class="muted">${p.acc ? `marcado com GPS ±${Math.round(p.acc)} m · ` : 'marcado no mapa · '}${window.fmtData ? fmtData(p.criadoEm) : ''} · ${esc(p.quem || '')}</div>${linhaDistDeMim(p.lat, p.lon)}
-  <div class="lin"><button id="shIr">➜ Ir até</button><button class="sec" id="shOk">Salvar</button></div><div class="lin"><button class="ghost" id="shCop">Copiar coordenada</button><button class="ghost" id="shShare">Compartilhar</button><button class="ghost" id="shDel" style="color:var(--err)">Apagar</button></div>`);
-  const salvar = async () => { const nn = s.querySelector('#shNome').value.trim() || p.nome, nt = s.querySelector('#shNota').value.trim(); if (nn === p.nome && nt === (p.nota || '')) return; p.nome = nn; p.nota = nt; p.enviado = false; await MDB.put('marcas', p); pedir(); agendarEnvio(V.ob); };
-  s.querySelector('#shNome').onchange = salvar; s.querySelector('#shNota').onchange = salvar; /* salva sozinho ao sair do campo */
-  s.querySelector('#shOk').onclick = async () => { await salvar(); fecharSheet(); toast('Pino salvo'); };
+/* ---------------- FICHA DO PONTO (atributos do Avenza Pro + o que o geólogo usa) ----------------
+   Categoria com cor, litologia, amostra, atitude (direção de mergulho/mergulho) medida com o celular deitado na rocha,
+   fotos ligadas ao ponto (câmera do app → carimbo + fila → Drive da obra). Tudo salva sozinho ao mudar. */
+const CATS = [['afloramento', 'Afloramento', '#8B5CF6'], ['amostra', 'Amostra', '#DC2626'], ['estrutura', 'Estrutura', '#7C2D12'], ['agua', 'Água/drenagem', '#0284C7'],
+  ['acesso', 'Acesso/porteira', '#16A34A'], ['controle', 'Ponto de controle', '#111827'], ['outro', 'Outro', '#F59E0B']];
+const corCat = k => (CATS.find(c => c[0] === k) || CATS[CATS.length - 1])[2];
+const nomeCat = k => (CATS.find(c => c[0] === k) || CATS[CATS.length - 1])[1];
+const LITO = ['Granito', 'Gnaisse', 'Granodiorito', 'Diorito', 'Basalto', 'Diabásio', 'Quartzito', 'Xisto', 'Migmatito', 'Laterita', 'Arenito', 'Siltito', 'Argilito', 'Conglomerado', 'Solo residual', 'Aluvião', 'Saprólito', 'Veio de quartzo'];
+function attrTexto(p) { const a = p.attr || {}; return [p.cat ? nomeCat(p.cat) : '', a.lito ? 'Litologia: ' + a.lito : '', a.amostra ? 'Amostra: ' + a.amostra : '', a.dirMerg != null && a.merg != null ? `Atitude: ${String(Math.round(a.dirMerg)).padStart(3, '0')}/${Math.round(a.merg)} (dir. mergulho/mergulho)` : '', p.fotos && p.fotos.length ? p.fotos.length + ' foto(s)' : ''].filter(Boolean).join(' · '); }
+function popPino(p) {
+  p.attr = p.attr || {}; p.fotos = p.fotos || [];
+  const s = sheet(`<h3>📍 Ponto</h3><label>Nome</label><input id="shNome" value="${esc(p.nome)}">
+  <label>Categoria</label><div class="chips" id="shCat">${CATS.map(c => `<button data-c="${c[0]}" class="${p.cat === c[0] ? 'on' : ''}" style="${p.cat === c[0] ? `background:${c[2]};border-color:${c[2]};color:#fff` : ''}">${c[1]}</button>`).join('')}</div>
+  <div class="row"><div><label>Litologia</label><input id="shLito" list="dlLito" value="${esc(p.attr.lito || '')}" placeholder="ex.: granito"></div><div><label>Amostra nº</label><input id="shAm" value="${esc(p.attr.amostra || '')}" placeholder="ex.: MUC-01"></div></div><datalist id="dlLito">${LITO.map(l => `<option value="${l}">`).join('')}</datalist>
+  <label>Atitude (direção de mergulho / mergulho)</label><div class="row"><input id="shDM" inputmode="decimal" placeholder="dir. (0–360°)" value="${p.attr.dirMerg ?? ''}"><input id="shMg" inputmode="decimal" placeholder="mergulho (0–90°)" value="${p.attr.merg ?? ''}"><button class="sec" id="shClin" style="flex:0 0 auto">📐 Medir</button></div>
+  <label>Observação</label><textarea id="shNota" placeholder="o que viu, condição do acesso, etc." style="min-height:60px">${esc(p.nota || '')}</textarea>
+  <label>Fotos deste ponto</label><div class="thumbs" id="shFotos">${p.fotos.map(f => `<div class="th">${f.thumb ? `<img src="${f.thumb}" alt="">` : '📷'}</div>`).join('')}</div>
+  <div class="lin"><button class="sec" id="shFoto">📷 Tirar foto do ponto</button><button class="sec" id="shGal">🖼 Da galeria</button></div>
+  <input type="file" id="shFotoIn" accept="image/*" capture="environment" style="display:none"><input type="file" id="shGalIn" accept="image/*" multiple style="display:none">
+  ${blocoCoord(p.lat, p.lon)}<div class="muted">${p.digitado ? 'plotado por coordenada · ' : p.acc ? `GPS ±${Math.round(p.acc)} m · ` : 'marcado no mapa · '}${window.fmtData ? fmtData(p.criadoEm) : ''} · ${esc(p.quem || '')}</div>${linhaDistDeMim(p.lat, p.lon)}
+  <div class="lin"><button id="shIr">➜ Ir até</button><button class="sec" id="shOk">✓ Pronto</button></div><div class="lin"><button class="ghost" id="shCop">Copiar</button><button class="ghost" id="shShare">Compartilhar</button><button class="ghost" id="shDel" style="color:var(--err)">Apagar</button></div>`);
+  const num = v => { const x = parseFloat(String(v).replace(',', '.')); return isFinite(x) ? x : null; };
+  const salvar = async () => { const antes = JSON.stringify([p.nome, p.nota, p.cat, p.attr]);
+    p.nome = s.querySelector('#shNome').value.trim() || p.nome; p.nota = s.querySelector('#shNota').value.trim();
+    p.attr.lito = s.querySelector('#shLito').value.trim(); p.attr.amostra = s.querySelector('#shAm').value.trim();
+    const dm = num(s.querySelector('#shDM').value), mg = num(s.querySelector('#shMg').value);
+    p.attr.dirMerg = dm != null && dm >= 0 && dm <= 360 ? dm : null; p.attr.merg = mg != null && mg >= 0 && mg <= 90 ? mg : null;
+    if (JSON.stringify([p.nome, p.nota, p.cat, p.attr]) === antes) return; p.enviado = false; await MDB.put('marcas', p); pedir(); agendarEnvio(V.ob); };
+  s.querySelectorAll('input,textarea').forEach(e => { if (e.type !== 'file') e.onchange = salvar; });
+  s.querySelectorAll('#shCat button').forEach(b => b.onclick = async () => { p.cat = p.cat === b.dataset.c ? null : b.dataset.c; await salvar(); p.enviado = false; await MDB.put('marcas', p); agendarEnvio(V.ob); pedir(); popPino(p); });
+  const fotoDe = async (files, fonte) => { for (const f of files) { try { let gps = null, dataOrig = null;
+      if (fonte === 'galeria' && window.lerExif) { try { const ex = lerExif(await f.arrayBuffer()); gps = ex && ex.gps; dataOrig = ex && ex.data; } catch (e) {} }
+      const r = await enfileirarFoto(f, { slot: 'ponto', slotTitulo: 'Ponto ' + p.nome, fonte, gpsOrig: gps, dataOrig, extra: { pino: p.id, ponto: p.nome, lat: p.lat, lon: p.lon, cat: p.cat || null }, semRender: true });
+      if (r && r.id) { p.fotos.push({ id: r.id, thumb: r.thumb, em: new Date().toISOString() }); p.enviado = false; await MDB.put('marcas', p); agendarEnvio(V.ob); } } catch (e) { toast('Foto: ' + (e.message || e)); } }
+    if (V.aberto && $('#mpvSh').classList.contains('on')) popPino(p); };
+  s.querySelector('#shFoto').onclick = () => s.querySelector('#shFotoIn').click(); s.querySelector('#shGal').onclick = () => s.querySelector('#shGalIn').click();
+  s.querySelector('#shFotoIn').onchange = e => { const fs = [...e.target.files]; e.target.value = ''; fotoDe(fs, 'camera'); };
+  s.querySelector('#shGalIn').onchange = e => { const fs = [...e.target.files]; e.target.value = ''; fotoDe(fs, 'galeria'); };
+  s.querySelector('#shClin').onclick = () => clinometro(async (dm, mg) => { s.querySelector('#shDM').value = Math.round(dm); s.querySelector('#shMg').value = Math.round(mg); await salvar(); });
+  s.querySelector('#shOk').onclick = async () => { await salvar(); fecharSheet(); toast('Ponto salvo ✓ (vai para o Drive sozinho)'); };
   s.querySelector('#shIr').onclick = async () => { await salvar(); V.alvo = { id: p.id, lat: p.lat, lon: p.lon, nome: p.nome }; fecharSheet(); painelNav(); avisos(); pedir(); };
   s.querySelector('#shCop').onclick = () => copiar(p.lat, p.lon);
-  s.querySelector('#shShare').onclick = () => compartilhar(p.nome, p.lat, p.lon);
-  s.querySelector('#shDel').onclick = async () => { await MDB.del('marcas', p.id); V.marcas = V.marcas.filter(x => x.id !== p.id); if (V.alvo && V.alvo.id === p.id) { V.alvo = null; painelNav(); } fecharSheet(); pedir(); toast('Pino apagado'); }; }
+  s.querySelector('#shShare').onclick = () => compartilhar(p.nome + (attrTexto(p) ? ' — ' + attrTexto(p) : ''), p.lat, p.lon);
+  s.querySelector('#shDel').onclick = async () => { const r = await escolha('Apagar o ponto?', p.fotos.length ? 'As fotos já tiradas continuam guardadas e vão para o Drive.' : '', [{ t: 'Apagar o ponto', v: 1, cls: 'danger' }]); if (!r) return;
+    await MDB.del('marcas', p.id); V.marcas = V.marcas.filter(x => x.id !== p.id); if (V.alvo && V.alvo.id === p.id) { V.alvo = null; painelNav(); } fecharSheet(); pedir(); toast('Ponto apagado'); }; }
+/* 📐 Clinômetro: celular deitado SOBRE o plano (tela para cima). Lê a inclinação e a bússola; média de 2 s. */
+function clinometro(pronto) {
+  const L = []; let ouvindo = true; const ouvir = e => { if (!ouvindo || e.beta == null || e.gamma == null) return; let alfa = null;
+    if (e.webkitCompassHeading != null) alfa = 360 - e.webkitCompassHeading; else if (e.absolute || e.type === 'deviceorientationabsolute') alfa = e.alpha; if (alfa == null) return;
+    const a = alfa * RAD, b = e.beta * RAD, g = e.gamma * RAD; /* normal da tela no referencial Leste-Norte-Cima (W3C) */
+    let zx = Math.cos(a) * Math.sin(g) + Math.sin(a) * Math.sin(b) * Math.cos(g), zy = Math.sin(a) * Math.sin(g) - Math.cos(a) * Math.sin(b) * Math.cos(g), zz = Math.cos(b) * Math.cos(g);
+    if (zz < 0) { zx = -zx; zy = -zy; zz = -zz; } L.push([zx, zy, zz]); if (L.length > 60) L.shift(); };
+  const liga = async () => { try { if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') { const r = await DeviceOrientationEvent.requestPermission(); if (r !== 'granted') { toast('Sem permissão de movimento (Ajustes do iPhone > Safari).', 4000); return false; } } } catch (e) {}
+    window.addEventListener('deviceorientationabsolute', ouvir, true); window.addEventListener('deviceorientation', ouvir, true); return true; };
+  const desliga = () => { ouvindo = false; window.removeEventListener('deviceorientationabsolute', ouvir, true); window.removeEventListener('deviceorientation', ouvir, true); };
+  liga().then(ok => { if (!ok) return;
+    escolha('📐 Medir atitude', 'Deite o celular <b>sobre a superfície da rocha</b> (tela para cima, sem ímã ou ferro perto) e toque em <b>Ler</b> sem mexer. É uma leitura aproximada — confira com a bússola de geólogo quando a medida for para relatório.', [{ t: 'Ler (2 s parado)', v: 'ler', cls: 'green' }]).then(r => {
+      if (r !== 'ler') { desliga(); return; } L.length = 0; toast('Lendo… não mexa', 2200);
+      setTimeout(() => { desliga(); if (L.length < 5) return toast('Este celular não mandou a bússola/inclinação. Digite a atitude.', 4500);
+        const m = L.reduce((s, v) => [s[0] + v[0], s[1] + v[1], s[2] + v[2]], [0, 0, 0]).map(x => x / L.length); const n = Math.hypot(...m); const zx = m[0] / n, zy = m[1] / n, zz = m[2] / n;
+        const mg = Math.acos(Math.min(1, zz)) / RAD; const dm = mg < 0.5 ? 0 : (Math.atan2(zx, zy) / RAD + 360) % 360;
+        pronto(dm, mg); toast(`Atitude ${String(Math.round(dm)).padStart(3, '0')}/${Math.round(mg)} ✓ (aproximada)`, 3500); }, 2000); }); }); }
 async function novoPino(lat, lon, acc, nome) {
   const n = (V.marcas || []).filter(m => m.tipo === 'pino').length + 1; const quem = (APP() && APP().quem) || '';
   const p = { id: uid('P'), obraId: V.ob.id, tipo: 'pino', nome: nome || 'P' + String(n).padStart(2, '0'), lat, lon, acc: acc || null, alt: V.pos && acc ? V.pos.alt : null, nota: '', quem, criadoEm: new Date().toISOString(), enviado: false };
@@ -833,7 +929,7 @@ async function acao(a, b) {
   if (a === 'pino') { if (!V.geo) return toast('Este mapa não tem georreferência.'); const p = V.pos; if (!p) return toast('Ainda sem GPS. Para marcar um ponto do mapa, segure o dedo nele.', 3500);
     if (p.acc > 30 && !confirm(`O GPS está com precisão de ±${Math.round(p.acc)} m. Marcar assim mesmo? (Esperar alguns segundos a céu aberto melhora.)`)) return;
     const pn = await novoPino(p.lat, p.lon, p.acc); popPino(pn); }
-  if (a === 'trilha') { if (V.trilha) await pararTrilha(); else iniciarTrilha(); }
+  if (a === 'trilha') { if (V.trilha) await menuTrilha(); else iniciarTrilha(); }
   if (a === 'medir') iniciarMedir();
   if (a === 'mais') sheetMais();
 }
@@ -916,7 +1012,7 @@ function desenharMedida(c) { if (!V.medir || !V.geo) return; const md = V.medMod
 async function sheetMais() {
   const outros = (await MDB.obra('mapas', V.ob.id)).filter(m => m.id !== V.m.id && !m.camada);
   const pinos = (V.marcas || []).filter(m => m.tipo === 'pino'), trilhas = (V.marcas || []).filter(m => m.tipo === 'trilha'); const pend = (V.marcas || []).filter(m => !m.enviado).length;
-  const s = sheet(`<div class="lin" style="margin:0 0 8px"><button class="sec" id="shMapa">⤴ Compartilhar este mapa</button><button class="sec" id="shMarcas">⤴ Pinos e trilhas</button></div><div class="lin" style="margin:0 0 8px"><button class="sec" id="gpsMarcas">🛰 Pinos/trilhas para GPS</button>${V.camadas.length || V.vet ? '<button class="sec" id="gpsCamadas">🛰 Camadas para GPS</button>' : ''}</div><button class="big" id="ccAbrir">📌 Plotar coordenada / ir até um ponto</button><div class="nota">UTM, graus decimais, graus-minutos-segundos ou colar o texto (memorial, WhatsApp, Google Earth). SIRGAS 2000, WGS 84 ou SAD 69.</div>
+  const s = sheet(`<div class="lin" style="margin:0 0 8px"><button class="sec" id="shMapa">⤴ Compartilhar este mapa</button><button class="sec" id="shMarcas">⤴ Pinos e trilhas</button></div><div class="lin" style="margin:0 0 8px"><button class="sec" id="gpsMarcas">🛰 Pinos/trilhas para GPS</button>${V.camadas.length || V.vet ? '<button class="sec" id="gpsCamadas">🛰 Camadas para GPS</button>' : ''}</div><div class="lin" style="margin:0 0 8px"><button class="sec" id="bAbrir">🔎 Buscar no mapa</button><label class="chk" style="flex:1;margin:0;text-transform:none;letter-spacing:0;font-size:13px;color:var(--ink);font-weight:400;border:0;padding:4px 0"><input type="checkbox" id="alAreas" ${LSx.get('alertaAreas', true) ? 'checked' : ''}><span>🔔 Avisar ao entrar/sair das áreas</span></label></div><button class="big" id="ccAbrir">📌 Plotar coordenada / ir até um ponto</button><div class="nota">UTM, graus decimais, graus-minutos-segundos ou colar o texto (memorial, WhatsApp, Google Earth). SIRGAS 2000, WGS 84 ou SAD 69.</div>
   ${V.camadas.length ? `<h3 style="margin-top:14px">Camadas por cima</h3>${V.camadas.map(c => `<label class="chk" style="text-transform:none;letter-spacing:0;font-size:15px;color:var(--ink);margin:0;font-weight:400"><input type="checkbox" data-cam="${esc(c.id)}" ${c.on ? 'checked' : ''}><span>${esc(c.nome)}</span></label>`).join('')}` : ''}
   <h3 style="margin-top:14px">Pinos (${pinos.length})</h3>${pinos.length ? pinos.map(p => `<div class="chk" style="align-items:center"><span style="flex:1"><b>${esc(p.nome)}</b>${V.pos ? `<br><small class="muted">a ${fmtDist(dist([V.pos.lat, V.pos.lon], [p.lat, p.lon]))}</small>` : ''}</span><button class="sec" data-ir="${esc(p.id)}" style="padding:8px 12px">➜ Ir</button></div>`).join('') : '<div class="muted">Nenhum. 📍 Marcar guarda onde você está; segurar o dedo no mapa marca outro ponto.</div>'}
   ${trilhas.length ? `<h3 style="margin-top:14px">Trilhas (${trilhas.length})</h3>${trilhas.map(t => `<div class="muted">〰 ${esc(t.nome)} · ${fmtDist(compLL(t.pts))}</div>`).join('')}` : ''}
@@ -924,6 +1020,8 @@ async function sheetMais() {
   ${outros.length ? `<h3 style="margin-top:14px">Trocar de mapa</h3>${outros.map(m => `<button class="obra" data-mapa="${esc(m.id)}" style="margin-bottom:6px"><b>🗺 ${esc(m.nome.replace(/\.[^.]+$/, ''))}</b><small>${esc(m.resumo || '')}</small></button>`).join('')}` : ''}
   ${V.geo ? `<div class="nota" style="margin-top:12px">Sobre este mapa: UTM ${V.geo.z}${V.geo.sul ? 'S' : 'N'} · ajuste da georreferência ${V.geo.residuo < 1 ? 'menor que 1 m' : '±' + br(V.geo.residuo, 1) + ' m'}${V.geo.aviso ? ' · ' + esc(V.geo.aviso) : ''}</div>` : ''}`);
   s.querySelector('#ccAbrir').onclick = () => sheetCoord();
+  s.querySelector('#bAbrir').onclick = () => sheetBusca('');
+  s.querySelector('#alAreas').onchange = e => { LSx.set('alertaAreas', e.target.checked); toast(e.target.checked ? 'Vai avisar (vibra e apita) ao entrar ou sair das áreas.' : 'Aviso de áreas desligado.'); };
   s.querySelector('#shMapa').onclick = () => compartilharMapa(V.m);
   s.querySelector('#gpsMarcas').onclick = () => paraGPS('Marcacoes ' + V.ob.nome, (V.marcas || []).filter(m => m.tipo === 'pino' || (m.pts && m.pts.length > 1)));
   const gc = s.querySelector('#gpsCamadas'); if (gc) gc.onclick = () => paraGPS(V.m.nome.replace(/\.[^.]+$/, '') + ' camadas', (V.vet || []).concat(...V.camadas.filter(c => c.on).map(c => c.f)));
@@ -981,23 +1079,50 @@ function sheetCoord() {
   s.querySelector('#cIr').onclick = () => { const ok = ler().filter(x => !x.erro); if (!ok.length) return toast('Confira a coordenada.'); const p = ok[0];
     V.alvo = { lat: p.lat, lon: p.lon, nome: p.nome || 'coordenada digitada' }; fecharSheetForca(); if (V.geo) { const q = V.geo.ll2px(p.lat, p.lon); V.tx = V.cw / 2 - q[0] * V.k; V.ty = V.ch / 2 - q[1] * V.k; } painelNav(); avisos(); pedir(); };
 }
+/* ---------------- 🔎 BUSCAR NO MAPA (lista de feições do Avenza) ---------------- */
+function itensBusca() { const out = []; const cen = c => [c.reduce((a, p) => a + p[0], 0) / c.length, c.reduce((a, p) => a + p[1], 0) / c.length];
+  for (const m of V.marcas || []) { if (m.tipo === 'pino') out.push({ ic: '📍', nome: m.nome, sub: attrTexto(m) || 'ponto', ll: [m.lat, m.lon], pino: m });
+    else if (m.pts && m.pts.length) out.push({ ic: m.tipo === 'trilha' ? '〰' : '📏', nome: m.nome, sub: m.area ? fmtArea(m.area) : fmtDist(m.comp || compLL(m.pts)), ll: cen(m.pts) }); }
+  const camadas = [...(V.vet ? [{ nome: V.m.nome, f: V.vet }] : []), ...(V.camadas || []).map(c => ({ nome: c.nome, f: c.f }))];
+  for (const cm of camadas) for (const f of cm.f) { if (!f.c || !f.c.length) continue; out.push({ ic: f.tipo === 'ponto' ? '•' : f.tipo === 'area' ? '▭' : '〰', nome: f.nome || '(sem nome)', sub: cm.nome.replace(/\.[^.]+$/, '') + (f.tipo === 'area' ? ' · ' + fmtArea(areaLL(f.c)) : ''), ll: f.tipo === 'ponto' ? f.c[0] : cen(f.c), desc: f.desc }); }
+  return out; }
+function sheetBusca(q) { const todos = itensBusca(); const norm = x => String(x || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase(); const qq = norm(q || '');
+  const lista = todos.filter(i => !qq || norm(i.nome + ' ' + i.sub).includes(qq)).map(i => Object.assign(i, { d: V.pos ? dist([V.pos.lat, V.pos.lon], i.ll) : null })).sort((a, b) => (a.d ?? 0) - (b.d ?? 0)).slice(0, 80);
+  const s = sheet(`<h3>🔎 Buscar no mapa</h3><input id="bq" placeholder="nome do ponto, vértice, área…" value="${esc(q || '')}" autocomplete="off"><div class="nota">${todos.length} itens neste mapa e nas camadas ligadas${V.pos ? ' · do mais perto para o mais longe' : ''}.</div>
+    ${lista.map((i, k) => `<div class="chk" style="align-items:center;padding:7px 0"><span style="width:20px;text-align:center">${i.ic}</span><span style="flex:1;font-size:14px" data-ver="${k}"><b>${esc(i.nome)}</b><br><small class="muted">${esc(i.sub)}${i.d != null ? ' · a ' + fmtDist(i.d) : ''}</small></span><button class="sec" data-ir="${k}" style="padding:7px 10px">➜</button></div>`).join('') || '<div class="muted">Nada encontrado.</div>'}
+    <div class="lin"><button class="ghost" id="bX">‹ Voltar</button></div>`);
+  const inp = s.querySelector('#bq'); inp.oninput = () => { clearTimeout(sheetBusca.t); sheetBusca.t = setTimeout(() => { sheetBusca(inp.value); const n = $('#bq'); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 250); };
+  const centrar = ll => { const q = V.geo.ll2px(ll[0], ll[1]); if (V.k * V.geo.pxm < .3) V.k = Math.min(V.kmax, .6 / V.geo.pxm); V.tx = V.cw / 2 - q[0] * V.k; V.ty = V.ch / 2 - q[1] * V.k; V.detalhe = null; desligarSeguir(); pedir(); };
+  s.querySelectorAll('[data-ver]').forEach(e => e.onclick = () => { const i = lista[+e.dataset.ver]; centrar(i.ll); if (i.pino) popPino(i.pino); else popPonto(V.geo.ll2px(i.ll[0], i.ll[1]), i.nome, i.desc); });
+  s.querySelectorAll('[data-ir]').forEach(e => e.onclick = () => { const i = lista[+e.dataset.ir]; V.alvo = { lat: i.ll[0], lon: i.ll[1], nome: i.nome }; fecharSheetForca(); centrar(i.ll); painelNav(); avisos(); });
+  s.querySelector('#bX').onclick = () => sheetMais(); }
 function fecharSheetForca() { const s = $('#mpvSh'); if (s) { s.classList.remove('on'); V.sheetAberto = false; } }
 
 /* ---------------- trilha ---------------- */
 async function iniciarTrilha() {
   if (!V.geo) return toast('Este mapa não tem georreferência.');
-  V.trilha = { id: uid('T'), obraId: V.ob.id, tipo: 'trilha', nome: 'Trilha ' + (window.fmtData ? fmtData(new Date()) : new Date().toLocaleString('pt-BR')), pts: [], quem: (APP() && APP().quem) || '', criadoEm: new Date().toISOString(), enviado: false, inicio: Date.now() };
+  V.trilha = { id: uid('T'), retomadoEm: Date.now(), obraId: V.ob.id, tipo: 'trilha', nome: 'Trilha ' + (window.fmtData ? fmtData(new Date()) : new Date().toLocaleString('pt-BR')), pts: [], quem: (APP() && APP().quem) || '', criadoEm: new Date().toISOString(), enviado: false, inicio: Date.now() };
   await MDB.put('marcas', V.trilha); try { V.wake = await navigator.wakeLock.request('screen'); } catch (e) {}
   pintarBotaoTrilha(); gravarPontoTrilha(); toast('Gravando a trilha. Deixe o app aberto: a tela fica acesa sozinha.', 4000);
 }
-async function gravarPontoTrilha() { const t = V.trilha, p = V.pos; if (!t || !p || p.acc > 35) return; const ult = t.pts[t.pts.length - 1];
+function statsTrilha(t) { const pts = t.pts; let sobe = 0, desce = 0, ultAlt = null; for (const q of pts) { if (q[2] == null) continue; if (ultAlt != null) { const d = q[2] - ultAlt; if (Math.abs(d) >= 2) { if (d > 0) sobe += d; else desce -= d; ultAlt = q[2]; } } else ultAlt = q[2]; }
+  const ms = (t.ativoMs || 0) + (t.pausado ? 0 : Date.now() - (t.retomadoEm || t.inicio || Date.now())); const d = compLL(pts); const h = ms / 3.6e6;
+  const hh = Math.floor(ms / 3.6e6), mm = Math.floor(ms / 6e4) % 60, ss = Math.floor(ms / 1000) % 60;
+  return { d, ms, tempo: `${hh ? hh + 'h' : ''}${String(mm).padStart(hh ? 2 : 1, '0')}min${hh ? '' : String(ss).padStart(2, '0') + 's'}`, vel: h > 0.0003 ? d / 1000 / h : 0, sobe, desce }; }
+async function menuTrilha() { const t = V.trilha; const st = statsTrilha(t);
+  const r = await escolha(t.pausado ? '⏸ Trilha pausada' : '⏺ Gravando trilha', `<b>${fmtDist(st.d)}</b> · ${st.tempo} · ${br(st.vel, 1)} km/h · ⬆ ${Math.round(st.sobe)} m ⬇ ${Math.round(st.desce)} m · ${t.pts.length} pontos`,
+    [t.pausado ? { t: '▶ Retomar', v: 'ret', cls: 'green' } : { t: '⏸ Pausar', v: 'pau', cls: 'sec' }, { t: '⏹ Parar e salvar', v: 'fim', cls: 'green' }]);
+  if (r === 'pau') { t.ativoMs = (t.ativoMs || 0) + Date.now() - (t.retomadoEm || t.inicio); t.pausado = true; await MDB.put('marcas', t); pintarBotaoTrilha(); toast('Trilha pausada. Toque de novo para retomar.'); }
+  else if (r === 'ret') { t.pausado = false; t.retomadoEm = Date.now(); await MDB.put('marcas', t); pintarBotaoTrilha(); gravarPontoTrilha(); toast('Trilha retomada.'); }
+  else if (r === 'fim') { if (t.pausado) { t.pausado = false; t.retomadoEm = Date.now(); } const s2 = statsTrilha(t); t.stats = { dist: s2.d, ms: s2.ms, vel: s2.vel, sobe: s2.sobe, desce: s2.desce }; await pararTrilha(); } }
+async function gravarPontoTrilha() { const t = V.trilha, p = V.pos; if (!t || !p || p.acc > 35 || t.pausado) return; const ult = t.pts[t.pts.length - 1];
   if (ult && dist(ult, [p.lat, p.lon]) < Math.max(3, p.acc / 3)) return; t.pts.push([p.lat, p.lon, p.alt == null ? null : Math.round(p.alt * 10) / 10, Date.now()]);
   if (t.pts.length % 5 === 1) MDB.put('marcas', t).catch(() => {}); if (Date.now() - (t.ultParcial || t.inicio || 0) > 600000) enviarTrilhaParcial(t); pintarBotaoTrilha(); }
 async function pararTrilha() { const t = V.trilha; V.trilha = null; try { V.wake && V.wake.release(); } catch (e) {} V.wake = null;
   if (t.pts.length < 2) { await MDB.del('marcas', t.id); toast('Trilha muito curta: não guardei.'); }
   else { await MDB.put('marcas', t); V.marcas = await MDB.obra('marcas', V.ob.id); toast(`Trilha guardada: ${fmtDist(compLL(t.pts))}. Vai para o Drive da obra.`, 3500); enviarMarcas(V.ob, true); }
   pintarBotaoTrilha(); pedir(); }
-function pintarBotaoTrilha() { const b = V.el && V.el.querySelector('[data-a="trilha"]'); if (!b) return; b.classList.toggle('on', !!V.trilha); b.textContent = V.trilha ? `⏹ ${fmtDist(compLL(V.trilha.pts))}` : '⏺ Trilha'; painelCoord(); }
+function pintarBotaoTrilha() { const b = V.el && V.el.querySelector('[data-a="trilha"]'); if (!b) return; b.classList.toggle('on', !!V.trilha); b.textContent = V.trilha ? `${V.trilha.pausado ? '⏸' : '⏺'} ${fmtDist(compLL(V.trilha.pts))}` : '⏺ Trilha'; painelCoord(); }
 
 /* ---------------- envio ao Drive (KML na pasta da obra, pela fila do app) ----------------
    v1.22.3: tudo que se marca, edita ou mede vai SOZINHO para a fila (15 s depois da última mudança);
@@ -1010,8 +1135,8 @@ function kmlDe(itens, ob) {
   const pm = itens.map(m => m.tipo === 'medida'
     ? `<Placemark><name>${x(m.nome)}</name><description>${x(`${fmtDist(m.comp)}${m.fechado ? ' · perímetro ' + fmtDist(m.perim) + ' · área ' + fmtArea(m.area) : ''} · ${m.quem || ''} · ${m.criadoEm}`)}</description><styleUrl>#medida</styleUrl>${m.fechado ? `<Polygon><outerBoundaryIs><LinearRing><coordinates>${m.pts.concat([m.pts[0]]).map(p => `${p[1].toFixed(7)},${p[0].toFixed(7)}`).join(' ')}</coordinates></LinearRing></outerBoundaryIs></Polygon>` : `<LineString><coordinates>${m.pts.map(p => `${p[1].toFixed(7)},${p[0].toFixed(7)}`).join(' ')}</coordinates></LineString>`}</Placemark>`
     : m.tipo === 'pino'
-    ? `<Placemark><name>${x(m.nome)}</name><description>${x([m.nota, m.acc ? 'GPS ±' + Math.round(m.acc) + ' m' : 'marcado no mapa', m.quem, m.criadoEm].filter(Boolean).join(' · '))}</description><styleUrl>#pino</styleUrl><Point><coordinates>${m.lon.toFixed(7)},${m.lat.toFixed(7)}${m.alt != null ? ',' + m.alt : ''}</coordinates></Point></Placemark>`
-    : `<Placemark><name>${x(m.nome)}</name><description>${x(`${fmtDist(compLL(m.pts))} · ${m.quem || ''}`)}</description><styleUrl>#trilha</styleUrl><LineString><tessellate>1</tessellate><coordinates>${m.pts.map(p => `${p[1].toFixed(7)},${p[0].toFixed(7)}${p[2] != null ? ',' + p[2] : ''}`).join(' ')}</coordinates></LineString></Placemark>`).join('\n');
+    ? `<Placemark><name>${x(m.nome)}</name><description>${x([attrTexto(m), m.nota, m.acc ? 'GPS ±' + Math.round(m.acc) + ' m' : m.digitado ? 'plotado por coordenada' : 'marcado no mapa', m.quem, m.criadoEm].filter(Boolean).join(' · '))}</description><styleUrl>#pino</styleUrl><ExtendedData>${[['categoria', m.cat ? nomeCat(m.cat) : ''], ['litologia', (m.attr || {}).lito], ['amostra', (m.attr || {}).amostra], ['dir_mergulho', (m.attr || {}).dirMerg], ['mergulho', (m.attr || {}).merg], ['fotos', (m.fotos || []).length || ''], ['obs', m.nota]].filter(d => d[1] != null && d[1] !== '').map(d => `<Data name="${d[0]}"><value>${x(d[1])}</value></Data>`).join('')}</ExtendedData><Point><coordinates>${m.lon.toFixed(7)},${m.lat.toFixed(7)}${m.alt != null ? ',' + m.alt : ''}</coordinates></Point></Placemark>`
+    : `<Placemark><name>${x(m.nome)}</name><description>${x(`${fmtDist(compLL(m.pts))}${m.stats ? ` · ${Math.round(m.stats.ms / 6e4)} min · ${br(m.stats.vel, 1)} km/h · subida ${Math.round(m.stats.sobe)} m · descida ${Math.round(m.stats.desce)} m` : ''} · ${m.quem || ''}`)}</description><styleUrl>#trilha</styleUrl><LineString><tessellate>1</tessellate><coordinates>${m.pts.map(p => `${p[1].toFixed(7)},${p[0].toFixed(7)}${p[2] != null ? ',' + p[2] : ''}`).join(' ')}</coordinates></LineString></Placemark>`).join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${x(ob.nome)} — marcações de campo</name><Style id="pino"><IconStyle><color>ff0b9ef5</color></IconStyle></Style><Style id="trilha"><LineStyle><color>ffed3a7c</color><width>3</width></LineStyle></Style><Style id="medida"><LineStyle><color>ffc78402</color><width>2</width></LineStyle><PolyStyle><color>33c78402</color></PolyStyle></Style>\n${pm}\n</Document></kml>`;
 }
 async function enviarMarcas(ob, quieto) {
