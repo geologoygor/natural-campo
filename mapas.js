@@ -1,0 +1,729 @@
+/* ============================================================
+   MAPAS DE CAMPO — Natural Engenharia (v1.21.0, 17/10/2026)
+   Substitui o Avenza: cada obra traz os seus mapas (da pasta da obra no Drive)
+   guardados no celular, e o funcionário navega neles com o GPS, sem internet.
+   Lê: PDF georreferenciado (GeoPDF ISO 32000 — QGIS/GDAL/ArcGIS — e OGC LGIDict),
+       GeoTIFF, KML/KMZ (inclusive imagem sobreposta do Google Earth) e GPX.
+   Faz: ponto azul com precisão, bússola, seguir, "você está fora do mapa",
+        pinos, ir até (distância e rumo), trilha gravada, medir distância/área,
+        ir para coordenada. Pinos e trilhas sobem para o Drive da obra em KML.
+   Regra do app: tudo funciona offline; nada trava o trabalho, só avisa.
+   ============================================================ */
+(function(){
+'use strict';
+/* S e LS do app são const (não ficam em window): acessar pelo nome, com proteção */
+const utmFmt = () => !APP() || APP().fmt === 'utm';
+const APP = () => (typeof S !== 'undefined' ? S : null);
+const LSapp = () => (typeof LS !== 'undefined' ? LS : null);
+const LIB = {
+  pdf: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
+  pdfw: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js',
+  tif: 'https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js'
+};
+const LIMITE_AUTO = 40 * 1024 * 1024;   // mapa até 40 MB baixa sozinho ao abrir a obra; maior pede um toque
+const PARTE = 5 * 1024 * 1024;           // o robô entrega o arquivo em partes de 5 MB (sinal fraco não perde tudo)
+const EXT_OK = /\.(pdf|tif|tiff|kml|kmz|gpx)$/i;
+
+/* ---------------- utilidades ---------------- */
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const toast = (m, ms) => (window.toast ? window.toast(m, ms) : alert(m));
+const br = (x, d = 0) => Number(x).toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d });
+function fmtDist(m) { if (m == null || !isFinite(m)) return '—'; return m < 1000 ? br(Math.round(m)) + ' m' : br(m / 1000, m < 10000 ? 2 : 1) + ' km'; }
+function fmtArea(m2) { return m2 < 10000 ? br(Math.round(m2)) + ' m²' : br(m2 / 10000, 2) + ' ha'; }
+function fmtTam(b) { return b > 1048576 ? br(b / 1048576, 1) + ' MB' : br(Math.max(1, Math.round(b / 1024))) + ' KB'; }
+function uid(p) { return p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+function carregarScript(src) {
+  return new Promise((ok, er) => { if (document.querySelector(`script[data-src="${src}"]`)) return ok();
+    const s = document.createElement('script'); s.src = src; s.dataset.src = src; s.onload = ok;
+    s.onerror = () => { s.remove(); er(new Error('sem a biblioteca de leitura de mapas — abra o app uma vez com internet')); }; document.head.appendChild(s); });
+}
+async function pdfjs() {
+  if (!window.pdfjsLib) await carregarScript(LIB.pdf);
+  if (!pdfjs.worker) { // worker de outro domínio não abre direto: vira Blob local (vem do cache do celular sem internet)
+    const t = await fetch(LIB.pdfw).then(r => { if (!r.ok) throw new Error('worker'); return r.text(); });
+    pdfjs.worker = URL.createObjectURL(new Blob([t], { type: 'text/javascript' }));
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjs.worker; }
+  return window.pdfjsLib;
+}
+async function geotiff() { if (!window.GeoTIFF) await carregarScript(LIB.tif); return window.GeoTIFF; }
+async function inflar(u8, fmt) { // FlateDecode / zip; se o fim vier sujo, fica com o que já abriu
+  const ds = new DecompressionStream(fmt); const w = ds.writable.getWriter(); w.write(u8).catch(() => {}); w.close().catch(() => {});
+  const rd = ds.readable.getReader(); const parts = []; let n = 0;
+  try { for (;;) { const { done, value } = await rd.read(); if (done) break; parts.push(value); n += value.length; } } catch (e) { if (!n) throw e; }
+  const out = new Uint8Array(n); let o = 0; for (const p of parts) { out.set(p, o); o += p.length; } return out;
+}
+
+/* ---------------- banco no celular (mapas e marcações) ---------------- */
+const MDB = {
+  db: null,
+  open() { if (this.db) return Promise.resolve(); return new Promise((ok, er) => { const r = indexedDB.open('natural_mapas', 1);
+    r.onupgradeneeded = () => { const d = r.result; d.createObjectStore('mapas', { keyPath: 'id' }).createIndex('obra', 'obraId'); d.createObjectStore('marcas', { keyPath: 'id' }).createIndex('obra', 'obraId'); };
+    r.onsuccess = () => { this.db = r.result; ok(); }; r.onerror = () => er(r.error); }); },
+  async req(st, mode, fn) { await this.open(); return new Promise((ok, er) => { const t = this.db.transaction(st, mode); const q = fn(t.objectStore(st)); t.oncomplete = () => ok(q && q.result); t.onerror = () => er(t.error); t.onabort = () => er(t.error); }); },
+  put(st, o) { return this.req(st, 'readwrite', s => s.put(o)); },
+  del(st, id) { return this.req(st, 'readwrite', s => s.delete(id)); },
+  get(st, id) { return this.req(st, 'readonly', s => s.get(id)); },
+  async obra(st, obraId) { return (await this.req(st, 'readonly', s => s.index('obra').getAll(obraId))) || []; },
+  async todos(st) { return (await this.req(st, 'readonly', s => s.getAll())) || []; },
+};
+
+/* ---------------- geodésia: UTM com zona fixa (ida e volta), distância, rumo ---------------- */
+const GA = 6378137, GF = 1 / 298.257223563, K0 = 0.9996, GN = GF / (2 - GF);
+const GAA = GA / (1 + GN) * (1 + GN * GN / 4 + GN ** 4 / 64);
+const AL = [GN / 2 - 2 * GN * GN / 3 + 5 * GN ** 3 / 16, 13 * GN * GN / 48 - 3 * GN ** 3 / 5, 61 * GN ** 3 / 240];
+const BE = [GN / 2 - 2 * GN * GN / 3 + 37 * GN ** 3 / 96, GN * GN / 48 + GN ** 3 / 15, 17 * GN ** 3 / 480];
+const DE = [2 * GN - 2 * GN * GN / 3 - 2 * GN ** 3, 7 * GN * GN / 3 - 8 * GN ** 3 / 5, 56 * GN ** 3 / 15];
+const RAD = Math.PI / 180;
+function zonaDe(lon) { return Math.min(60, Math.max(1, Math.floor((lon + 180) / 6) + 1)); }
+function utmF(lat, lon, z, sul) {
+  const lon0 = ((z - 1) * 6 - 180 + 3) * RAD, phi = lat * RAD, lam = lon * RAD, c = 2 * Math.sqrt(GN) / (1 + GN);
+  const t = Math.sinh(Math.atanh(Math.sin(phi)) - c * Math.atanh(c * Math.sin(phi)));
+  const xi = Math.atan(t / Math.cos(lam - lon0)), eta = Math.atanh(Math.sin(lam - lon0) / Math.sqrt(1 + t * t));
+  let E = eta, N = xi; for (let j = 1; j <= 3; j++) { E += AL[j - 1] * Math.cos(2 * j * xi) * Math.sinh(2 * j * eta); N += AL[j - 1] * Math.sin(2 * j * xi) * Math.cosh(2 * j * eta); }
+  return [500000 + K0 * GAA * E, K0 * GAA * N + (sul ? 1e7 : 0)];
+}
+function utmI(E, N, z, sul) {
+  const xi = (N - (sul ? 1e7 : 0)) / (K0 * GAA), eta = (E - 500000) / (K0 * GAA);
+  let xp = xi, ep = eta; for (let j = 1; j <= 3; j++) { xp -= BE[j - 1] * Math.sin(2 * j * xi) * Math.cosh(2 * j * eta); ep -= BE[j - 1] * Math.cos(2 * j * xi) * Math.sinh(2 * j * eta); }
+  const chi = Math.asin(Math.sin(xp) / Math.cosh(ep)); let phi = chi; for (let j = 1; j <= 3; j++) phi += DE[j - 1] * Math.sin(2 * j * chi);
+  const lon0 = ((z - 1) * 6 - 180 + 3) * RAD; return [phi / RAD, (lon0 + Math.atan(Math.sinh(ep) / Math.cos(xp))) / RAD];
+}
+function dist(a, b) { const R = 6371008.8, dφ = (b[0] - a[0]) * RAD, dλ = (b[1] - a[1]) * RAD; const h = Math.sin(dφ / 2) ** 2 + Math.cos(a[0] * RAD) * Math.cos(b[0] * RAD) * Math.sin(dλ / 2) ** 2; return 2 * R * Math.asin(Math.min(1, Math.sqrt(h))); }
+function rumo(a, b) { const φ1 = a[0] * RAD, φ2 = b[0] * RAD, dλ = (b[1] - a[1]) * RAD; return (Math.atan2(Math.sin(dλ) * Math.cos(φ2), Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(dλ)) / RAD + 360) % 360; }
+function cardeal(g) { return ['N', 'NE', 'L', 'SE', 'S', 'SO', 'O', 'NO'][Math.round(g / 45) % 8]; }
+function areaLL(pts) { if (pts.length < 3) return 0; const z = zonaDe(pts[0][1]), s = pts[0][0] < 0; const p = pts.map(q => utmF(q[0], q[1], z, s)); let a = 0; for (let i = 0; i < p.length; i++) { const j = (i + 1) % p.length; a += p[i][0] * p[j][1] - p[j][0] * p[i][1]; } return Math.abs(a / 2); }
+function compLL(pts, fechar) { let d = 0; for (let i = 1; i < pts.length; i++) d += dist(pts[i - 1], pts[i]); if (fechar && pts.length > 2) d += dist(pts[pts.length - 1], pts[0]); return d; }
+/* EPSG que a empresa usa (SIRGAS 2000 / WGS 84 / SAD 69) → UTM ou geográfica */
+function epsgInfo(c) {
+  c = +c; if (c === 4326 || c === 4674 || c === 4989) return { geo: true };
+  if (c === 4618 || c === 4291) return { geo: true, sad: true };
+  if (c >= 31965 && c <= 31976) return { z: c - 31965 + 11, sul: false };
+  if (c >= 31977 && c <= 31985) return { z: c - 31977 + 17, sul: true };
+  if (c >= 32601 && c <= 32660) return { z: c - 32600, sul: false };
+  if (c >= 32701 && c <= 32760) return { z: c - 32700, sul: true };
+  if (c >= 29168 && c <= 29172) return { z: c - 29168 + 18, sul: false, sad: true };
+  if (c >= 29187 && c <= 29195) return { z: c - 29187 + 17, sul: true, sad: true };
+  if (c >= 29177 && c <= 29185) return { z: c - 29177 + 17, sul: true, sad: true };
+  return null;
+}
+
+/* ---------------- georreferência: (lat,lon) ↔ pixel do mapa por ajuste afim em UTM ---------------- */
+function ajusteAfim(P) { // P: [[E,N,x,y]] → x = aE+bN+c ; y = dE+eN+f (mínimos quadrados, centrado)
+  const mE = P.reduce((s, p) => s + p[0], 0) / P.length, mN = P.reduce((s, p) => s + p[1], 0) / P.length;
+  let s11 = 0, s12 = 0, s22 = 0, sx1 = 0, sx2 = 0, sy1 = 0, sy2 = 0, mx = 0, my = 0;
+  for (const p of P) { mx += p[2]; my += p[3]; } mx /= P.length; my /= P.length;
+  for (const p of P) { const e = p[0] - mE, n = p[1] - mN, x = p[2] - mx, y = p[3] - my; s11 += e * e; s12 += e * n; s22 += n * n; sx1 += x * e; sx2 += x * n; sy1 += y * e; sy2 += y * n; }
+  const det = s11 * s22 - s12 * s12; if (!det) return null;
+  const a = (sx1 * s22 - sx2 * s12) / det, b = (sx2 * s11 - sx1 * s12) / det, d = (sy1 * s22 - sy2 * s12) / det, e = (sy2 * s11 - sy1 * s12) / det;
+  return [a, b, mx - a * mE - b * mN, d, e, my - d * mE - e * mN];
+}
+function criarGeo(pares, moldura, aviso) { // pares: [[lat,lon,x,y]] (≥3) ; moldura: [[x,y]] em pixel do mapa
+  if (!pares || pares.length < 3) return null;
+  const la = pares.reduce((s, p) => s + p[0], 0) / pares.length, lo = pares.reduce((s, p) => s + p[1], 0) / pares.length;
+  if (!isFinite(la) || !isFinite(lo) || Math.abs(la) > 90 || Math.abs(lo) > 180) return null;
+  const z = zonaDe(lo), sul = la < 0; const A = ajusteAfim(pares.map(p => { const u = utmF(p[0], p[1], z, sul); return [u[0], u[1], p[2], p[3]]; }));
+  if (!A) return null; const det = A[0] * A[4] - A[1] * A[3];
+  const G = { z, sul, A, det, pxm: Math.sqrt(Math.abs(det)), moldura: moldura && moldura.length > 2 ? moldura : null, aviso: aviso || '' };
+  G.ll2px = (lat, lon) => { const u = utmF(lat, lon, z, sul); return [A[0] * u[0] + A[1] * u[1] + A[2], A[3] * u[0] + A[4] * u[1] + A[5]]; };
+  G.px2ll = (x, y) => { const X = x - A[2], Y = y - A[5]; return utmI((A[4] * X - A[1] * Y) / det, (-A[3] * X + A[0] * Y) / det, z, sul); };
+  // erro do ajuste em metros (fica no "sobre o mapa")
+  G.residuo = Math.max(0, ...pares.map(p => { const q = G.ll2px(p[0], p[1]); return Math.hypot(q[0] - p[2], q[1] - p[3]) / G.pxm; }));
+  return G;
+}
+function dentro(pt, poly) { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const a = poly[i], b = poly[j]; if ((a[1] > pt[1]) !== (b[1] > pt[1]) && pt[0] < (b[0] - a[0]) * (pt[1] - a[1]) / (b[1] - a[1]) + a[0]) c = !c; } return c; }
+function distPoli(pt, poly) { let m = Infinity; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const a = poly[j], b = poly[i], dx = b[0] - a[0], dy = b[1] - a[1], L = dx * dx + dy * dy; let t = L ? ((pt[0] - a[0]) * dx + (pt[1] - a[1]) * dy) / L : 0; t = Math.max(0, Math.min(1, t)); m = Math.min(m, Math.hypot(pt[0] - a[0] - t * dx, pt[1] - a[1] - t * dy)); } return m; }
+
+/* ---------------- leitor de PDF georreferenciado (sem biblioteca: lê o dicionário do próprio arquivo) ---------------- */
+function PdfCru(u8) {
+  this.u8 = u8; this.s = new TextDecoder('latin1').decode(u8); this.pos = {}; this.os = {};
+  const re = /(\d+)\s+(\d+)\s+obj\b/g; let m; this.lista = [];
+  while ((m = re.exec(this.s))) { this.pos[+m[1]] = m.index + m[0].length; this.lista.push([m.index, +m[1]]); }
+}
+PdfCru.prototype.ws = function (i) { const s = this.s; for (;;) { const c = s.charCodeAt(i); if (c === 32 || c === 10 || c === 13 || c === 9 || c === 12 || c === 0) i++; else if (c === 37) { while (i < s.length && s[i] !== '\n' && s[i] !== '\r') i++; } else return i; } };
+PdfCru.prototype.valor = function (s, i) { // devolve [valor, posição]; referência vira {r:n}
+  const ws = j => { for (;;) { const c = s.charCodeAt(j); if (c === 32 || c === 10 || c === 13 || c === 9 || c === 12 || c === 0) j++; else if (c === 37) { while (j < s.length && s[j] !== '\n' && s[j] !== '\r') j++; } else return j; } };
+  i = ws(i); const c = s[i];
+  if (c === '<' && s[i + 1] === '<') { const d = {}; i += 2; for (;;) { i = ws(i); if (s[i] === '>' && s[i + 1] === '>') return [d, i + 2]; if (i >= s.length) return [d, i]; const k = this.valor(s, i); i = k[1]; const v = this.valor(s, i); i = v[1]; if (k[0] && k[0].n) d[k[0].n] = v[0]; } }
+  if (c === '[') { const a = []; i++; for (;;) { i = ws(i); if (s[i] === ']') return [a, i + 1]; if (i >= s.length) return [a, i]; const v = this.valor(s, i); a.push(v[0]); i = v[1]; } }
+  if (c === '(') { let d = 1, o = ''; i++; while (i < s.length && d) { const ch = s[i]; if (ch === '\\') { o += s[i + 1]; i += 2; continue; } if (ch === '(') d++; else if (ch === ')') { d--; if (!d) break; } o += ch; i++; } return [{ s: o }, i + 1]; }
+  if (c === '<') { const j = s.indexOf('>', i); const hx = s.slice(i + 1, j).replace(/\s/g, ''); let o = ''; for (let k = 0; k < hx.length; k += 2) o += String.fromCharCode(parseInt(hx.substr(k, 2).padEnd(2, '0'), 16)); return [{ s: o }, j + 1]; }
+  if (c === '/') { let j = i + 1; while (j < s.length && !/[\s\/\[\]<>(){}%]/.test(s[j])) j++; return [{ n: s.slice(i + 1, j) }, j]; }
+  const rr = /([+-]?\d+)\s+(\d+)\s+R(?![A-Za-z])/y; rr.lastIndex = i; let m = rr.exec(s); if (m) return [{ r: +m[1] }, rr.lastIndex];
+  const rn = /[+-]?(\d+\.?\d*|\.\d+)/y; rn.lastIndex = i; m = rn.exec(s); if (m) return [parseFloat(m[0]), rn.lastIndex];
+  const rk = /[A-Za-z]+/y; rk.lastIndex = i; m = rk.exec(s); if (m) { const k = m[0]; return [k === 'true' ? true : k === 'false' ? false : k === 'null' ? null : { kw: k }, rk.lastIndex]; }
+  return [null, i + 1];
+};
+PdfCru.prototype.obj = function (n) {
+  if (this.pos[n] != null) return this.valor(this.s, this.pos[n])[0];
+  const o = this.os[n]; if (o) return this.valor(o.txt, o.off)[0]; return null;
+};
+PdfCru.prototype.res = function (v) { let k = 0; while (v && v.r != null && k++ < 8) v = this.obj(v.r); return v; };
+PdfCru.prototype.abrirObjStm = async function () { // PDF 1.5+: dicionários escondidos em object streams comprimidos
+  const re = /\/Type\s*\/ObjStm/g; let m; const feitos = new Set();
+  while ((m = re.exec(this.s))) {
+    const ini = this.donoRaw(m.index); if (ini == null || feitos.has(ini.n)) continue; feitos.add(ini.n);
+    try { const d = this.valor(this.s, ini.p); const dic = d[0]; let i = this.s.indexOf('stream', d[1]); if (i < 0) continue; i += 6; if (this.s[i] === '\r') i++; if (this.s[i] === '\n') i++;
+      let len = typeof dic.Length === 'number' ? dic.Length : null; if (len == null) { const e = this.s.indexOf('endstream', i); len = e - i; }
+      let dados = this.u8.subarray(i, i + len); const f = dic.Filter && (dic.Filter.n || (dic.Filter[0] && dic.Filter[0].n));
+      if (f === 'FlateDecode') dados = await inflar(dados, 'deflate'); else if (f) continue;
+      const txt = new TextDecoder('latin1').decode(dados); const N = dic.N | 0, first = dic.First | 0; const cab = txt.slice(0, first).trim().split(/\s+/).map(Number);
+      for (let k = 0; k < N; k++) { const num = cab[2 * k], off = cab[2 * k + 1]; if (this.pos[num] == null) this.os[num] = { txt, off: first + off }; }
+    } catch (e) {}
+  }
+};
+PdfCru.prototype.donoRaw = function (idx) { // objeto (cru) que contém a posição idx
+  let lo = 0, hi = this.lista.length - 1, r = -1; while (lo <= hi) { const mid = (lo + hi) >> 1; if (this.lista[mid][0] <= idx) { r = mid; lo = mid + 1; } else hi = mid - 1; }
+  if (r < 0) return null; const n = this.lista[r][1]; return { n, p: this.pos[n] };
+};
+PdfCru.prototype.donos = function (chave) { // números dos objetos onde aparece a chave (crus e comprimidos)
+  const out = new Set(); let i = -1; while ((i = this.s.indexOf(chave, i + 1)) >= 0) { const d = this.donoRaw(i); if (d) out.add(d.n); }
+  const porTxt = new Map(); for (const [n, o] of Object.entries(this.os)) { if (!porTxt.has(o.txt)) porTxt.set(o.txt, []); porTxt.get(o.txt).push([o.off, +n]); }
+  for (const [txt, arr] of porTxt) { if (txt.indexOf(chave) < 0) continue; arr.sort((a, b) => a[0] - b[0]); let j = -1; while ((j = txt.indexOf(chave, j + 1)) >= 0) { let dono = null; for (const a of arr) { if (a[0] <= j) dono = a[1]; else break; } if (dono != null) out.add(dono); } }
+  return [...out];
+};
+const nm = v => v && (v.n || v.s || '');
+function numArr(v) { return Array.isArray(v) ? v.map(Number) : null; }
+/* Lê a georreferência do PDF. Devolve {paginaRef, tipo, pares:[[lat,lon,xPDF,yPDF]], moldura:[[xPDF,yPDF]], aviso, bboxLL} */
+async function lerGeoPDF(u8) {
+  const P = new PdfCru(u8); await P.abrirObjStm();
+  let melhor = null;
+  // 1) ISO 32000 (QGIS, GDAL, ArcGIS, Avenza): página → /VP [ << /BBox /Measure << /Subtype /GEO /GPTS /LPTS >> >> ]
+  for (const n of P.donos('/VP')) {
+    const pg = P.obj(n); if (!pg || typeof pg !== 'object') continue; const vps = P.res(pg.VP); if (!Array.isArray(vps)) continue;
+    const ehPagina = nm(pg.Type) === 'Page' || pg.MediaBox || pg.Contents || pg.Parent;
+    for (let vp of vps) { vp = P.res(vp); if (!vp || !vp.BBox) continue; const me = P.res(vp.Measure); if (!me || nm(me.Subtype) !== 'GEO') continue;
+      const bb = numArr(P.res(vp.BBox)), gp = numArr(P.res(me.GPTS)); if (!bb || !gp || gp.length < 6) continue;
+      let lp = numArr(P.res(me.LPTS)) || numArr(P.res(me.Bounds)) || [0, 0, 0, 1, 1, 1, 1, 0];
+      const x1 = Math.min(bb[0], bb[2]), x2 = Math.max(bb[0], bb[2]), y1 = Math.min(bb[1], bb[3]), y2 = Math.max(bb[1], bb[3]); const area = (x2 - x1) * (y2 - y1);
+      let latPrim = true; for (let k = 0; k < gp.length; k += 2) if (Math.abs(gp[k]) > 90) latPrim = false;
+      const pares = []; for (let k = 0; k + 1 < gp.length && k + 1 < lp.length; k += 2) { const lat = latPrim ? gp[k] : gp[k + 1], lon = latPrim ? gp[k + 1] : gp[k]; pares.push([lat, lon, x1 + lp[k] * (x2 - x1), y1 + lp[k + 1] * (y2 - y1)]); }
+      const bd = numArr(P.res(me.Bounds)); const moldura = bd && bd.length >= 6 ? bd.reduce((a, v, k) => (k % 2 ? a[a.length - 1].push(y1 + v * (y2 - y1)) : a.push([x1 + v * (x2 - x1)]), a), []) : [[x1, y1], [x2, y1], [x2, y2], [x1, y2]];
+      const gcs = P.res(me.GCS); const wkt = gcs ? nm(P.res(gcs.WKT)) + ' ' + (gcs.EPSG || '') : '';
+      const aviso = /SAD.?69|South_American_1969|4618|291\d\d/i.test(wkt) ? 'Mapa em SAD 69: o ponto azul pode ficar uns 60 m deslocado.' : '';
+      if (pares.length >= 3 && (!melhor || area > melhor.area)) melhor = { paginaRef: ehPagina ? n : null, tipo: 'ISO 32000', pares, moldura, aviso, area };
+    }
+  }
+  // 2) OGC GeoPDF (LGIDict) — ArcGIS antigo e TerraGo
+  if (!melhor) for (const n of P.donos('/LGIDict')) {
+    const dono = P.obj(n); if (!dono) continue; let lg = P.res(dono.LGIDict); if (!lg) continue; if (!Array.isArray(lg)) lg = [lg];
+    const ehPagina = nm(dono.Type) === 'Page' || dono.MediaBox || dono.Contents;
+    for (let L of lg) { L = P.res(L); if (!L) continue; const pr = P.res(L.Projection) || {}; const tipo = nm(pr.ProjectionType).toUpperCase();
+      let z = +(P.res(pr.Zone) || 0), sul = /S/i.test(nm(pr.Hemisphere)); const datum = nm(P.res(pr.Datum)); const sad = /SAI|SAD|S69/i.test(datum);
+      const conv = (X, Y) => { if (tipo === 'UT' && z) return utmI(X, Y, z, sul); if (tipo === 'GEOGRAPHIC') return (Math.abs(X) <= 90 && Math.abs(Y) > 90) ? [X, Y] : [Y, X]; return null; };
+      let reg = P.res(L.Registration); const nl = numArr(P.res(L.Neatline)); let pares = [];
+      if (Array.isArray(reg)) for (let r of reg) { r = numArr(P.res(r)); if (r && r.length >= 4) { const ll = conv(r[2], r[3]); if (ll) pares.push([ll[0], ll[1], r[0], r[1]]); } }
+      const ctm = numArr(P.res(L.CTM));
+      if (pares.length < 3 && ctm && ctm.length === 6) { const cant = nl && nl.length >= 6 ? [[nl[0], nl[1]], [nl[2], nl[3]], [nl[4], nl[5]]] : [[0, 0], [600, 0], [0, 800]];
+        pares = cant.map(([x, y]) => { const ll = conv(ctm[0] * x + ctm[2] * y + ctm[4], ctm[1] * x + ctm[3] * y + ctm[5]); return ll ? [ll[0], ll[1], x, y] : null; }).filter(Boolean); }
+      if (pares.length < 3) continue; const moldura = nl && nl.length >= 6 ? nl.reduce((a, v, k) => (k % 2 ? a[a.length - 1].push(v) : a.push([v]), a), []) : null;
+      melhor = { paginaRef: ehPagina ? n : null, tipo: 'OGC', pares, moldura, aviso: sad ? 'Mapa em SAD 69: o ponto azul pode ficar uns 60 m deslocado.' : '' }; break;
+    }
+  }
+  if (!melhor) return null; melhor.bboxLL = bboxDe(melhor.pares.map(p => [p[0], p[1]])); return melhor;
+}
+function bboxDe(ll) { const la = ll.map(p => p[0]), lo = ll.map(p => p[1]); return [Math.min(...la), Math.min(...lo), Math.max(...la), Math.max(...lo)]; }
+
+/* ---------------- KML / KMZ / GPX ---------------- */
+async function unzip(u8) { // leitor de .zip mínimo (KMZ)
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength); let e = -1;
+  for (let i = u8.length - 22; i >= Math.max(0, u8.length - 70000); i--) if (dv.getUint32(i, true) === 0x06054b50) { e = i; break; }
+  if (e < 0) throw new Error('KMZ corrompido'); const n = dv.getUint16(e + 10, true); let p = dv.getUint32(e + 16, true); const out = {};
+  for (let k = 0; k < n; k++) { if (dv.getUint32(p, true) !== 0x02014b50) break; const met = dv.getUint16(p + 10, true), cs = dv.getUint32(p + 20, true), nl = dv.getUint16(p + 28, true), xl = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true), lo = dv.getUint32(p + 42, true);
+    const nome = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nl)); p += 46 + nl + xl + cl;
+    const ini = lo + 30 + dv.getUint16(lo + 26, true) + dv.getUint16(lo + 28, true); const dados = u8.subarray(ini, ini + cs);
+    out[nome] = () => met === 0 ? Promise.resolve(dados) : inflar(dados, 'deflate-raw'); }
+  return out;
+}
+function corKML(t) { t = String(t || '').trim(); if (!/^[0-9a-f]{8}$/i.test(t)) return null; const a = parseInt(t.slice(0, 2), 16) / 255; return `rgba(${parseInt(t.slice(6, 8), 16)},${parseInt(t.slice(4, 6), 16)},${parseInt(t.slice(2, 4), 16)},${Math.max(.35, a).toFixed(2)})`; }
+function coordsKML(t) { return String(t || '').trim().split(/\s+/).map(c => c.split(',').map(Number)).filter(c => c.length >= 2 && isFinite(c[0]) && isFinite(c[1])).map(c => [c[1], c[0]]); }
+async function lerKML(txt, arquivos) {
+  const doc = new DOMParser().parseFromString(txt, 'application/xml'); const tag = (el, n) => [...el.getElementsByTagName(n)];
+  const filho = (el, n) => { const x = el.getElementsByTagName(n)[0]; return x ? x.textContent.trim() : ''; };
+  const estilos = {}; for (const s of tag(doc, 'Style')) { const id = s.getAttribute('id'); if (!id) continue; const ls = s.getElementsByTagName('LineStyle')[0], ps = s.getElementsByTagName('PolyStyle')[0]; estilos[id] = { linha: ls && corKML(filho(ls, 'color')), area: ps && corKML(filho(ps, 'color')) }; }
+  for (const m of tag(doc, 'StyleMap')) { const id = m.getAttribute('id'); const p = tag(m, 'Pair').find(x => filho(x, 'key') === 'normal'); if (id && p) estilos[id] = estilos[filho(p, 'styleUrl').replace('#', '')] || null; }
+  const feicoes = [];
+  for (const pm of tag(doc, 'Placemark')) { const nome = filho(pm, 'name'); const desc = (pm.getElementsByTagName('description')[0] || {}).textContent || '';
+    const st = estilos[filho(pm, 'styleUrl').replace('#', '')] || {}; const inl = pm.getElementsByTagName('Style')[0]; let cor = st.linha, corA = st.area;
+    if (inl) { const ls = inl.getElementsByTagName('LineStyle')[0], ps = inl.getElementsByTagName('PolyStyle')[0]; if (ls) cor = corKML(filho(ls, 'color')) || cor; if (ps) corA = corKML(filho(ps, 'color')) || corA; }
+    for (const g of tag(pm, 'Point')) feicoes.push({ tipo: 'ponto', nome, desc, c: coordsKML(filho(g, 'coordinates')) });
+    for (const g of tag(pm, 'LineString')) feicoes.push({ tipo: 'linha', nome, desc, c: coordsKML(filho(g, 'coordinates')), cor });
+    for (const g of tag(pm, 'Polygon')) { const ob = g.getElementsByTagName('outerBoundaryIs')[0] || g; feicoes.push({ tipo: 'area', nome, desc, c: coordsKML(filho(ob, 'coordinates')), cor, corA }); }
+    for (const g of tag(pm, 'gx:Track')) feicoes.push({ tipo: 'linha', nome, desc, c: tag(g, 'gx:coord').map(x => x.textContent.trim().split(/\s+/).map(Number)).map(v => [v[1], v[0]]), cor });
+  }
+  const sobre = [];
+  for (const go of tag(doc, 'GroundOverlay')) { const href = filho(go.getElementsByTagName('Icon')[0] || go, 'href'); let cantos = null;
+    const q = go.getElementsByTagName('gx:LatLonQuad')[0];
+    if (q) { const c = coordsKML(filho(q, 'coordinates')); if (c.length === 4) cantos = [c[3], c[2], c[1], c[0]]; } // LL,LR,UR,UL → UL,UR,LR,LL
+    else { const b = go.getElementsByTagName('LatLonBox')[0]; if (b) { const N = +filho(b, 'north'), S = +filho(b, 'south'), E = +filho(b, 'east'), W = +filho(b, 'west'), r = +(filho(b, 'rotation') || 0) * RAD;
+      const cl = (N + S) / 2, co = (E + W) / 2, k = Math.cos(cl * RAD); const rot = (la, lo) => { const x = (lo - co) * k, y = la - cl; return [cl + x * Math.sin(r) + y * Math.cos(r), co + (x * Math.cos(r) - y * Math.sin(r)) / k]; };
+      cantos = [rot(N, W), rot(N, E), rot(S, E), rot(S, W)]; } }
+    if (!cantos || !href) continue; const chave = Object.keys(arquivos || {}).find(k => k === href || k.endsWith('/' + href) || href.endsWith(k));
+    if (chave) sobre.push({ nome: filho(go, 'name'), cantos, arq: chave, mime: /\.png$/i.test(chave) ? 'image/png' : 'image/jpeg' });
+  }
+  return { feicoes: feicoes.filter(f => f.c.length), sobre };
+}
+function lerGPX(txt) {
+  const doc = new DOMParser().parseFromString(txt, 'application/xml'); const tag = (el, n) => [...el.getElementsByTagName(n)]; const pt = e => [+e.getAttribute('lat'), +e.getAttribute('lon')];
+  const nomeDe = e => { const n = [...e.children].find(c => c.tagName === 'name'); return n ? n.textContent.trim() : ''; };
+  const f = []; for (const w of tag(doc, 'wpt')) f.push({ tipo: 'ponto', nome: nomeDe(w), c: [pt(w)] });
+  for (const t of tag(doc, 'trk')) for (const s of tag(t, 'trkseg')) f.push({ tipo: 'linha', nome: nomeDe(t), c: tag(s, 'trkpt').map(pt) });
+  for (const r of tag(doc, 'rte')) f.push({ tipo: 'linha', nome: nomeDe(r), c: tag(r, 'rtept').map(pt) });
+  return { feicoes: f.filter(x => x.c.length), sobre: [] };
+}
+
+/* ---------------- tipo do arquivo e análise rápida (para a lista) ---------------- */
+function tipoDe(nome, u8) {
+  const h = String.fromCharCode(...u8.subarray(0, 5)); if (h.startsWith('%PDF')) return 'pdf';
+  if ((u8[0] === 0x49 && u8[1] === 0x49) || (u8[0] === 0x4d && u8[1] === 0x4d)) return 'tif';
+  if (u8[0] === 0x50 && u8[1] === 0x4b) return 'kmz';
+  const t = new TextDecoder().decode(u8.subarray(0, 600)); if (/<gpx/i.test(t)) return 'gpx'; if (/<kml/i.test(t)) return 'kml';
+  const m = /\.(pdf|tif|tiff|kml|kmz|gpx)$/i.exec(nome || ''); return m ? m[1].toLowerCase().replace('tiff', 'tif') : null;
+}
+async function vetorDe(tipo, u8) { // KML/KMZ/GPX → {feicoes, sobre, arquivos}
+  if (tipo === 'gpx') return lerGPX(new TextDecoder().decode(u8));
+  if (tipo === 'kml') return lerKML(new TextDecoder().decode(u8), {});
+  const z = await unzip(u8); const k = Object.keys(z).find(n => /\.kml$/i.test(n)); if (!k) throw new Error('KMZ sem KML dentro');
+  const r = await lerKML(new TextDecoder().decode(await z[k]()), z); r.arquivos = z; return r;
+}
+async function analisar(nome, blob) { // o que a lista precisa saber sem abrir o mapa
+  const u8 = new Uint8Array(await blob.arrayBuffer()); const tipo = tipoDe(nome, u8); const r = { tipo, geo: false, bboxLL: null, resumo: '' };
+  try {
+    if (tipo === 'pdf') { const g = await lerGeoPDF(u8); if (g) { r.geo = true; r.bboxLL = g.bboxLL; r.resumo = 'PDF georreferenciado'; r.aviso = g.aviso; } else r.resumo = 'PDF sem georreferência (só para ver)'; }
+    else if (tipo === 'tif') { const G = await geotiff(); const t = await G.fromArrayBuffer(u8.buffer); const im = await t.getImage(); const gg = geoTif(im); if (gg) { r.geo = true; r.bboxLL = bboxDe(gg.pares.map(p => [p[0], p[1]])); r.resumo = 'GeoTIFF'; r.aviso = gg.aviso; } else r.resumo = 'TIFF sem georreferência'; }
+    else if (tipo === 'kml' || tipo === 'kmz' || tipo === 'gpx') { const v = await vetorDe(tipo, u8); const ll = v.feicoes.flatMap(f => f.c).concat(v.sobre.flatMap(s => s.cantos)); if (ll.length) { r.geo = true; r.bboxLL = bboxDe(ll); }
+      r.resumo = `${tipo.toUpperCase()} · ${v.feicoes.length} feiç${v.feicoes.length === 1 ? 'ão' : 'ões'}${v.sobre.length ? ' + imagem' : ''}`; r.camada = !v.sobre.length; }
+    else r.resumo = 'formato não reconhecido';
+  } catch (e) { r.resumo = 'não consegui ler: ' + (e.message || e); }
+  return r;
+}
+function geoTif(im) {
+  const k = im.getGeoKeys() || {}; const W = im.getWidth(), H = im.getHeight(); let o, rs;
+  try { o = im.getOrigin(); rs = im.getResolution(); } catch (e) { return null; }
+  const info = epsgInfo(k.ProjectedCSTypeGeoKey || k.GeographicTypeGeoKey || 0); if (!info) return null;
+  const cant = [[0, 0], [W, 0], [W, H], [0, H]]; const pares = cant.map(([x, y]) => { const X = o[0] + x * rs[0], Y = o[1] + y * rs[1]; const ll = info.geo ? [Y, X] : utmI(X, Y, info.z, info.sul); return [ll[0], ll[1], x, y]; });
+  return { pares, moldura: cant, aviso: info.sad ? 'Mapa em SAD 69: o ponto azul pode ficar uns 60 m deslocado.' : '' };
+}
+
+/* ---------------- robô de campo: lista e baixa os mapas da pasta da obra ---------------- */
+function urlRobo(q) { const c = APP() && APP().cfg; if (!c || !c.script) return null; return c.script + '?' + new URLSearchParams(Object.assign({ token: c.token, _: Date.now() }, q)); }
+const BAIX = {}; // fileId → {pct, erro}
+async function listarDrive(ob) {
+  const u = urlRobo({ acao: 'mapas', pasta: ob.pastaId }); if (!u) throw new Error('robô não configurado');
+  const j = await fetch(u).then(r => r.json()); if (!j || !j.ok) throw new Error(j && j.erro || 'robô sem resposta');
+  if (!Array.isArray(j.mapas)) throw new Error('o Robô de Campo ainda não sabe listar mapas (precisa da versão nova)');
+  const lista = j.mapas.filter(m => EXT_OK.test(m.nome || '')); LSx.set('mapasDrive_' + ob.id, { em: new Date().toISOString(), lista }); return lista;
+}
+async function baixar(ob, it, aoProgresso) {
+  BAIX[it.id] = { pct: 0 }; aoProgresso && aoProgresso();
+  try {
+    const partes = []; let total = 1, recebido = 0;
+    for (let p = 0; p < total; p++) {
+      let j = null; for (let tent = 0; tent < 3 && !j; tent++) { try { const r = await fetch(urlRobo({ acao: 'mapa', id: it.id, pasta: ob.pastaId, parte: p })); j = await r.json(); if (!j.ok) throw new Error(j.erro || 'falhou'); } catch (e) { j = null; if (tent === 2) throw e; await new Promise(ok => setTimeout(ok, 1500)); } }
+      total = j.partes || 1; const bin = atob(j.b64); const u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+      partes.push(u8); recebido += u8.length; BAIX[it.id].pct = Math.round(100 * (p + 1) / total); aoProgresso && aoProgresso();
+    }
+    const blob = new Blob(partes, { type: it.mime || 'application/octet-stream' }); const an = await analisar(it.nome, blob);
+    await MDB.put('mapas', Object.assign({ id: 'd_' + it.id, obraId: ob.id, nome: it.nome, origem: 'drive', fileId: it.id, modificado: it.modificado || '', tamanho: blob.size, blob, caminho: it.caminho || '', criadoEm: new Date().toISOString() }, an));
+    delete BAIX[it.id]; aoProgresso && aoProgresso(); return true;
+  } catch (e) { BAIX[it.id] = { erro: String(e.message || e) }; aoProgresso && aoProgresso(); return false; }
+}
+const LSx = { get: (k, d) => (LSapp() ? LSapp().get(k, d) : d), set: (k, v) => { if (LSapp()) LSapp().set(k, v); } };
+let sincronizando = {};
+async function sincronizar(ob, opt = {}) { // ao abrir a obra com internet: lista o Drive e baixa o que falta (até 40 MB cada)
+  if (!ob || !ob.pastaId || !navigator.onLine || sincronizando[ob.id]) return; sincronizando[ob.id] = true;
+  try {
+    let lista; try { lista = await listarDrive(ob); } catch (e) { if (!opt.silencioso) toast('Mapas: ' + e.message, 4000); return; }
+    const locais = await MDB.obra('mapas', ob.id);
+    for (const it of lista) { const l = locais.find(x => x.fileId === it.id); if (l && (l.modificado || '') === (it.modificado || '')) continue;
+      if (!opt.tudo && (it.tamanho || 0) > LIMITE_AUTO) continue; await baixar(ob, it, () => pintarLista(ob)); }
+  } finally { delete sincronizando[ob.id]; pintarLista(ob); }
+}
+
+/* ---------------- aba "Mapas" da obra ---------------- */
+let OB_ATUAL = null;
+function tela(ob) {
+  OB_ATUAL = ob;
+  return `<div class="card"><h2>Mapas da obra</h2><div class="nota">Abrem <b>sem internet</b>. Toque no mapa para navegar com o GPS: ponto azul, pinos, trilha, ir até um ponto e medir.</div>
+  <div id="mpLista"><div class="muted">Carregando…</div></div>
+  <div class="row" style="margin-top:10px"><button class="sec" id="mpAtualizar">Buscar no Drive</button><button class="sec" id="mpImportar">Mapa do celular</button></div>
+  <input type="file" id="mpArq" accept=".pdf,.tif,.tiff,.kml,.kmz,.gpx,application/pdf,image/tiff,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz,application/gpx+xml" multiple style="display:none">
+  <div class="nota">Formatos: PDF georreferenciado (como o do Avenza), GeoTIFF, KML/KMZ do Google Earth e GPX. Mapa que chegou por WhatsApp: salve no celular e toque em "Mapa do celular".</div></div>
+  <div class="card"><h2>Pinos e trilhas desta obra</h2><div id="mpMarcas"><div class="muted">Carregando…</div></div></div>`;
+}
+function ligar(ob) {
+  OB_ATUAL = ob; pintarLista(ob);
+  $('#mpAtualizar').onclick = async () => { if (!navigator.onLine) return toast('Sem internet agora. Os mapas que já estão no celular continuam abrindo.'); if (!ob.pastaId) return toast('Esta obra ainda não tem pasta no Drive. Avise o escritório.', 4000);
+    toast('Procurando mapas na pasta da obra…'); await sincronizar(ob, { tudo: false }); };
+  $('#mpImportar').onclick = () => $('#mpArq').click();
+  $('#mpArq').onchange = async e => { const fs = [...e.target.files]; e.target.value = ''; for (const f of fs) await importar(ob, f); pintarLista(ob); };
+}
+async function importar(ob, f) {
+  const an = await analisar(f.name, f); if (!an.tipo) return toast(`${f.name}: formato não reconhecido`, 3500);
+  await MDB.put('mapas', Object.assign({ id: uid('c_'), obraId: ob.id, nome: f.name, origem: 'celular', tamanho: f.size, blob: f, criadoEm: new Date().toISOString() }, an));
+  toast(an.geo ? `${f.name}: pronto para usar ✓` : `${f.name}: guardado, mas ${an.resumo}`, 3500);
+}
+function posAgora() { return window.posFresca ? posFresca(120000) : null; }
+function rotuloLonge(bb) { const p = posAgora(); if (!p || !bb) return ''; if (p.lat >= bb[0] && p.lat <= bb[2] && p.lon >= bb[1] && p.lon <= bb[3]) return '<span class="chip g">você está aqui dentro</span>';
+  const c = [(bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2]; return `<span class="chip">a ${fmtDist(dist([p.lat, p.lon], c))} ${cardeal(rumo([p.lat, p.lon], c))}</span>`; }
+async function pintarLista(ob) {
+  const el = $('#mpLista'); if (!el || !OB_ATUAL || OB_ATUAL.id !== ob.id) return;
+  const locais = (await MDB.obra('mapas', ob.id)).sort((a, b) => (a.camada ? 1 : 0) - (b.camada ? 1 : 0) || a.nome.localeCompare(b.nome));
+  const dr = LSx.get('mapasDrive_' + ob.id, null); const doDrive = (dr && dr.lista) || [];
+  const falta = doDrive.filter(it => !locais.some(l => l.fileId === it.id && (l.modificado || '') === (it.modificado || '')));
+  let h = '';
+  for (const m of locais) { const atual = !m.fileId || !doDrive.length || doDrive.some(d => d.id === m.fileId);
+    h += `<div class="mpItem"><button class="obra mpAbrir" data-id="${esc(m.id)}" style="margin:0"><b>🗺 ${esc(m.nome.replace(/\.[^.]+$/, ''))}</b><small>${esc(m.resumo || '')} · ${fmtTam(m.tamanho || 0)}${m.origem === 'celular' ? ' · trazido do celular' : ''}</small>
+      <div style="margin-top:6px"><span class="chip g">no celular ✓</span>${m.geo ? rotuloLonge(m.bboxLL) : '<span class="chip w">sem GPS neste mapa</span>'}${m.camada ? '<span class="chip">aparece por cima dos outros mapas</span>' : ''}${atual ? '' : '<span class="chip w">saiu do Drive</span>'}</div></button>
+      <button class="ghost mpTirar" data-id="${esc(m.id)}" aria-label="Tirar do celular">✕</button></div>`; }
+  for (const it of falta) { const b = BAIX[it.id];
+    h += `<div class="mpItem"><button class="obra mpBaixar" data-id="${esc(it.id)}" style="margin:0"><b>☁ ${esc(it.nome.replace(/\.[^.]+$/, ''))}</b><small>${esc(it.caminho || 'Drive da obra')} · ${fmtTam(it.tamanho || 0)}</small>
+      <div style="margin-top:6px">${b && b.pct != null ? `<span class="chip">baixando ${b.pct}%</span>` : b && b.erro ? `<span class="chip e">falhou: ${esc(b.erro)} — toque para tentar</span>` : `<span class="chip w">${navigator.onLine ? 'toque para baixar' : 'baixa quando tiver internet'}</span>`}</div></button></div>`; }
+  if (!h) h = `<div class="muted" style="margin:8px 0">${ob.pastaId ? (dr ? 'Nenhum mapa na pasta desta obra no Drive.' : (navigator.onLine ? 'Procurando mapas na pasta da obra…' : 'Ainda não baixei os mapas desta obra. Abra a obra uma vez com internet (no escritório) que eles descem sozinhos.')) : 'Esta obra ainda não tem pasta no Drive.'} Se recebeu o mapa por outro meio, use "Mapa do celular".</div>`;
+  if (dr) h += `<div class="nota">Drive conferido em ${window.fmtData ? fmtData(dr.em) : dr.em}.</div>`;
+  el.innerHTML = h;
+  el.querySelectorAll('.mpAbrir').forEach(b => b.onclick = () => abrir(ob, b.dataset.id));
+  el.querySelectorAll('.mpTirar').forEach(b => b.onclick = async () => { const m = await MDB.get('mapas', b.dataset.id); if (!m) return;
+    if (m.origem === 'celular' && !confirm(`"${m.nome}" veio deste celular e não está no Drive. Tirar mesmo assim?`)) return;
+    await MDB.del('mapas', m.id); toast(m.origem === 'drive' ? 'Tirado do celular. Continua no Drive da obra.' : 'Tirado do celular.'); pintarLista(ob); });
+  el.querySelectorAll('.mpBaixar').forEach(b => b.onclick = async () => { if (!navigator.onLine) return toast('Sem internet agora. Baixa quando tiver sinal.'); const it = falta.find(x => x.id === b.dataset.id); if (it && !BAIX[it.id]?.pct) { await baixar(ob, it, () => pintarLista(ob)); } });
+  pintarMarcas(ob);
+}
+async function pintarMarcas(ob) {
+  const el = $('#mpMarcas'); if (!el) return; const ms = (await MDB.obra('marcas', ob.id)).sort((a, b) => a.criadoEm < b.criadoEm ? 1 : -1); const p = posAgora();
+  if (!ms.length) { el.innerHTML = '<div class="muted">Nenhum ainda. Dentro do mapa: 📍 Marcar guarda o ponto onde você está; ⏺ Trilha grava o caminho. Tudo sobe para o Drive da obra em KML.</div>'; return; }
+  el.innerHTML = ms.map(m => m.tipo === 'pino'
+    ? `<div class="chk" style="align-items:center"><span>📍</span><span style="flex:1"><b>${esc(m.nome)}</b><br><small class="muted">${esc(window.fmtCoordCurta ? fmtCoordCurta({ lat: m.lat, lon: m.lon }, APP() ? APP().fmt : 'utm') : m.lat + ',' + m.lon)}${p ? ' · a ' + fmtDist(dist([p.lat, p.lon], [m.lat, m.lon])) : ''} · ${m.enviado ? 'no Drive ✓' : 'vai para o Drive'}</small></span></div>`
+    : `<div class="chk" style="align-items:center"><span>〰</span><span style="flex:1"><b>${esc(m.nome)}</b><br><small class="muted">${fmtDist(compLL(m.pts))} · ${m.pts.length} pontos · ${m.enviado ? 'no Drive ✓' : 'vai para o Drive'}</small></span></div>`).join('');
+}
+
+/* ============================================================
+   VISUALIZADOR (o "Avenza" do app)
+   ============================================================ */
+const V = { aberto: false };
+function cssUmaVez() {
+  if ($('#mpvCss')) return; const st = document.createElement('style'); st.id = 'mpvCss';
+  st.textContent = `.mpItem{display:flex;gap:4px;align-items:stretch;margin-bottom:10px}.mpItem .obra{flex:1 1 auto;width:auto;min-width:0}.mpItem .ghost{flex:0 0 auto;align-self:center;font-size:18px;color:var(--muted)}
+#mpv{position:fixed;inset:0;z-index:9000;background:#E9EDF2;display:flex;flex-direction:column;touch-action:none;user-select:none;-webkit-user-select:none}
+#mpv .mt{background:var(--navy);color:#fff;padding:calc(8px + var(--sat)) 10px 8px;display:flex;gap:8px;align-items:center;flex:none}
+#mpv .mt b{flex:1;min-width:0;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#mpv .mt button{background:rgba(255,255,255,.16);padding:8px 12px;font-size:14px}
+#mpv .mc{position:relative;flex:1;min-height:0;overflow:hidden}#mpv canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#mpv .av{position:absolute;left:10px;right:10px;top:10px;background:rgba(17,62,107,.92);color:#fff;border-radius:12px;padding:9px 12px;font-size:14px;display:none}#mpv .av.on{display:block}#mpv .av.w{background:rgba(180,83,9,.94)}
+#mpv .nav{position:absolute;left:10px;right:10px;top:10px;background:#fff;border-radius:14px;padding:10px 12px;box-shadow:0 4px 16px rgba(0,0,0,.2);display:none;align-items:center;gap:12px}#mpv .nav.on{display:flex}
+#mpv .nav .seta{width:54px;height:54px;flex:none;border-radius:50%;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:center;font-size:30px;transition:transform .25s}
+#mpv .nav .tx{flex:1;min-width:0}#mpv .nav .tx b{display:block;font-size:22px;color:var(--navy)}#mpv .nav .tx small{color:var(--muted);font-size:13px}
+#mpv .fab{position:absolute;right:10px;bottom:12px;display:flex;flex-direction:column;gap:10px}
+#mpv .fab button{width:52px;height:52px;border-radius:50%;padding:0;background:#fff;color:var(--navy);font-size:22px;box-shadow:0 2px 10px rgba(0,0,0,.25)}#mpv .fab button.on{background:var(--navy);color:#fff}
+#mpv .mb{background:#fff;flex:none;padding:8px 10px calc(8px + var(--sab));border-top:1px solid var(--line)}
+#mpv .co{font-family:ui-monospace,Menlo,monospace;font-size:13px;color:var(--navy);text-align:center;padding:2px 0 8px}
+#mpv .ac{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}#mpv .ac button{padding:10px 4px;font-size:13px;background:#E8F1FA;color:var(--navy)}#mpv .ac button.on{background:var(--err);color:#fff}#mpv .ac button.m{background:var(--green);color:#fff}
+#mpv .sheet{position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:16px 16px 0 0;box-shadow:0 -6px 24px rgba(0,0,0,.2);padding:14px 14px calc(14px + var(--sab));max-height:72%;overflow-y:auto;display:none;z-index:5;touch-action:pan-y}#mpv .sheet.on{display:block}
+#mpv .sheet h3{margin:0 0 8px;color:var(--navy);font-size:16px}#mpv .sheet .lin{display:flex;gap:8px;margin-top:10px}#mpv .sheet .lin button{flex:1}
+#mpv .sheet .geo{font-size:12px;margin:6px 0}`;
+  document.head.appendChild(st);
+}
+async function abrir(ob, id) {
+  cssUmaVez(); const m = await MDB.get('mapas', id); if (!m) return toast('Mapa não encontrado no celular.');
+  if (V.aberto) fecharVisual(true);
+  const el = document.createElement('div'); el.id = 'mpv';
+  el.innerHTML = `<div class="mt"><button id="mpvVolta">‹ Voltar</button><b>${esc(m.nome.replace(/\.[^.]+$/, ''))}</b><button id="mpvMais">☰</button></div>
+  <div class="mc" id="mpvC"><canvas id="mpvCv"></canvas><div class="av" id="mpvAv"></div><div class="nav" id="mpvNav"></div>
+    <div class="fab"><button id="mpvBus" aria-label="Bússola">🧭</button><button id="mpvEu" aria-label="Centralizar em mim">◎</button></div>
+    <div class="sheet" id="mpvSh"></div></div>
+  <div class="mb"><div class="co" id="mpvCo">Procurando GPS…</div><div class="ac"><button data-a="pino">📍 Marcar</button><button data-a="trilha">⏺ Trilha</button><button data-a="medir">📏 Medir</button><button data-a="mais">☰ Mais</button></div></div>`;
+  document.body.appendChild(el); try { history.pushState({ t: 'mapa' }, ''); } catch (e) {}
+  Object.assign(V, { aberto: true, ob, m, el, cv: $('#mpvCv'), k: 1, tx: 0, ty: 0, ptrs: new Map(), seguir: false, alvo: null, medir: null, pop: null, detalhe: null, camadas: [], fora: null, trilha: V.trilha && V.trilha.obraId === ob.id ? V.trilha : null });
+  V.ctx = V.cv.getContext('2d'); ligarVisual(); redimensionar();
+  $('#mpvAv').className = 'av on'; $('#mpvAv').textContent = 'Abrindo o mapa…';
+  try { await carregarMapa(m); } catch (e) { $('#mpvAv').className = 'av on w'; $('#mpvAv').textContent = 'Não consegui abrir este mapa: ' + (e.message || e); return; }
+  await carregarCamadas(); V.marcas = await MDB.obra('marcas', ob.id); enquadrar(); avisos(); iniciarGPSmapa(); pedir();
+}
+async function carregarMapa(m) {
+  const u8 = new Uint8Array(await m.blob.arrayBuffer()); const tipo = m.tipo || tipoDe(m.nome, u8); V.tipo = tipo; const dpr = window.devicePixelRatio || 1;
+  const maxLado = (navigator.deviceMemory && navigator.deviceMemory <= 3) ? 2560 : 4096, maxArea = 14e6;
+  if (tipo === 'pdf') {
+    const geo = await lerGeoPDF(u8).catch(() => null); const lib = await pdfjs();
+    const doc = await lib.getDocument({ data: u8.slice(), isEvalSupported: false }).promise; V.doc = doc; let pg = null;
+    if (geo && geo.paginaRef != null) for (let i = 1; i <= doc.numPages && !pg; i++) { const p = await doc.getPage(i); if (p.ref && p.ref.num === geo.paginaRef) pg = p; }
+    if (!pg) pg = await doc.getPage(1); V.page = pg; const v1 = pg.getViewport({ scale: 1 }); V.W = v1.width; V.H = v1.height;
+    if (geo) { const cv = (x, y) => v1.convertToViewportPoint(x, y); V.geo = criarGeo(geo.pares.map(p => { const q = cv(p[2], p[3]); return [p[0], p[1], q[0], q[1]]; }), geo.moldura && geo.moldura.map(q => cv(q[0], q[1])), geo.aviso); }
+    const s0 = Math.min(maxLado / Math.max(V.W, V.H), Math.sqrt(maxArea / (V.W * V.H)), 4 * dpr); const c = document.createElement('canvas'); c.width = Math.round(V.W * s0); c.height = Math.round(V.H * s0);
+    const cx = c.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, c.width, c.height); await pg.render({ canvasContext: cx, viewport: pg.getViewport({ scale: s0 }) }).promise; V.base = c; V.s0 = s0;
+  } else if (tipo === 'tif') {
+    const G = await geotiff(); const t = await G.fromArrayBuffer(u8.buffer); const im = await t.getImage(); V.W = im.getWidth(); V.H = im.getHeight();
+    const gg = geoTif(im); if (gg) V.geo = criarGeo(gg.pares, gg.moldura, gg.aviso);
+    const s0 = Math.min(1, maxLado / Math.max(V.W, V.H), Math.sqrt(maxArea / (V.W * V.H))); const w = Math.max(1, Math.round(V.W * s0)), h = Math.max(1, Math.round(V.H * s0));
+    const ras = await t.readRasters({ width: w, height: h, interleave: false }); const nb = ras.length; const img = new ImageData(w, h);
+    const est = b => { const a = ras[b]; if (a instanceof Uint8Array || a instanceof Uint8ClampedArray) return v => v; const amostra = []; for (let i = 0; i < a.length; i += Math.max(1, (a.length / 20000) | 0)) if (isFinite(a[i]) && a[i] !== 0) amostra.push(a[i]); amostra.sort((x, y) => x - y); const lo = amostra[(amostra.length * .02) | 0] || 0, hi = amostra[(amostra.length * .98) | 0] || 1; return v => (v - lo) / (hi - lo || 1) * 255; };
+    const fs = [0, 1, 2].map(b => est(Math.min(b, nb - 1)));
+    for (let i = 0; i < w * h; i++) { for (let b = 0; b < 3; b++) img.data[i * 4 + b] = fs[b](ras[Math.min(b, nb - 1)][i]); img.data[i * 4 + 3] = nb === 4 && (ras[3] instanceof Uint8Array) ? ras[3][i] : 255; }
+    const c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d').putImageData(img, 0, 0); V.base = c; V.s0 = s0;
+  } else {
+    const v = await vetorDe(tipo, u8); V.vet = v.feicoes; const so = v.sobre[0];
+    if (so) { const b = new Blob([await v.arquivos[so.arq]()], { type: so.mime }); const bmp = await createImageBitmap(b); V.W = bmp.width; V.H = bmp.height;
+      const s0 = Math.min(1, maxLado / Math.max(V.W, V.H)); const c = document.createElement('canvas'); c.width = Math.round(V.W * s0); c.height = Math.round(V.H * s0); c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height); bmp.close && bmp.close(); V.base = c; V.s0 = s0;
+      V.geo = criarGeo([[...so.cantos[0], 0, 0], [...so.cantos[1], V.W, 0], [...so.cantos[2], V.W, V.H], [...so.cantos[3], 0, V.H]], [[0, 0], [V.W, 0], [V.W, V.H], [0, V.H]]); }
+    else { // só vetor: a "folha" é a área das feições com 20% de folga, 1 px = 1 m
+      const ll = V.vet.flatMap(f => f.c); if (!ll.length) throw new Error('arquivo sem feições'); const bb = bboxDe(ll); const z = zonaDe((bb[1] + bb[3]) / 2), sul = (bb[0] + bb[2]) / 2 < 0;
+      const a = utmF(bb[0], bb[1], z, sul), b = utmF(bb[2], bb[3], z, sul); const fol = Math.max(80, (b[0] - a[0]) * .2, (b[1] - a[1]) * .2); const E0 = a[0] - fol, N1 = b[1] + fol;
+      V.W = b[0] - a[0] + 2 * fol; V.H = b[1] - a[1] + 2 * fol; const cant = [[0, 0], [V.W, 0], [V.W, V.H], [0, V.H]];
+      V.geo = criarGeo(cant.map(([x, y]) => { const q = utmI(E0 + x, N1 - y, z, sul); return [q[0], q[1], x, y]; }), null); V.soVetor = true; }
+  }
+  if (V.vet && V.geo) V.vetPx = projVet(V.vet);
+}
+function projVet(fs) { return fs.map(f => Object.assign({}, f, { p: f.c.map(c => V.geo.ll2px(c[0], c[1])) })); }
+async function carregarCamadas() { // KML/GPX da mesma obra aparecem por cima (podem ser desligados no ☰)
+  V.camadas = []; if (!V.geo) return; const desl = LSx.get('mpCamDesl_' + V.ob.id, {});
+  for (const c of await MDB.obra('mapas', V.ob.id)) { if (c.id === V.m.id || !c.camada) continue;
+    try { const v = await vetorDe(c.tipo, new Uint8Array(await c.blob.arrayBuffer())); V.camadas.push({ id: c.id, nome: c.nome, on: !desl[c.id], f: projVet(v.feicoes) }); } catch (e) {} }
+}
+function redimensionar() { if (!V.aberto) return; const r = $('#mpvC').getBoundingClientRect(); V.dpr = window.devicePixelRatio || 1; V.cw = r.width; V.ch = r.height; V.cv.width = Math.round(r.width * V.dpr); V.cv.height = Math.round(r.height * V.dpr); V.detalhe = null; pedir(); }
+function enquadrar() { const k = Math.min(V.cw / V.W, V.ch / V.H) * .96; V.k = k; V.kmin = k * .4; V.kmax = V.tipo === 'pdf' ? Math.max(k * 80, 12) : Math.max(k * 60, 6 / (V.s0 || 1)); V.tx = (V.cw - V.W * k) / 2; V.ty = (V.ch - V.H * k) / 2; V.detalhe = null; }
+const s2m = (x, y) => [(x - V.tx) / V.k, (y - V.ty) / V.k], m2s = (x, y) => [x * V.k + V.tx, y * V.k + V.ty];
+function zoomEm(f, sx, sy) { const k = Math.max(V.kmin, Math.min(V.kmax, V.k * f)); const m = s2m(sx, sy); V.k = k; V.tx = sx - m[0] * k; V.ty = sy - m[1] * k; pedir(); }
+let rafPedido = false, tDetalhe = null;
+function pedir() { if (rafPedido || !V.aberto) return; rafPedido = true; requestAnimationFrame(() => { rafPedido = false; desenhar(); }); clearTimeout(tDetalhe); tDetalhe = setTimeout(detalhar, 260); }
+async function detalhar() { // PDF: refaz a parte da tela em alta definição depois que o dedo para (texto e linha sempre nítidos)
+  if (!V.aberto || V.tipo !== 'pdf' || !V.page) return; const esc0 = V.k * V.dpr; if (esc0 <= V.s0 * 1.1) { if (V.detalhe) { V.detalhe = null; pedir(); } return; }
+  const chave = [V.k, V.tx, V.ty, V.cw, V.ch].join('|'); if (V.detalhe && V.detalhe.chave === chave) return;
+  if (V.tarefa) { try { V.tarefa.cancel(); } catch (e) {} }
+  const c = document.createElement('canvas'); c.width = V.cv.width; c.height = V.cv.height; const cx = c.getContext('2d');
+  const vp = V.page.getViewport({ scale: esc0, offsetX: V.tx * V.dpr, offsetY: V.ty * V.dpr });
+  const est = { k: V.k, tx: V.tx, ty: V.ty, chave }; V.tarefa = V.page.render({ canvasContext: cx, viewport: vp, background: 'rgba(0,0,0,0)' });
+  try { await V.tarefa.promise; V.tarefa = null; if (!V.aberto) return; V.detalhe = Object.assign(est, { c }); pedir(); } catch (e) { /* cancelado: o dedo mexeu de novo */ }
+}
+
+/* ---------------- desenho ---------------- */
+function desenhar() {
+  const c = V.ctx; if (!c) return; c.setTransform(V.dpr, 0, 0, V.dpr, 0, 0); c.fillStyle = V.soVetor ? '#F6F7F2' : '#E9EDF2'; c.fillRect(0, 0, V.cw, V.ch);
+  if (V.base) { c.imageSmoothingEnabled = V.k * V.dpr < V.s0 * 2; c.drawImage(V.base, V.tx, V.ty, V.W * V.k, V.H * V.k); c.imageSmoothingEnabled = true; }
+  if (V.detalhe) { const d = V.detalhe, r = V.k / d.k; c.drawImage(d.c, V.tx - r * d.tx, V.ty - r * d.ty, d.c.width / V.dpr * r, d.c.height / V.dpr * r); }
+  if (V.soVetor) grade(c);
+  if (V.geo) {
+    for (const cm of V.camadas) if (cm.on) feicoes(c, cm.f, '#E11D48');
+    if (V.vetPx) feicoes(c, V.vetPx, '#E11D48');
+    for (const m of V.marcas || []) { if (m.tipo === 'trilha') linhaLL(c, m.pts, '#7C3AED', 3.5); }
+    if (V.trilha && V.trilha.pts.length > 1) linhaLL(c, V.trilha.pts, '#DC2626', 4);
+    for (const m of V.marcas || []) if (m.tipo === 'pino') pino(c, m.lat, m.lon, V.alvo && V.alvo.id === m.id ? '#DC2626' : '#F59E0B', m.nome);
+    if (V.alvo && !V.alvo.id) pino(c, V.alvo.lat, V.alvo.lon, '#DC2626', V.alvo.nome);
+    if (V.medir && V.medir.length) { linhaLL(c, V.medir, '#0EA5E9', 3, V.medir.length > 2); for (const p of V.medir) { const s = m2s(...V.geo.ll2px(p[0], p[1])); c.fillStyle = '#fff'; c.strokeStyle = '#0EA5E9'; c.lineWidth = 3; c.beginPath(); c.arc(s[0], s[1], 6, 0, 7); c.fill(); c.stroke(); } }
+    const p = V.pos; if (p) {
+      if (V.alvo) { const a = m2s(...V.geo.ll2px(p.lat, p.lon)), b = m2s(...V.geo.ll2px(V.alvo.lat, V.alvo.lon)); c.setLineDash([10, 8]); c.strokeStyle = '#DC2626'; c.lineWidth = 3; c.beginPath(); c.moveTo(...a); c.lineTo(...b); c.stroke(); c.setLineDash([]); }
+      const s = m2s(...V.geo.ll2px(p.lat, p.lon)); const r = Math.max(9, (p.acc || 0) * V.geo.pxm * V.k);
+      c.fillStyle = 'rgba(37,99,235,.15)'; c.strokeStyle = 'rgba(37,99,235,.5)'; c.lineWidth = 1; c.beginPath(); c.arc(s[0], s[1], r, 0, 7); c.fill(); c.stroke();
+      const h = rumoTela(); if (h != null) { c.save(); c.translate(s[0], s[1]); c.rotate(h * RAD); c.fillStyle = 'rgba(37,99,235,.9)'; c.beginPath(); c.moveTo(0, -24); c.lineTo(9, -8); c.lineTo(-9, -8); c.closePath(); c.fill(); c.restore(); }
+      c.fillStyle = '#2563EB'; c.strokeStyle = '#fff'; c.lineWidth = 3; c.beginPath(); c.arc(s[0], s[1], 8, 0, 7); c.fill(); c.stroke();
+      if (s[0] < -10 || s[1] < -10 || s[0] > V.cw + 10 || s[1] > V.ch + 10) setaBorda(c, s); }
+    escala(c);
+  }
+}
+function rumoTela() { const p = V.pos; if (V.bussola != null) return V.bussola; if (p && p.hd != null && p.vel > 0.8) return p.hd; return null; }
+function feicoes(c, fs, cor) {
+  for (const f of fs) { if (f.tipo === 'ponto') continue; c.beginPath(); f.p.forEach((q, i) => { const s = m2s(q[0], q[1]); i ? c.lineTo(s[0], s[1]) : c.moveTo(s[0], s[1]); }); if (f.tipo === 'area') { c.closePath(); c.fillStyle = f.corA || 'rgba(225,29,72,.10)'; c.fill(); }
+    c.lineWidth = 4.5; c.strokeStyle = 'rgba(255,255,255,.85)'; c.stroke(); c.lineWidth = 2.5; c.strokeStyle = f.cor || cor; c.stroke(); }
+  c.font = '600 12px system-ui,sans-serif';
+  for (const f of fs) { if (f.tipo !== 'ponto') continue; const s = m2s(f.p[0][0], f.p[0][1]); if (s[0] < -40 || s[1] < -40 || s[0] > V.cw + 40 || s[1] > V.ch + 40) continue;
+    c.fillStyle = cor; c.strokeStyle = '#fff'; c.lineWidth = 2.5; c.beginPath(); c.arc(s[0], s[1], 6, 0, 7); c.fill(); c.stroke();
+    if (f.nome && V.k * V.geo.pxm > .02) { c.lineWidth = 3.5; c.strokeStyle = 'rgba(255,255,255,.95)'; c.strokeText(f.nome, s[0] + 9, s[1] + 4); c.fillStyle = '#111'; c.fillText(f.nome, s[0] + 9, s[1] + 4); } }
+}
+function linhaLL(c, pts, cor, w, fechar) { if (pts.length < 2) return; c.beginPath(); pts.forEach((q, i) => { const s = m2s(...V.geo.ll2px(q[0], q[1])); i ? c.lineTo(s[0], s[1]) : c.moveTo(s[0], s[1]); }); if (fechar) { c.closePath(); c.fillStyle = 'rgba(14,165,233,.12)'; c.fill(); }
+  c.lineWidth = w + 2.5; c.strokeStyle = 'rgba(255,255,255,.85)'; c.stroke(); c.lineWidth = w; c.strokeStyle = cor; c.stroke(); }
+function pino(c, lat, lon, cor, nome) { const s = m2s(...V.geo.ll2px(lat, lon)); c.save(); c.translate(s[0], s[1]); c.fillStyle = cor; c.strokeStyle = '#fff'; c.lineWidth = 2.5; c.beginPath(); c.moveTo(0, 0); c.bezierCurveTo(-4, -8, -11, -14, -11, -22); c.arc(0, -22, 11, Math.PI, 0); c.bezierCurveTo(11, -14, 4, -8, 0, 0); c.fill(); c.stroke(); c.fillStyle = '#fff'; c.beginPath(); c.arc(0, -22, 4, 0, 7); c.fill();
+  if (nome) { c.font = '700 13px system-ui,sans-serif'; c.lineWidth = 4; c.strokeStyle = 'rgba(255,255,255,.95)'; c.strokeText(nome, 14, -18); c.fillStyle = '#111'; c.fillText(nome, 14, -18); } c.restore(); }
+function setaBorda(c, s) { const cx = V.cw / 2, cy = V.ch / 2, ang = Math.atan2(s[1] - cy, s[0] - cx); const R = Math.min(cx, cy) - 34; const x = cx + Math.cos(ang) * R, y = cy + Math.sin(ang) * R;
+  c.save(); c.translate(x, y); c.rotate(ang); c.fillStyle = '#2563EB'; c.strokeStyle = '#fff'; c.lineWidth = 3; c.beginPath(); c.moveTo(18, 0); c.lineTo(-10, -13); c.lineTo(-4, 0); c.lineTo(-10, 13); c.closePath(); c.fill(); c.stroke(); c.restore(); }
+function escala(c) { const mpp = 1 / (V.geo.pxm * V.k); const alvo = 110 * mpp; const p = Math.pow(10, Math.floor(Math.log10(alvo))); const nice = [1, 2, 5, 10].map(x => x * p).filter(x => x <= alvo).pop() || p; const w = nice / mpp;
+  const x = 12, y = V.ch - 16; c.fillStyle = 'rgba(255,255,255,.85)'; c.fillRect(x - 6, y - 20, w + 12, 28); c.strokeStyle = '#111'; c.lineWidth = 2; c.beginPath(); c.moveTo(x, y - 6); c.lineTo(x, y); c.lineTo(x + w, y); c.lineTo(x + w, y - 6); c.stroke();
+  c.fillStyle = '#111'; c.font = '600 12px system-ui,sans-serif'; c.fillText(fmtDist(nice), x + 2, y - 8); }
+function grade(c) { if (!V.geo) return; const mpp = 1 / (V.geo.pxm * V.k); const passo = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000].find(x => x / mpp > 90) || 20000; const G = V.geo;
+  const cant = [s2m(0, 0), s2m(V.cw, V.ch)]; const X = x => x - G.A[2], Y = y => y - G.A[5]; const toEN = (x, y) => [(G.A[4] * X(x) - G.A[1] * Y(y)) / G.det, (-G.A[3] * X(x) + G.A[0] * Y(y)) / G.det];
+  const a = toEN(cant[0][0], cant[1][1]), b = toEN(cant[1][0], cant[0][1]); c.strokeStyle = 'rgba(17,62,107,.13)'; c.lineWidth = 1; c.fillStyle = 'rgba(17,62,107,.45)'; c.font = '11px system-ui,sans-serif';
+  const px = (E, N) => m2s(G.A[0] * E + G.A[1] * N + G.A[2], G.A[3] * E + G.A[4] * N + G.A[5]);
+  for (let E = Math.ceil(a[0] / passo) * passo; E <= b[0]; E += passo) { const s = px(E, a[1]), t = px(E, b[1]); c.beginPath(); c.moveTo(...s); c.lineTo(...t); c.stroke(); c.fillText(br(E), s[0] + 3, V.ch - 40); }
+  for (let N = Math.ceil(a[1] / passo) * passo; N <= b[1]; N += passo) { const s = px(a[0], N), t = px(b[0], N); c.beginPath(); c.moveTo(...s); c.lineTo(...t); c.stroke(); c.fillText(br(N), 4, s[1] - 3); } }
+
+/* ---------------- GPS, bússola, avisos ---------------- */
+function iniciarGPSmapa() {
+  if (!navigator.geolocation) return; try { if (window.iniciarGPS) iniciarGPS(); } catch (e) {}
+  V.watch = navigator.geolocation.watchPosition(g => { V.pos = { lat: g.coords.latitude, lon: g.coords.longitude, acc: g.coords.accuracy, alt: g.coords.altitude, hd: g.coords.heading, vel: g.coords.speed, t: Date.now() };
+    if (APP()) { APP().pos = { lat: V.pos.lat, lon: V.pos.lon, acc: V.pos.acc, alt: V.pos.alt }; APP().posEm = Date.now(); }
+    gravarPontoTrilha(); if (V.seguir) centrarEm(V.pos); avisos(); painelCoord(); painelNav(); pedir(); },
+  e => { V.gpsErro = e; painelCoord(); }, { enableHighAccuracy: true, maximumAge: 2000, timeout: 30000 });
+  /* reserva: se o celular entregar a posição só para o GPS do app, o mapa usa a mesma (nunca fica "procurando" com o app tendo posição) */
+  V.reserva = setInterval(() => { const A = APP(); if (!V.aberto || !A || !A.pos || !A.posEm) return; if (V.pos && V.pos.t >= A.posEm) return; if (Date.now() - A.posEm > 15000) return;
+    V.pos = { lat: A.pos.lat, lon: A.pos.lon, acc: A.pos.acc, alt: A.pos.alt, hd: null, vel: null, t: A.posEm }; V.gpsErro = null;
+    gravarPontoTrilha(); if (V.seguir) centrarEm(V.pos); avisos(); painelCoord(); painelNav(); pedir(); }, 1000);
+}
+function centrarEm(p) { if (!V.geo) return; const q = V.geo.ll2px(p.lat, p.lon); V.tx = V.cw / 2 - q[0] * V.k; V.ty = V.ch / 2 - q[1] * V.k; pedir(); }
+function txtCoord(lat, lon) { if (APP() && APP().fmt === 'utm' && window.toUTM) { const u = toUTM(lat, lon); return `UTM ${u.zone}${u.hemi}  E ${br(u.e)}  N ${br(u.n)}`; } return `${lat.toFixed(6).replace('.', ',')}  ${lon.toFixed(6).replace('.', ',')}`; }
+function painelCoord() { const el = $('#mpvCo'); if (!el) return; const p = V.pos;
+  if (!p) { el.textContent = V.gpsErro ? (window.textoErroGPS && APP() && APP().gpsErro ? textoErroGPS() : 'GPS sem resposta. Confira se a localização está ligada e permitida para o app.') : 'Procurando GPS… (a céu aberto fixa mais rápido)'; return; }
+  el.textContent = `${txtCoord(p.lat, p.lon)}  ±${Math.round(p.acc)} m${p.alt != null ? '  ·  alt ' + Math.round(p.alt) + ' m' : ''}${V.trilha ? '  ·  trilha ' + fmtDist(compLL(V.trilha.pts)) : ''}`; }
+function avisos() { const el = $('#mpvAv'); if (!el) return; let t = '', w = false;
+  if (!V.geo) { t = 'Este arquivo não tem georreferência: dá para ver e dar zoom, mas o ponto azul não aparece. Peça ao escritório o PDF georreferenciado.'; w = true; }
+  else if (V.pos && V.geo.moldura) { const q = V.geo.ll2px(V.pos.lat, V.pos.lon); if (!dentro(q, V.geo.moldura)) { const d = distPoli(q, V.geo.moldura) / V.geo.pxm; const c = V.geo.moldura.reduce((a, p) => [a[0] + p[0] / V.geo.moldura.length, a[1] + p[1] / V.geo.moldura.length], [0, 0]); const cl = V.geo.px2ll(c[0], c[1]);
+      t = `Você está fora deste mapa: a ${fmtDist(d)} da borda, mapa a ${cardeal(rumo([V.pos.lat, V.pos.lon], cl))}. A seta azul aponta onde você está; ◎ leva até lá.`; } }
+  else if (V.geo.aviso) t = V.geo.aviso;
+  if (V.alvo && $('#mpvNav').classList.contains('on')) t = ''; el.className = 'av' + (t ? ' on' : '') + (w ? ' w' : ''); el.textContent = t; }
+function painelNav() { const el = $('#mpvNav'); if (!el) return; if (!V.alvo) { el.classList.remove('on'); return; } const p = V.pos; el.classList.add('on');
+  if (!p) { el.innerHTML = `<div class="seta">⌖</div><div class="tx"><b>${esc(V.alvo.nome)}</b><small>esperando o GPS…</small></div><button class="ghost" id="mpvNavX">✕</button>`; }
+  else { const d = dist([p.lat, p.lon], [V.alvo.lat, V.alvo.lon]), r = rumo([p.lat, p.lon], [V.alvo.lat, V.alvo.lon]); const h = rumoTela(); const chegou = d <= Math.max(8, (p.acc || 0));
+    el.innerHTML = `<div class="seta" style="transform:rotate(${h != null ? r - h : r}deg);${chegou ? 'background:var(--green)' : ''}">${chegou ? '✓' : '↑'}</div><div class="tx"><b>${chegou ? 'Você chegou' : fmtDist(d)}</b><small>${esc(V.alvo.nome)} · rumo ${Math.round(r)}° ${cardeal(r)}${h == null ? ' · seta pelo norte (ligue a 🧭)' : ''}</small></div><button class="ghost" id="mpvNavX">✕</button>`; }
+  $('#mpvNavX').onclick = () => { V.alvo = null; painelNav(); avisos(); pedir(); }; }
+async function ligarBussola() {
+  if (V.bussolaOn) { V.bussolaOn = false; V.bussola = null; window.removeEventListener('deviceorientationabsolute', ouvirB, true); window.removeEventListener('deviceorientation', ouvirB, true); $('#mpvBus').classList.remove('on'); pedir(); painelNav(); return; }
+  try { if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') { const r = await DeviceOrientationEvent.requestPermission(); if (r !== 'granted') return toast('Sem permissão para a bússola. Em Ajustes do iPhone > Safari > Movimento e orientação.', 4500); } } catch (e) {}
+  V.bussolaOn = true; $('#mpvBus').classList.add('on'); window.addEventListener('deviceorientationabsolute', ouvirB, true); window.addEventListener('deviceorientation', ouvirB, true);
+  toast('Bússola ligada. Segure o celular deitado; se a seta girar errado, faça um 8 no ar com o celular.', 4000);
+}
+function ouvirB(e) { let h = null; if (e.webkitCompassHeading != null) h = e.webkitCompassHeading; else if (e.absolute && e.alpha != null) h = 360 - e.alpha; else if (e.type === 'deviceorientationabsolute' && e.alpha != null) h = 360 - e.alpha;
+  if (h == null) return; if (e.type === 'deviceorientation' && e.webkitCompassHeading == null && V.absolutoVisto) return; if (e.type === 'deviceorientationabsolute') V.absolutoVisto = true;
+  const ang = (screen.orientation && screen.orientation.angle) || window.orientation || 0; h = (h + ang + 360) % 360;
+  if (V.bussola == null || Math.abs(((h - V.bussola + 540) % 360) - 180) > 2) { V.bussola = h; const ag = Date.now(); if (!V.ultB || ag - V.ultB > 120) { V.ultB = ag; pedir(); painelNav(); } } }
+
+/* ---------------- toque, pinça, toque longo ---------------- */
+function ligarVisual() {
+  const cv = V.cv, P = V.ptrs; let longo = null, ini = null, ultToque = 0, pinca = null, mexeu = false;
+  cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); P.set(e.pointerId, [e.offsetX, e.offsetY]); fecharSheet();
+    if (P.size === 1) { ini = [e.offsetX, e.offsetY, Date.now()]; mexeu = false; clearTimeout(longo); longo = setTimeout(() => { if (!mexeu && P.size === 1) { navigator.vibrate && navigator.vibrate(25); popPonto(s2m(ini[0], ini[1])); ini = null; } }, 550); }
+    if (P.size === 2) { clearTimeout(longo); const [a, b] = [...P.values()]; pinca = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), k: V.k, c: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2] }; mexeu = true; } });
+  cv.addEventListener('pointermove', e => { if (!P.has(e.pointerId)) return; const ant = P.get(e.pointerId); const at = [e.offsetX, e.offsetY]; P.set(e.pointerId, at);
+    if (P.size === 1) { if (ini && Math.hypot(at[0] - ini[0], at[1] - ini[1]) > 8) { mexeu = true; clearTimeout(longo); } if (mexeu) { V.tx += at[0] - ant[0]; V.ty += at[1] - ant[1]; desligarSeguir(); pedir(); } }
+    else if (P.size === 2 && pinca) { const [a, b] = [...P.values()]; const d = Math.hypot(a[0] - b[0], a[1] - b[1]), c = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      const m = s2m(pinca.c[0], pinca.c[1]); V.k = Math.max(V.kmin, Math.min(V.kmax, pinca.k * d / pinca.d)); V.tx = c[0] - m[0] * V.k; V.ty = c[1] - m[1] * V.k; pinca.c = c; pinca.k = V.k; pinca.d = d; pedir(); } });
+  const fim = e => { if (!P.has(e.pointerId)) return; P.delete(e.pointerId); clearTimeout(longo); if (P.size < 2) pinca = null;
+    if (P.size === 0 && ini && !mexeu && Date.now() - ini[2] < 500) { const ag = Date.now(); if (ag - ultToque < 300) { zoomEm(2, ini[0], ini[1]); ultToque = 0; } else { ultToque = ag; const pt = ini.slice(); setTimeout(() => { if (ultToque === ag) toque(pt[0], pt[1]); }, 300); } }
+    if (P.size === 1) { const [a] = [...P.values()]; ini = null; mexeu = true; P.set([...P.keys()][0], a); } };
+  cv.addEventListener('pointerup', fim); cv.addEventListener('pointercancel', fim);
+  cv.addEventListener('wheel', e => { e.preventDefault(); zoomEm(Math.exp(-e.deltaY * .0015), e.offsetX, e.offsetY); }, { passive: false });
+  V.aoRedim = () => redimensionar(); window.addEventListener('resize', V.aoRedim);
+  $('#mpvVolta').onclick = () => fecharVisual(); $('#mpvMais').onclick = () => sheetMais();
+  $('#mpvEu').onclick = () => { if (!V.pos) return toast('Ainda sem GPS. Vá para céu aberto e espere alguns segundos.'); if (!V.geo) return toast('Este mapa não tem georreferência.'); V.seguir = !V.seguir; $('#mpvEu').classList.toggle('on', V.seguir);
+    if (V.seguir) { if (V.k * V.geo.pxm < .15) V.k = Math.min(V.kmax, .6 / V.geo.pxm); V.detalhe = null; centrarEm(V.pos); toast('Seguindo você. Arraste o mapa para parar.'); } };
+  $('#mpvBus').onclick = ligarBussola;
+  V.el.querySelectorAll('.ac button').forEach(b => b.onclick = () => acao(b.dataset.a, b));
+  pintarBotaoTrilha();
+}
+function desligarSeguir() { if (V.seguir) { V.seguir = false; $('#mpvEu').classList.remove('on'); } }
+function toque(sx, sy) {
+  if (!V.geo) return; const m = s2m(sx, sy);
+  if (V.medir) { V.medir.push(V.geo.px2ll(m[0], m[1])); painelMedir(); pedir(); return; }
+  let melhor = null, dm = 28; for (const p of V.marcas || []) if (p.tipo === 'pino') { const s = m2s(...V.geo.ll2px(p.lat, p.lon)); const d = Math.min(Math.hypot(s[0] - sx, s[1] - sy), Math.hypot(s[0] - sx, s[1] - 22 - sy)); if (d < dm) { dm = d; melhor = { pino: p }; } }
+  for (const f of [...(V.vetPx || []), ...V.camadas.filter(c => c.on).flatMap(c => c.f)]) if (f.tipo === 'ponto') { const s = m2s(f.p[0][0], f.p[0][1]); const d = Math.hypot(s[0] - sx, s[1] - sy); if (d < dm) { dm = d; melhor = { f }; } }
+  if (melhor && melhor.pino) return popPino(melhor.pino); if (melhor) return popPonto(V.geo.ll2px(melhor.f.c[0][0], melhor.f.c[0][1]), melhor.f.nome, melhor.f.desc);
+  if (V.sheetAberto) fecharSheet();
+}
+
+/* ---------------- painéis (folha de baixo) ---------------- */
+function sheet(html) { const s = $('#mpvSh'); s.innerHTML = html; s.classList.add('on'); V.sheetAberto = true; s.onpointerdown = e => e.stopPropagation(); return s; }
+function fecharSheet() { const s = $('#mpvSh'); if (s && !V.medir) { s.classList.remove('on'); V.sheetAberto = false; } }
+function linhaDistDeMim(lat, lon) { const p = V.pos; if (!p) return ''; const d = dist([p.lat, p.lon], [lat, lon]), r = rumo([p.lat, p.lon], [lat, lon]); return `<div class="muted">a ${fmtDist(d)} de você · rumo ${Math.round(r)}° ${cardeal(r)}</div>`; }
+function blocoCoord(lat, lon) { const u = window.toUTM ? toUTM(lat, lon) : null; return `<div class="geo">${u ? `UTM ${u.zone}${u.hemi} E ${br(u.e)} N ${br(u.n)} (SIRGAS 2000)<br>` : ''}Lat ${lat.toFixed(6).replace('.', ',')} · Lon ${lon.toFixed(6).replace('.', ',')}</div>`; }
+function popPonto(m, nome, desc) { if (!V.geo) return; const [lat, lon] = V.geo.px2ll(m[0], m[1]);
+  const s = sheet(`<h3>${esc(nome || 'Ponto no mapa')}</h3>${desc ? `<div class="nota">${esc(String(desc).replace(/<[^>]+>/g, ' ').slice(0, 300))}</div>` : ''}${blocoCoord(lat, lon)}${linhaDistDeMim(lat, lon)}
+    <div class="lin"><button id="shIr">➜ Ir até aqui</button><button class="sec" id="shPino">📍 Marcar pino</button></div><div class="lin"><button class="ghost" id="shCop">Copiar coordenada</button><button class="ghost" id="shFe">Fechar</button></div>`);
+  s.querySelector('#shIr').onclick = () => { V.alvo = { lat, lon, nome: nome || 'ponto escolhido' }; fecharSheet(); painelNav(); avisos(); pedir(); };
+  s.querySelector('#shPino').onclick = async () => { const p = await novoPino(lat, lon, null, nome); fecharSheet(); popPino(p); };
+  s.querySelector('#shCop').onclick = () => copiar(lat, lon); s.querySelector('#shFe').onclick = fecharSheet; }
+function copiar(lat, lon) { const u = window.toUTM ? toUTM(lat, lon) : null; const t = (u ? `UTM ${u.zone}${u.hemi} E ${u.e} N ${u.n} (SIRGAS 2000) / ` : '') + `${lat.toFixed(6)}, ${lon.toFixed(6)}`; try { navigator.clipboard.writeText(t).then(() => toast('Coordenada copiada')); } catch (e) { prompt('Coordenada', t); } }
+function popPino(p) { const s = sheet(`<h3>📍 Pino</h3><label>Nome</label><input id="shNome" value="${esc(p.nome)}"><label>Observação</label><input id="shNota" value="${esc(p.nota || '')}" placeholder="opcional">${blocoCoord(p.lat, p.lon)}<div class="muted">${p.acc ? `marcado com GPS ±${Math.round(p.acc)} m · ` : 'marcado no mapa · '}${window.fmtData ? fmtData(p.criadoEm) : ''} · ${esc(p.quem || '')}</div>${linhaDistDeMim(p.lat, p.lon)}
+  <div class="lin"><button id="shIr">➜ Ir até</button><button class="sec" id="shOk">Salvar</button></div><div class="lin"><button class="ghost" id="shCop">Copiar coordenada</button><button class="ghost" id="shDel" style="color:var(--err)">Apagar</button></div>`);
+  const salvar = async () => { p.nome = s.querySelector('#shNome').value.trim() || p.nome; p.nota = s.querySelector('#shNota').value.trim(); p.enviado = false; await MDB.put('marcas', p); pedir(); };
+  s.querySelector('#shOk').onclick = async () => { await salvar(); fecharSheet(); toast('Pino salvo'); };
+  s.querySelector('#shIr').onclick = async () => { await salvar(); V.alvo = { id: p.id, lat: p.lat, lon: p.lon, nome: p.nome }; fecharSheet(); painelNav(); avisos(); pedir(); };
+  s.querySelector('#shCop').onclick = () => copiar(p.lat, p.lon);
+  s.querySelector('#shDel').onclick = async () => { await MDB.del('marcas', p.id); V.marcas = V.marcas.filter(x => x.id !== p.id); if (V.alvo && V.alvo.id === p.id) { V.alvo = null; painelNav(); } fecharSheet(); pedir(); toast('Pino apagado'); }; }
+async function novoPino(lat, lon, acc, nome) {
+  const n = (V.marcas || []).filter(m => m.tipo === 'pino').length + 1; const quem = (APP() && APP().quem) || '';
+  const p = { id: uid('P'), obraId: V.ob.id, tipo: 'pino', nome: nome || 'P' + String(n).padStart(2, '0'), lat, lon, acc: acc || null, alt: V.pos && acc ? V.pos.alt : null, nota: '', quem, criadoEm: new Date().toISOString(), enviado: false };
+  await MDB.put('marcas', p); V.marcas.push(p); pedir(); return p;
+}
+async function acao(a, b) {
+  if (a === 'pino') { if (!V.geo) return toast('Este mapa não tem georreferência.'); const p = V.pos; if (!p) return toast('Ainda sem GPS. Para marcar um ponto do mapa, segure o dedo nele.', 3500);
+    if (p.acc > 30 && !confirm(`O GPS está com precisão de ±${Math.round(p.acc)} m. Marcar assim mesmo? (Esperar alguns segundos a céu aberto melhora.)`)) return;
+    const pn = await novoPino(p.lat, p.lon, p.acc); popPino(pn); }
+  if (a === 'trilha') { if (V.trilha) await pararTrilha(); else iniciarTrilha(); }
+  if (a === 'medir') { if (!V.geo) return toast('Este mapa não tem georreferência.'); V.medir = []; painelMedir(); }
+  if (a === 'mais') sheetMais();
+}
+function painelMedir() { const pts = V.medir; const area = pts.length > 2 ? areaLL(pts) : 0;
+  const s = sheet(`<h3>📏 Medir</h3><div class="muted">Toque no mapa para marcar os pontos${V.pos ? ' ou use "+ onde estou"' : ''}.</div><div class="geo" style="font-size:15px">Distância: <b>${fmtDist(compLL(pts))}</b>${pts.length > 2 ? ` · Perímetro: <b>${fmtDist(compLL(pts, true))}</b><br>Área: <b>${fmtArea(area)}</b>` : ''}</div>
+  <div class="lin"><button class="sec" id="mdGps" ${V.pos ? '' : 'disabled'}>+ onde estou</button><button class="sec" id="mdDesf" ${pts.length ? '' : 'disabled'}>Desfazer</button></div><div class="lin"><button class="ghost" id="mdLimpa">Limpar</button><button id="mdFim">Terminar</button></div>`);
+  s.querySelector('#mdGps').onclick = () => { V.medir.push([V.pos.lat, V.pos.lon]); painelMedir(); pedir(); };
+  s.querySelector('#mdDesf').onclick = () => { V.medir.pop(); painelMedir(); pedir(); }; s.querySelector('#mdLimpa').onclick = () => { V.medir = []; painelMedir(); pedir(); };
+  s.querySelector('#mdFim').onclick = () => { V.medir = null; s.classList.remove('on'); V.sheetAberto = false; pedir(); }; }
+async function sheetMais() {
+  const outros = (await MDB.obra('mapas', V.ob.id)).filter(m => m.id !== V.m.id && !m.camada);
+  const pinos = (V.marcas || []).filter(m => m.tipo === 'pino'), trilhas = (V.marcas || []).filter(m => m.tipo === 'trilha'); const pend = (V.marcas || []).filter(m => !m.enviado).length;
+  const s = sheet(`<h3>Ir para uma coordenada</h3><div class="row"><input id="ccA" placeholder="${APP() && APP().fmt === 'utm' ? 'E (ex.: 756432)' : 'Lat (ex.: 2,8213)'}" inputmode="decimal"><input id="ccB" placeholder="${APP() && APP().fmt === 'utm' ? 'N (ex.: 312456)' : 'Lon (ex.: -60,6721)'}" inputmode="decimal"></div><div class="nota">${APP() && APP().fmt === 'utm' ? `UTM na zona deste mapa (${V.geo ? V.geo.z + (V.geo.sul ? 'S' : 'N') : '—'}), SIRGAS 2000.` : 'Graus decimais.'} Muda o formato em Ajustes do app.</div><div class="lin"><button id="ccIr">➜ Ir até</button></div>
+  ${V.camadas.length ? `<h3 style="margin-top:14px">Camadas por cima</h3>${V.camadas.map(c => `<label class="chk" style="text-transform:none;letter-spacing:0;font-size:15px;color:var(--ink);margin:0;font-weight:400"><input type="checkbox" data-cam="${esc(c.id)}" ${c.on ? 'checked' : ''}><span>${esc(c.nome)}</span></label>`).join('')}` : ''}
+  <h3 style="margin-top:14px">Pinos (${pinos.length})</h3>${pinos.length ? pinos.map(p => `<div class="chk" style="align-items:center"><span style="flex:1"><b>${esc(p.nome)}</b>${V.pos ? `<br><small class="muted">a ${fmtDist(dist([V.pos.lat, V.pos.lon], [p.lat, p.lon]))}</small>` : ''}</span><button class="sec" data-ir="${esc(p.id)}" style="padding:8px 12px">➜ Ir</button></div>`).join('') : '<div class="muted">Nenhum. 📍 Marcar guarda onde você está; segurar o dedo no mapa marca outro ponto.</div>'}
+  ${trilhas.length ? `<h3 style="margin-top:14px">Trilhas (${trilhas.length})</h3>${trilhas.map(t => `<div class="muted">〰 ${esc(t.nome)} · ${fmtDist(compLL(t.pts))}</div>`).join('')}` : ''}
+  <div class="lin"><button class="${pend ? 'green' : 'sec'}" id="shEnv" ${pend ? '' : 'disabled'}>${pend ? `Mandar ${pend} marcação(ões) ao Drive` : 'Tudo já foi para o Drive ✓'}</button></div>
+  ${outros.length ? `<h3 style="margin-top:14px">Trocar de mapa</h3>${outros.map(m => `<button class="obra" data-mapa="${esc(m.id)}" style="margin-bottom:6px"><b>🗺 ${esc(m.nome.replace(/\.[^.]+$/, ''))}</b><small>${esc(m.resumo || '')}</small></button>`).join('')}` : ''}
+  ${V.geo ? `<div class="nota" style="margin-top:12px">Sobre este mapa: UTM ${V.geo.z}${V.geo.sul ? 'S' : 'N'} · ajuste da georreferência ${V.geo.residuo < 1 ? 'menor que 1 m' : '±' + br(V.geo.residuo, 1) + ' m'}${V.geo.aviso ? ' · ' + esc(V.geo.aviso) : ''}</div>` : ''}`);
+  s.querySelector('#ccIr').onclick = () => { const a = parseFloat(String(s.querySelector('#ccA').value).replace(/\./g, utmFmt() ? '' : '.').replace(',', '.')), b = parseFloat(String(s.querySelector('#ccB').value).replace(/\./g, utmFmt() ? '' : '.').replace(',', '.'));
+    if (!isFinite(a) || !isFinite(b)) return toast('Preencha os dois números.'); let ll;
+    if (utmFmt()) { if (!V.geo) return toast('Este mapa não tem georreferência.'); ll = utmI(a, b, V.geo.z, V.geo.sul); } else ll = [a, b];
+    if (Math.abs(ll[0]) > 90 || Math.abs(ll[1]) > 180) return toast('Coordenada inválida.');
+    V.alvo = { lat: ll[0], lon: ll[1], nome: 'coordenada digitada' }; fecharSheet(); if (V.geo) { const q = V.geo.ll2px(ll[0], ll[1]); V.tx = V.cw / 2 - q[0] * V.k; V.ty = V.ch / 2 - q[1] * V.k; } painelNav(); avisos(); pedir(); };
+  s.querySelectorAll('[data-cam]').forEach(i => i.onchange = () => { const c = V.camadas.find(x => x.id === i.dataset.cam); c.on = i.checked; const d = LSx.get('mpCamDesl_' + V.ob.id, {}); if (c.on) delete d[c.id]; else d[c.id] = 1; LSx.set('mpCamDesl_' + V.ob.id, d); pedir(); });
+  s.querySelectorAll('[data-ir]').forEach(b => b.onclick = () => { const p = pinos.find(x => x.id === b.dataset.ir); V.alvo = { id: p.id, lat: p.lat, lon: p.lon, nome: p.nome }; fecharSheet(); painelNav(); avisos(); pedir(); });
+  s.querySelectorAll('[data-mapa]').forEach(b => b.onclick = () => abrir(V.ob, b.dataset.mapa));
+  s.querySelector('#shEnv').onclick = async () => { await enviarMarcas(V.ob); fecharSheet(); };
+}
+
+/* ---------------- trilha ---------------- */
+async function iniciarTrilha() {
+  if (!V.geo) return toast('Este mapa não tem georreferência.');
+  V.trilha = { id: uid('T'), obraId: V.ob.id, tipo: 'trilha', nome: 'Trilha ' + (window.fmtData ? fmtData(new Date()) : new Date().toLocaleString('pt-BR')), pts: [], quem: (APP() && APP().quem) || '', criadoEm: new Date().toISOString(), enviado: false };
+  await MDB.put('marcas', V.trilha); try { V.wake = await navigator.wakeLock.request('screen'); } catch (e) {}
+  pintarBotaoTrilha(); gravarPontoTrilha(); toast('Gravando a trilha. Deixe o app aberto: a tela fica acesa sozinha.', 4000);
+}
+async function gravarPontoTrilha() { const t = V.trilha, p = V.pos; if (!t || !p || p.acc > 35) return; const ult = t.pts[t.pts.length - 1];
+  if (ult && dist(ult, [p.lat, p.lon]) < Math.max(3, p.acc / 3)) return; t.pts.push([p.lat, p.lon, p.alt == null ? null : Math.round(p.alt * 10) / 10, Date.now()]);
+  if (t.pts.length % 5 === 1) MDB.put('marcas', t).catch(() => {}); pintarBotaoTrilha(); }
+async function pararTrilha() { const t = V.trilha; V.trilha = null; try { V.wake && V.wake.release(); } catch (e) {} V.wake = null;
+  if (t.pts.length < 2) { await MDB.del('marcas', t.id); toast('Trilha muito curta: não guardei.'); }
+  else { await MDB.put('marcas', t); V.marcas = await MDB.obra('marcas', V.ob.id); toast(`Trilha guardada: ${fmtDist(compLL(t.pts))}. Vai para o Drive da obra.`, 3500); enviarMarcas(V.ob, true); }
+  pintarBotaoTrilha(); pedir(); }
+function pintarBotaoTrilha() { const b = V.el && V.el.querySelector('[data-a="trilha"]'); if (!b) return; b.classList.toggle('on', !!V.trilha); b.textContent = V.trilha ? `⏹ ${fmtDist(compLL(V.trilha.pts))}` : '⏺ Trilha'; painelCoord(); }
+
+/* ---------------- envio ao Drive (KML na pasta da obra, pela fila do app) ---------------- */
+function kmlDe(itens, ob) {
+  const x = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const pm = itens.map(m => m.tipo === 'pino'
+    ? `<Placemark><name>${x(m.nome)}</name><description>${x([m.nota, m.acc ? 'GPS ±' + Math.round(m.acc) + ' m' : 'marcado no mapa', m.quem, m.criadoEm].filter(Boolean).join(' · '))}</description><styleUrl>#pino</styleUrl><Point><coordinates>${m.lon.toFixed(7)},${m.lat.toFixed(7)}${m.alt != null ? ',' + m.alt : ''}</coordinates></Point></Placemark>`
+    : `<Placemark><name>${x(m.nome)}</name><description>${x(`${fmtDist(compLL(m.pts))} · ${m.quem || ''}`)}</description><styleUrl>#trilha</styleUrl><LineString><tessellate>1</tessellate><coordinates>${m.pts.map(p => `${p[1].toFixed(7)},${p[0].toFixed(7)}${p[2] != null ? ',' + p[2] : ''}`).join(' ')}</coordinates></LineString></Placemark>`).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${x(ob.nome)} — marcações de campo</name><Style id="pino"><IconStyle><color>ff0b9ef5</color></IconStyle></Style><Style id="trilha"><LineStyle><color>ffed3a7c</color><width>3</width></LineStyle></Style>\n${pm}\n</Document></kml>`;
+}
+async function enviarMarcas(ob, quieto) {
+  const pend = (await MDB.obra('marcas', ob.id)).filter(m => !m.enviado && (m.tipo === 'pino' || (m.pts && m.pts.length > 1)) && !(V.trilha && V.trilha.id === m.id)); if (!pend.length) return;
+  if (typeof window.enfileirarArquivo !== 'function') return; const nome = `${window.hoje ? hoje() : new Date().toISOString().slice(0, 10)}_marcacoes_mapa_${window.slug ? slug((APP() && APP().quem) || 'campo') : 'campo'}.kml`;
+  try { await enfileirarArquivo(new Blob([kmlDe(pend, ob)], { type: 'application/vnd.google-earth.kml+xml' }), 'mapa', nome, { pinos: pend.filter(m => m.tipo === 'pino').length, trilhas: pend.filter(m => m.tipo === 'trilha').length }, { obra: ob, quieto: true });
+    for (const m of pend) { m.enviado = true; await MDB.put('marcas', m); } if (V.aberto) V.marcas = await MDB.obra('marcas', ob.id); if (!quieto) toast('Marcações na fila para o Drive da obra ✓'); } catch (e) { if (!quieto) toast('Não consegui pôr na fila: ' + (e.message || e)); }
+}
+
+/* ---------------- fechar ---------------- */
+function fecharVisual(trocando) {
+  if (!V.aberto) return false; const ob = V.ob;
+  if (V.trilha && !trocando) { if (!confirm('A trilha está sendo gravada. Fechar o mapa para a gravação. Fechar assim mesmo?')) { try { history.pushState({ t: 'mapa' }, ''); } catch (e) {} return true; } pararTrilha(); }
+  try { navigator.geolocation.clearWatch(V.watch); } catch (e) {} clearInterval(V.reserva); if (V.tarefa) try { V.tarefa.cancel(); } catch (e) {}
+  if (V.bussolaOn) { window.removeEventListener('deviceorientationabsolute', ouvirB, true); window.removeEventListener('deviceorientation', ouvirB, true); }
+  window.removeEventListener('resize', V.aoRedim); if (V.doc) try { V.doc.destroy(); } catch (e) {}
+  V.el && V.el.remove(); const tr = V.trilha, wk = V.wake; Object.keys(V).forEach(k => delete V[k]); V.aberto = false; if (trocando && tr) { V.trilha = tr; V.wake = wk; }
+  if (!trocando && ob) { enviarMarcas(ob, true); if (OB_ATUAL && OB_ATUAL.id === ob.id) pintarLista(ob); }
+  return true;
+}
+function voltar() { // botão voltar do celular: fecha o painel, depois o mapa; nunca sai do app
+  if (!V.aberto) return false; const s = $('#mpvSh'); if (s && s.classList.contains('on')) { if (V.medir) V.medir = null; s.classList.remove('on'); V.sheetAberto = false; pedir(); try { history.pushState({ t: 'mapa' }, ''); } catch (e) {} return true; }
+  fecharVisual(); return true;
+}
+
+/* ---------------- para o resto do app ---------------- */
+async function contar(obraId) { try { return (await MDB.obra('mapas', obraId)).filter(m => !m.camada).length; } catch (e) { return 0; } }
+async function baixarTodas() { const obs = (APP() && APP().pacote && APP().pacote.obras) || []; let n = 0; for (const ob of obs) { if (!ob.pastaId) continue; await sincronizar(ob, { silencioso: true }); n++; } return n; }
+window.MAPAS = { tela, ligar, abrir, voltar, aberto: () => !!V.aberto, auto: ob => sincronizar(ob, { silencioso: true }), baixarTodas, contar,
+  _t: { lerGeoPDF, criarGeo, utmF, utmI, lerKML, lerGPX, analisar, unzip, dist, rumo, areaLL, epsgInfo } };
+})();

@@ -62,3 +62,19 @@ LIMITES CONHECIDOS
   - Precisão é a do GPS do celular (3–10 m). Não substitui o GNSS para locação.
   - O texto do EXIF é ASCII (sem acento), por exigência do padrão; o carimbo
     na imagem tem acento normal.
+
+MAPAS DA OBRA (v1.21.0, 17/10/2026) — substitui o Avenza
+  - Aba "Mapas" em cada obra (e botão verde no Roteiro). Os mapas da pasta da obra no
+    Drive descem sozinhos para o celular quando a obra é aberta com internet (até 40 MB
+    cada; maiores, com um toque). Depois abrem SEM internet.
+  - Lê: PDF georreferenciado (GeoPDF ISO 32000 do QGIS/ArcGIS/Avenza e OGC), GeoTIFF,
+    KML/KMZ (inclusive imagem sobreposta do Google Earth) e GPX. KML/GPX da obra aparecem
+    por cima dos outros mapas.
+  - No mapa: ponto azul com precisão, seguir, bússola, aviso "fora do mapa" com seta,
+    📍 marcar (GPS ou dedo segurado), ➜ ir até (distância e rumo), ⏺ trilha, 📏 medir
+    distância/área, ir para coordenada digitada (UTM ou lat/lon). Pinos e trilhas sobem
+    para 03_CAMPO da obra em KML pela fila normal do app.
+  - Robô de Campo v1.4: ?acao=mapas (lista) e ?acao=mapa (entrega em partes de 5 MB),
+    só para pasta de obra aberta e só arquivo dentro dela.
+  - PDF da Natural precisa ter a georreferência gravada: ferramentas/georref_pdf.py
+    (chamar no nat_mapa logo depois de salvar o PDF). PDF sem isso abre só para ver.

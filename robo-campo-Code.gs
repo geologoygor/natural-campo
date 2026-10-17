@@ -178,3 +178,51 @@ function testar() {
   var r = doPost({ postData: { contents: JSON.stringify({ token: CFG.TOKEN, acao: 'enviar', id: 'teste1', obraId: 'OBteste', obraNome: 'TESTE DO ROBO DE CAMPO', quem: 'Ygor Sousa', tipo: 'registro', slot: 'registro', nome: 'teste_robo_campo.json', mime: 'application/json', meta: { app: 'teste' }, b64: Utilities.base64Encode('{"ok":true}') }) } });
   Logger.log(r.getContent());
 }
+
+/* v1.4 (17/10/2026) — MAPAS DA OBRA para o app de campo (substitui o Avenza).
+ *   ?acao=mapas&pasta=<pastaId>              -> lista os mapas da pasta do serviço (PDF de mapa/prancha/planta, KML, KMZ, GPX, TIF)
+ *   ?acao=mapa&pasta=<pastaId>&id=<fileId>&parte=N -> entrega o arquivo em partes de 5 MB (base64)
+ * Segurança: só responde para pasta de obra que está no pacote do app, só arquivo de mapa e só se o arquivo estiver dentro dessa pasta. */
+var MAPAS_CFG = { PARTE: 5 * 1024 * 1024, EXT: /\.(pdf|kml|kmz|gpx|tif|tiff)$/i,
+  PDF_MAPA: /(mapa|map[-_ ]|prancha|planta|croqui|localiza|acesso|situa[cç]|geo|levantamento|poligonal|imagem|ortofoto|caminhamento|perfil)/i,
+  PULAR: /^(03_CAMPO|FOTOS?|6\.FOTOS|ZZ_|LIXO)/i, PROFUNDIDADE: 5 };
+function pastasDeObra_() {
+  var c = CacheService.getScriptCache(); var ja = c.get('mapas_pastas'); if (ja) return JSON.parse(ja);
+  var ids = []; try { var pac = JSON.parse(pacoteDeCampoComoArquivo_().getBlob().getDataAsString('UTF-8')); (pac.obras || []).forEach(function (o) { if (o.pastaId) ids.push(o.pastaId); }); } catch (x) {}
+  try { c.put('mapas_pastas', JSON.stringify(ids), 3600); } catch (x) {}
+  return ids;
+}
+function ehMapa_(nome, caminho) { if (!MAPAS_CFG.EXT.test(nome)) return false; if (!/\.pdf$/i.test(nome)) return true; return MAPAS_CFG.PDF_MAPA.test(nome) || /MAPA|PRANCHA|PLANTA|GEO|DWG|PDF/i.test(caminho); }
+function listarMapas_(pastaId) {
+  var c = CacheService.getScriptCache(); var ja = c.get('mapas_l_' + pastaId); if (ja) return JSON.parse(ja);
+  var out = []; var fila = [{ f: DriveApp.getFolderById(pastaId), cam: '', n: 0 }];
+  while (fila.length && out.length < 200) {
+    var it = fila.shift();
+    var fs = it.f.searchFiles("trashed = false and (title contains '.pdf' or title contains '.kml' or title contains '.kmz' or title contains '.gpx' or title contains '.tif' or title contains '.PDF' or title contains '.KML' or title contains '.KMZ' or title contains '.TIF')");
+    while (fs.hasNext()) { var f = fs.next(); var nm = f.getName(); if (!ehMapa_(nm, it.cam)) continue;
+      out.push({ id: f.getId(), nome: nm, mime: f.getMimeType(), tamanho: f.getSize(), modificado: f.getLastUpdated().toISOString(), caminho: it.cam || 'pasta da obra' }); }
+    if (it.n < MAPAS_CFG.PROFUNDIDADE) { var sub = it.f.getFolders(); while (sub.hasNext()) { var s = sub.next(); if (MAPAS_CFG.PULAR.test(s.getName())) continue; fila.push({ f: s, cam: (it.cam ? it.cam + '/' : '') + s.getName(), n: it.n + 1 }); } }
+  }
+  try { c.put('mapas_l_' + pastaId, JSON.stringify(out), 1200); } catch (x) {}
+  return out;
+}
+function dentroDaPasta_(arq, pastaId) {
+  var vistos = {}; var fila = []; var ps = arq.getParents(); while (ps.hasNext()) fila.push(ps.next());
+  for (var k = 0; k < 40 && fila.length; k++) { var p = fila.shift(); var id = p.getId(); if (id === pastaId) return true; if (vistos[id]) continue; vistos[id] = 1; var pp = p.getParents(); while (pp.hasNext()) fila.push(pp.next()); }
+  return false;
+}
+function acaoMapas_(p) {
+  if (!p.pasta || pastasDeObra_().indexOf(p.pasta) < 0) return json_({ ok: false, erro: 'pasta não é de obra aberta' });
+  if (p.acao === 'mapas') return json_({ ok: true, mapas: listarMapas_(p.pasta) });
+  var arq = DriveApp.getFileById(p.id); var nome = arq.getName();
+  if (!MAPAS_CFG.EXT.test(nome) || !dentroDaPasta_(arq, p.pasta)) return json_({ ok: false, erro: 'arquivo fora da pasta da obra' });
+  var tam = arq.getSize(), partes = Math.max(1, Math.ceil(tam / MAPAS_CFG.PARTE)), n = Math.max(0, parseInt(p.parte || '0', 10) || 0);
+  if (n >= partes) return json_({ ok: false, erro: 'parte inexistente' });
+  var ini = n * MAPAS_CFG.PARTE, fim = Math.min(tam, ini + MAPAS_CFG.PARTE) - 1, bytes;
+  if (partes === 1) bytes = arq.getBlob().getBytes();
+  else { var r = UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + p.id + '?alt=media', { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken(), Range: 'bytes=' + ini + '-' + fim }, muteHttpExceptions: true });
+    if (r.getResponseCode() !== 206 && r.getResponseCode() !== 200) return json_({ ok: false, erro: 'Drive ' + r.getResponseCode() }); bytes = r.getContent(); }
+  return json_({ ok: true, nome: nome, mime: arq.getMimeType(), tamanho: tam, parte: n, partes: partes, b64: Utilities.base64Encode(bytes) });
+}
+/* teste manual: Executar > testarMapas — lista os mapas da primeira obra com pasta */
+function testarMapas() { var ids = pastasDeObra_(); Logger.log(ids.length + ' pastas de obra'); for (var i = 0; i < ids.length; i++) { var l = listarMapas_(ids[i]); if (l.length) { Logger.log(ids[i] + ': ' + JSON.stringify(l).slice(0, 1500)); return; } } Logger.log('nenhum mapa nas pastas'); }

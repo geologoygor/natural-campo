@@ -260,15 +260,16 @@ button.mini{padding:8px 12px;font-size:14px;margin-top:6px}
 <div class="toast" id="toast"></div>
 <canvas id="cv" class="hide"></canvas>
 
-<script src="geofisica.js?v=1.20.0"></script>
-<script src="fichas.js?v=1.20.0"></script>
+<script src="geofisica.js?v=1.21.0"></script>
+<script src="fichas.js?v=1.21.0"></script>
+<script src="mapas.js?v=1.21.0"></script>
 <script>
 /* ============================================================
    CAMPO · Natural Engenharia — app de campo (PWA)
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.20.0';
+const APP_VERSAO = '1.21.0';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -1072,12 +1073,12 @@ function render(){
   if(!ob){ $('#hTit').textContent='Campo'; $('#hSub').textContent='Natural Engenharia'; $('#hBtn').classList.add('hide'); m.innerHTML=telaInicio(); ligarInicio(); return; }
   $('#hTit').textContent=ob.nome; $('#hSub').textContent=(ob.cliente||'')+(ob.linhas?.length?' · '+ob.linhas.map(l=>P.linhas[l]?.nome||l).join(', '):''); $('#hBtn').classList.remove('hide'); $('#hBtn').textContent='Obras';
   const pr=problemasEnvio(ob);
-  const tabs=[['roteiro','Roteiro'],['fotos','Fotos'],['diario','Diário'],['proc','Procedimentos'],['fichas','Fichas'],['ocorr','Ocorrência'],['envios', pr.erro.length?`Envios ⚠${pr.erro.length}`:'Envios']];
+  const tabs=[['roteiro','Roteiro'],['mapas','Mapas'],['fotos','Fotos'],['diario','Diário'],['proc','Procedimentos'],['fichas','Fichas'],['ocorr','Ocorrência'],['envios', pr.erro.length?`Envios ⚠${pr.erro.length}`:'Envios']];
   let html=`<div class="tabs">${tabs.map(t=>`<button data-tab="${t[0]}" class="${S.tab===t[0]?'on':''}" ${t[0]==='envios'&&pr.erro.length?'style="color:var(--err);font-weight:800"':''}>${t[1]}</button>`).join('')}</div>`;
   if(S.tab!=='envios' && (pr.erro.length||pr.parado.length)) html+=`<button class="banner" id="vaiEnvios" style="display:block;width:100%;text-align:left;border:0;font-weight:700">⚠ ${pr.erro.length?`${pr.erro.length} arquivo(s) NÃO chegaram ao Drive da empresa.`:''} ${pr.parado.length?`${pr.parado.length} parado(s) no celular há mais de 1 dia.`:''} Toque para ver.</button>`;
-  html+= {roteiro:telaRoteiro, fotos:telaFotos, diario:telaDiario, proc:telaProc, fichas:telaFichas, ocorr:telaOcorr, envios:telaEnvios}[S.tab](ob);
+  html+= {roteiro:telaRoteiro, mapas:ob=>window.MAPAS?MAPAS.tela(ob):'<div class="card">Mapas indisponíveis: atualize o app com internet.</div>', fotos:telaFotos, diario:telaDiario, proc:telaProc, fichas:telaFichas, ocorr:telaOcorr, envios:telaEnvios}[S.tab](ob);
   m.innerHTML=html; m.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{S.tab=b.dataset.tab; render(); window.scrollTo(0,0);});
-  ({roteiro:ligarRoteiro, fotos:ligarFotos, diario:ligarDiario, proc:()=>{}, fichas:ligarFichas, ocorr:ligarOcorr, envios:ligarEnvios})[S.tab](ob);
+  ({roteiro:ligarRoteiro, mapas:ob=>{ if(window.MAPAS) MAPAS.ligar(ob); }, fotos:ligarFotos, diario:ligarDiario, proc:()=>{}, fichas:ligarFichas, ocorr:ligarOcorr, envios:ligarEnvios})[S.tab](ob);
   const ve=$('#vaiEnvios'); if(ve) ve.onclick=()=>{ S.tab='envios'; render(); window.scrollTo(0,0); };
 }
 /* ---------- quem está usando o aparelho: escolhe uma vez na lista da equipe e fica fixo ---------- */
@@ -1229,7 +1230,8 @@ function ligarAgenda(){
   document.querySelectorAll('[data-ini]').forEach(b=>b.onclick=()=>{ LS.set('inicioAba', b.dataset.ini); render(); $('#main').scrollTop=0; });
   document.querySelectorAll('[data-agobra]').forEach(b=>b.onclick=e=>{ e.preventDefault(); e.stopPropagation(); abrirObraId(b.dataset.agobra); });
 }
-function abrirObraId(id){ if(!S.quem){ toast('Escolha quem você é primeiro'); return; } S.obraId=id; REC.blob=null; REC.ultimoId=null; REC.obraId=null; S.tab='roteiro'; LS.set('obraId',S.obraId); render(); window.scrollTo(0,0); iniciarGPS(); }
+function mapasAuto(){ try{ if(window.MAPAS && navigator.onLine) MAPAS.auto(obraAtual()); }catch(e){} } /* v1.21.0: mapas da obra descem sozinhos ao abrir com internet */
+function abrirObraId(id){ if(!S.quem){ toast('Escolha quem você é primeiro'); return; } S.obraId=id; REC.blob=null; REC.ultimoId=null; REC.obraId=null; S.tab='roteiro'; LS.set('obraId',S.obraId); render(); window.scrollTo(0,0); iniciarGPS(); mapasAuto(); }
 function ligarInicio(){
   ligarPerfil();
   const bi=$('#btInstalar'); if(bi) bi.onclick=async()=>{ const e=S.promptInstalar; S.promptInstalar=null; try{ e.prompt(); await e.userChoice; }catch(_){} render(); };
@@ -1241,13 +1243,14 @@ function ligarInicio(){
 }
 
 function ligarPerfil(){ const v=$('#perfilVoltar'); if(v) v.onclick=()=>{ S.verPerfil=false; render(); window.scrollTo(0,0); }; }
-function ligarObras(){ document.querySelectorAll('.obra').forEach(b=>b.onclick=()=>{ if(!S.quem){ toast('Escolha quem você é primeiro'); window.scrollTo(0,0); return; } S.obraId=b.dataset.id; REC.blob=null; REC.ultimoId=null; REC.obraId=null; S.tab='roteiro'; LS.set('obraId',S.obraId); render(); window.scrollTo(0,0); iniciarGPS(); }); }
+function ligarObras(){ document.querySelectorAll('.obra').forEach(b=>b.onclick=()=>{ if(!S.quem){ toast('Escolha quem você é primeiro'); window.scrollTo(0,0); return; } S.obraId=b.dataset.id; REC.blob=null; REC.ultimoId=null; REC.obraId=null; S.tab='roteiro'; LS.set('obraId',S.obraId); render(); window.scrollTo(0,0); iniciarGPS(); mapasAuto(); }); }
 function telaAjustes(){
   const m=$('#main'); $('#hTit').textContent='Ajustes'; $('#hBtn').classList.remove('hide'); $('#hBtn').textContent='Voltar';
   m.innerHTML=`<div class="card"><h2>Robô de campo</h2><label>URL do robô (Apps Script, termina em /exec)</label><input id="cfgScript" value="${esc(S.cfg.script)}" placeholder="https://script.google.com/macros/s/…/exec"><label>Chave</label><input id="cfgToken" value="${esc(S.cfg.token)}"><div class="nota">A URL vem do escritório. Depois de colar, toque em Salvar e em Atualizar lista.</div></div>
   <div class="card"><h2>Foto</h2><label>Coordenada no carimbo</label><div class="seg"><button id="fGeo" class="${S.fmt==='geo'?'on':''}">Geográficas (lat/lon)</button><button id="fUtm" class="${S.fmt==='utm'?'on':''}">UTM</button></div>
   <div class="chk" style="margin-top:10px"><input type="checkbox" id="cMarca" ${S.marca?'checked':''}><span>Logo da Natural Engenharia nas fotos e vídeos (desligue em trabalho para empresa terceira) (dá para ligar/desligar na câmera também)</span></div>
   <div class="chk"><input type="checkbox" id="cOrig" ${S.original?'checked':''}><span>Enviar também o original sem carimbo (para o marketing). Dobra o tamanho do envio.</span></div><div class="chk"><input type="checkbox" id="cCel" ${S.salvarCel?'checked':''}><span>Guardar cópia das fotos tiradas pelo app neste celular${EH_IOS?' (no iPhone, um toque em Salvar no celular, na tela inicial ou dentro da obra)':' (pasta Downloads)'}.</span></div></div>
+  <div class="card"><h2>Mapas</h2><div class="nota">Cada obra traz os mapas da pasta dela no Drive e eles ficam no celular para usar sem internet. Ao abrir uma obra com internet, os mapas dela descem sozinhos. Antes de uma viagem longa, baixe tudo de uma vez (melhor no Wi-Fi).</div><button class="sec" id="mapasTodos" style="width:100%;margin-top:8px">Baixar os mapas de todas as obras</button></div>
   <div class="card"><h2>Este aparelho</h2><div class="muted">App ${APP_VERSAO} · ${S.pacote?`lista de ${fmtData(S.pacote.geradoEm)}`:'sem lista'} · ${S.fila.length} itens no histórico</div><div class="row" style="margin-top:10px"><button class="sec" id="limparEnv">Limpar enviados</button><button class="danger" id="limparTudo">Apagar fila inteira</button></div></div>
   <button class="big green" id="salvarCfg">Salvar</button>`;
   $('#fGeo').onclick=()=>{S.fmt='geo';LS.set('fmt','geo');telaAjustes();}; $('#fUtm').onclick=()=>{S.fmt='utm';LS.set('fmt','utm');telaAjustes();};
@@ -1260,11 +1263,12 @@ function telaAjustes(){
     if(nao && !confirm(`ATENÇÃO: ${nao} arquivo(s) AINDA NÃO SUBIRAM para o escritório e não existem em nenhum outro lugar.\n\nApagar mesmo assim? Não tem desfazer.`)) return;
     if(!nao && !confirm('Apagar o histórico de enviados deste aparelho?')) return;
     for(const x of S.fila) await DB.del(x.id); await recarregarFila(); telaAjustes(); };
+  $('#mapasTodos').onclick=async e=>{ if(!navigator.onLine) return toast('Sem internet agora.'); if(!window.MAPAS) return toast('Atualize o app com internet.'); const b=e.target; b.disabled=true; b.textContent='Baixando mapas… pode continuar usando o app'; const n=await MAPAS.baixarTodas(); b.disabled=false; b.textContent='Baixar os mapas de todas as obras'; toast(`Mapas conferidos em ${n} obra(s) ✓`); };
   $('#hBtn').onclick=()=>{ S.obraId=null; render(); };
 }
 function telaRoteiro(ob){
   const P=S.pacote; const fotos=fotosDaObra(ob); const chk=checklistDaObra(ob); const est=estadoChk(ob);
-  let h=`<div class="card"><h2>Coordenada agora</h2><div class="geo" id="geoLive">Procurando GPS…</div><button class="sec" id="gpsLigar" style="margin-top:8px">Ligar o GPS</button><div class="nota">Formato: ${S.fmt==='utm'?'UTM':'geográficas'} (muda em Ajustes ou na câmera).</div></div>`;
+  let h=`<div class="card"><h2>Coordenada agora</h2><div class="geo" id="geoLive">Procurando GPS…</div><button class="sec" id="gpsLigar" style="margin-top:8px">Ligar o GPS</button><div class="nota">Formato: ${S.fmt==='utm'?'UTM':'geográficas'} (muda em Ajustes ou na câmera).</div><button class="green" id="irMapas" style="margin-top:8px;width:100%">🗺 Mapas da obra — navegar com o GPS</button></div>`;
   h+=cartaoCopiaCel(ob);
   h+=`<div class="card"><h2>As 5 fotos + o que mais precisar</h2><div class="nota">Operação acontecendo, não posada. Horizontal. Toque no item: a câmera fica aberta e você tira <b>quantas fotos quiser</b> em cada um. Para <b>vídeo</b>, toque em "Vídeo" na câmera (até 1min30, com coordenada na imagem).</div><div class="slots">`;
   for(const s of slotsDaObra()){ const fs=fotos.filter(f=>f.slot===s.k); const n=P.roteiroFotos.findIndex(r=>r.k===s.k); h+=`<button class="slot ${fs.length?'done':''}" data-slot="${esc(s.k)}"><span class="n">${n>=0?n+1:'+'}</span><b>${esc(s.t)}</b><small>${esc(s.d)}</small>${fs.length?`${fs[fs.length-1].thumb?`<img src="${fs[fs.length-1].thumb}" alt="">`:""}<span class="cnt">${fs.length}</span>`:''}</button>`; }
@@ -1314,6 +1318,7 @@ function ligarDesmob(ob){
 }
 function ligarRoteiro(ob){
   atualizarGeo();
+  const im=$('#irMapas'); if(im) im.onclick=()=>{ S.tab='mapas'; render(); window.scrollTo(0,0); };
   const sc=$('#salvarCel'); if(sc) sc.onclick=()=>salvarNoCelular(ob.id);
   const gl=$('#gpsLigar'); if(gl) gl.onclick=()=>{ S.gpsErro=null; iniciarGPS(true); atualizarGeo(); toast('Se aparecer "Permitir localização?", toque em PERMITIR',4500); };
   document.querySelectorAll('.slot').forEach(b=>b.onclick=()=>abrirCamera(b.dataset.slot));
@@ -1500,6 +1505,7 @@ function ligarOcorr(ob){
   // Botão "voltar": fecha a câmera/ficha, volta para a lista de obras e NUNCA sai do app
     try{ history.replaceState({t:'base'},''); history.pushState({t:'app'},''); }catch(e){}
   window.addEventListener('popstate',()=>{
+    if(window.MAPAS && MAPAS.voltar()) return; /* mapa aberto: o voltar fecha o painel, depois o mapa */
     if(window.FICHAS && FICHAS.fecharZoom && FICHAS.fecharZoom()) return; if(window.FICHAS && FICHAS.fecharFcam && FICHAS.fecharFcam()) return; /* câmera da ficha: o voltar fecha só ela */ /* figura ampliada: o voltar só fecha ela */ if(VER.aberto){ fecharPDF(); return; }
     if($('#cam').classList.contains('on')){ fecharCamera(); return; }
     if(window.FICHAS && FICHAS.aberta()){ FICHAS.fechar(); return; }
