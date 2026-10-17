@@ -579,7 +579,15 @@ function cssUmaVez() {
 #mpv .ac{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}#mpv .ac button{padding:10px 4px;font-size:13px;background:#E8F1FA;color:var(--navy)}#mpv .ac button.on{background:var(--err);color:#fff}#mpv .ac button.m{background:var(--green);color:#fff}
 #mpv .sheet{position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:16px 16px 0 0;box-shadow:0 -6px 24px rgba(0,0,0,.2);padding:14px 14px calc(14px + var(--sab));max-height:72%;overflow-y:auto;display:none;z-index:5;touch-action:pan-y}#mpv .sheet.on{display:block}
 #mpv .sheet h3{margin:0 0 8px;color:var(--navy);font-size:16px}#mpv .sheet .lin{display:flex;gap:8px;margin-top:10px}#mpv .sheet .lin button{flex:1}
-#mpv .sheet .geo{font-size:12px;margin:6px 0}#mpv .sheet .seg{flex-wrap:wrap}#mpv .sheet .seg button{padding:9px 8px;font-size:14px;flex:1 1 auto}#mpv .sheet textarea{min-height:110px;font-size:14px}#mpv .sheet .row input{min-width:0}`;
+#mpv .sheet .geo{font-size:12px;margin:6px 0}
+#mpv .medTop{position:absolute;left:10px;right:10px;top:10px;background:rgba(255,255,255,.96);border-radius:14px;box-shadow:0 4px 16px rgba(0,0,0,.2);padding:10px 44px 10px 12px;display:none;z-index:3}
+#mpv.medindo .medTop{display:block}#mpv.medindo .av,#mpv.medindo .nav{display:none!important}#mpv.medindo .fab{display:none}
+#mpv .medTop .mt1{font-size:16px;color:#0C4A6E;line-height:1.45}#mpv .medTop .mt2{font-size:12px;color:var(--muted);margin-top:4px;font-family:ui-monospace,Menlo,monospace}
+#mpv .medTop #medX{position:absolute;right:4px;top:4px;font-size:20px;color:var(--muted);padding:6px 10px}
+#mpv .medBar{display:none;gap:6px}#mpv.medindo .medBar{display:grid}#mpv.medindo .ac{display:none}
+#mpv .medBar .r1{display:grid;grid-template-columns:1fr 1.4fr 1fr;gap:6px}#mpv .medBar .r2{display:grid;grid-template-columns:1.6fr 1fr 1fr;gap:6px}
+#mpv .medBar button{padding:10px 4px;font-size:14px;background:#E0F2FE;color:#075985}#mpv .medBar .mais{background:#0EA5E9;color:#fff;font-size:18px;font-weight:800}#mpv .medBar .ok{background:var(--green);color:#fff}
+#mpv .medBar .seg{border-color:#0EA5E9}#mpv .medBar .seg button{background:#fff;color:#075985;font-size:13px;padding:10px 2px}#mpv .medBar .seg button.on{background:#0EA5E9;color:#fff}#mpv .sheet .seg{flex-wrap:wrap}#mpv .sheet .seg button{padding:9px 8px;font-size:14px;flex:1 1 auto}#mpv .sheet textarea{min-height:110px;font-size:14px}#mpv .sheet .row input{min-width:0}`;
   document.head.appendChild(st);
 }
 async function abrir(ob, id) {
@@ -588,10 +596,10 @@ async function abrir(ob, id) {
   const el = document.createElement('div'); el.id = 'mpv';
   el.innerHTML = `<div class="mt"><button id="mpvVolta">‹ Voltar</button><b>${esc(m.nome.replace(/\.[^.]+$/, ''))}</b><button id="mpvMais">☰</button></div>
   <div class="pgs" id="mpvPgs" style="display:none"><button id="mpvPgA" aria-label="Página anterior">◀</button><span id="mpvPgT"></span><button id="mpvPgP" aria-label="Próxima página">▶</button></div>
-  <div class="mc" id="mpvC"><canvas id="mpvCv"></canvas><div class="av" id="mpvAv"></div><div class="nav" id="mpvNav"></div>
+  <div class="mc" id="mpvC"><canvas id="mpvCv"></canvas><div class="av" id="mpvAv"></div><div class="medTop" id="mpvMedTop"></div><div class="nav" id="mpvNav"></div>
     <div class="fab"><button id="mpvBus" aria-label="Bússola">🧭</button><button id="mpvEu" aria-label="Centralizar em mim">◎</button></div>
     <div class="sheet" id="mpvSh"></div></div>
-  <div class="mb"><div class="co" id="mpvCo">Procurando GPS…</div><div class="ac"><button data-a="pino">📍 Marcar</button><button data-a="trilha">⏺ Trilha</button><button data-a="medir">📏 Medir</button><button data-a="mais">☰ Mais</button></div></div>`;
+  <div class="mb"><div class="co" id="mpvCo">Procurando GPS…</div><div class="ac"><button data-a="pino">📍 Marcar</button><button data-a="trilha">⏺ Trilha</button><button data-a="medir">📏 Medir</button><button data-a="mais">☰ Mais</button></div><div class="medBar" id="mpvMedBar"></div></div>`;
   document.body.appendChild(el); try { history.pushState({ t: 'mapa' }, ''); } catch (e) {}
   Object.assign(V, { aberto: true, ob, m, el, cv: $('#mpvCv'), k: 1, tx: 0, ty: 0, ptrs: new Map(), seguir: false, alvo: null, medir: null, pop: null, detalhe: null, camadas: [], fora: null, trilha: V.trilha && V.trilha.obraId === ob.id ? V.trilha : null });
   V.ctx = V.cv.getContext('2d'); ligarVisual(); redimensionar();
@@ -682,7 +690,7 @@ function desenhar() {
     if (V.trilha && V.trilha.pts.length > 1) linhaLL(c, V.trilha.pts, '#DC2626', 4);
     for (const m of V.marcas || []) if (m.tipo === 'pino') pino(c, m.lat, m.lon, V.alvo && V.alvo.id === m.id ? '#DC2626' : '#F59E0B', m.nome);
     if (V.alvo && !V.alvo.id) pino(c, V.alvo.lat, V.alvo.lon, '#DC2626', V.alvo.nome);
-    if (V.medir && V.medir.length) { linhaLL(c, V.medir, '#0EA5E9', 3, V.medir.length > 2); for (const p of V.medir) { const s = m2s(...V.geo.ll2px(p[0], p[1])); c.fillStyle = '#fff'; c.strokeStyle = '#0EA5E9'; c.lineWidth = 3; c.beginPath(); c.arc(s[0], s[1], 6, 0, 7); c.fill(); c.stroke(); } }
+    desenharMedida(c);
     const p = V.pos; if (p) {
       if (V.alvo) { const a = m2s(...V.geo.ll2px(p.lat, p.lon)), b = m2s(...V.geo.ll2px(V.alvo.lat, V.alvo.lon)); c.setLineDash([10, 8]); c.strokeStyle = '#DC2626'; c.lineWidth = 3; c.beginPath(); c.moveTo(...a); c.lineTo(...b); c.stroke(); c.setLineDash([]); }
       const s = m2s(...V.geo.ll2px(p.lat, p.lon)); const r = Math.max(9, (p.acc || 0) * V.geo.pxm * V.k);
@@ -763,7 +771,7 @@ function ouvirB(e) { let h = null; if (e.webkitCompassHeading != null) h = e.web
 function ligarVisual() {
   const cv = V.cv, P = V.ptrs; let longo = null, ini = null, ultToque = 0, pinca = null, mexeu = false;
   cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); P.set(e.pointerId, [e.offsetX, e.offsetY]); fecharSheet();
-    if (P.size === 1) { ini = [e.offsetX, e.offsetY, Date.now()]; mexeu = false; clearTimeout(longo); longo = setTimeout(() => { if (!mexeu && P.size === 1) { navigator.vibrate && navigator.vibrate(25); popPonto(s2m(ini[0], ini[1])); ini = null; } }, 550); }
+    if (P.size === 1) { ini = [e.offsetX, e.offsetY, Date.now()]; mexeu = false; clearTimeout(longo); longo = setTimeout(() => { if (!mexeu && P.size === 1 && !V.medir) { navigator.vibrate && navigator.vibrate(25); popPonto(s2m(ini[0], ini[1])); ini = null; } }, 550); }
     if (P.size === 2) { clearTimeout(longo); const [a, b] = [...P.values()]; pinca = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), k: V.k, c: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2] }; mexeu = true; } });
   cv.addEventListener('pointermove', e => { if (!P.has(e.pointerId)) return; const ant = P.get(e.pointerId); const at = [e.offsetX, e.offsetY]; P.set(e.pointerId, at);
     if (P.size === 1) { if (ini && Math.hypot(at[0] - ini[0], at[1] - ini[1]) > 8) { mexeu = true; clearTimeout(longo); } if (mexeu) { V.tx += at[0] - ant[0]; V.ty += at[1] - ant[1]; desligarSeguir(); pedir(); } }
@@ -785,7 +793,7 @@ function ligarVisual() {
 function desligarSeguir() { if (V.seguir) { V.seguir = false; $('#mpvEu').classList.remove('on'); } }
 function toque(sx, sy) {
   if (!V.geo) return; const m = s2m(sx, sy);
-  if (V.medir) { V.medir.push(V.geo.px2ll(m[0], m[1])); painelMedir(); pedir(); return; }
+  if (V.medir) { const e = encaixe(sx, sy); addMedida(e || { ll: V.geo.px2ll(m[0], m[1]), nome: '' }); return; }
   let melhor = null, dm = 28; for (const p of V.marcas || []) if (p.tipo === 'pino') { const s = m2s(...V.geo.ll2px(p.lat, p.lon)); const d = Math.min(Math.hypot(s[0] - sx, s[1] - sy), Math.hypot(s[0] - sx, s[1] - 22 - sy)); if (d < dm) { dm = d; melhor = { pino: p }; } }
   for (const f of [...(V.vetPx || []), ...V.camadas.filter(c => c.on).flatMap(c => c.f)]) if (f.tipo === 'ponto') { const s = m2s(f.p[0][0], f.p[0][1]); const d = Math.hypot(s[0] - sx, s[1] - sy); if (d < dm) { dm = d; melhor = { f }; } }
   if (melhor && melhor.pino) return popPino(melhor.pino); if (melhor) return popPonto(V.geo.ll2px(melhor.f.c[0][0], melhor.f.c[0][1]), melhor.f.nome, melhor.f.desc);
@@ -794,7 +802,7 @@ function toque(sx, sy) {
 
 /* ---------------- painéis (folha de baixo) ---------------- */
 function sheet(html) { const s = $('#mpvSh'); s.innerHTML = html; s.classList.add('on'); V.sheetAberto = true; s.onpointerdown = e => e.stopPropagation(); return s; }
-function fecharSheet() { const s = $('#mpvSh'); if (s && !V.medir) { s.classList.remove('on'); V.sheetAberto = false; } }
+function fecharSheet() { const s = $('#mpvSh'); if (s) { s.classList.remove('on'); V.sheetAberto = false; } }
 function linhaDistDeMim(lat, lon) { const p = V.pos; if (!p) return ''; const d = dist([p.lat, p.lon], [lat, lon]), r = rumo([p.lat, p.lon], [lat, lon]); return `<div class="muted">a ${fmtDist(d)} de você · rumo ${Math.round(r)}° ${cardeal(r)}</div>`; }
 function blocoCoord(lat, lon) { const u = window.toUTM ? toUTM(lat, lon) : null; return `<div class="geo">${u ? `UTM ${u.zone}${u.hemi} E ${br(u.e)} N ${br(u.n)} (SIRGAS 2000)<br>` : ''}Lat ${lat.toFixed(6).replace('.', ',')} · Lon ${lon.toFixed(6).replace('.', ',')}</div>`; }
 function popPonto(m, nome, desc) { if (!V.geo) return; const [lat, lon] = V.geo.px2ll(m[0], m[1]);
@@ -826,19 +834,85 @@ async function acao(a, b) {
     if (p.acc > 30 && !confirm(`O GPS está com precisão de ±${Math.round(p.acc)} m. Marcar assim mesmo? (Esperar alguns segundos a céu aberto melhora.)`)) return;
     const pn = await novoPino(p.lat, p.lon, p.acc); popPino(pn); }
   if (a === 'trilha') { if (V.trilha) await pararTrilha(); else iniciarTrilha(); }
-  if (a === 'medir') { if (!V.geo) return toast('Este mapa não tem georreferência.'); V.medir = []; painelMedir(); }
+  if (a === 'medir') iniciarMedir();
   if (a === 'mais') sheetMais();
 }
-function painelMedir() { const pts = V.medir; const area = pts.length > 2 ? areaLL(pts) : 0;
-  const s = sheet(`<h3>📏 Medir</h3><div class="muted">Toque no mapa para marcar os pontos${V.pos ? ' ou use "+ onde estou"' : ''}.</div><div class="geo" style="font-size:15px">Distância: <b>${fmtDist(compLL(pts))}</b>${pts.length > 2 ? ` · Perímetro: <b>${fmtDist(compLL(pts, true))}</b><br>Área: <b>${fmtArea(area)}</b>` : ''}</div>
-  <div class="lin"><button class="sec" id="mdGps" ${V.pos ? '' : 'disabled'}>+ onde estou</button><button class="sec" id="mdDesf" ${pts.length ? '' : 'disabled'}>Desfazer</button></div><div class="lin"><button class="ghost" id="mdLimpa">Limpar</button><button id="mdFim">Terminar</button></div>`);
-  s.querySelector('#mdGps').onclick = () => { V.medir.push([V.pos.lat, V.pos.lon]); painelMedir(); pedir(); };
-  s.querySelector('#mdDesf').onclick = () => { V.medir.pop(); painelMedir(); pedir(); }; s.querySelector('#mdLimpa').onclick = () => { V.medir = []; painelMedir(); pedir(); };
-  s.querySelector('#mdFim').onclick = async () => { const pts = V.medir || []; V.medir = null; s.classList.remove('on'); V.sheetAberto = false;
-    if (pts.length >= 2) { const n = (V.marcas || []).filter(m => m.tipo === 'medida').length + 1; const fech = pts.length > 2;
-      const md = { id: uid('M'), obraId: V.ob.id, tipo: 'medida', nome: 'Medição ' + n, pts: pts.map(q => [q[0], q[1]]), fechado: fech, comp: compLL(pts), perim: fech ? compLL(pts, true) : null, area: fech ? areaLL(pts) : null, quem: (APP() && APP().quem) || '', criadoEm: new Date().toISOString(), enviado: false };
-      await MDB.put('marcas', md); V.marcas.push(md); agendarEnvio(V.ob); toast(`${md.nome} guardada: ${fmtDist(md.comp)}${fech ? ' · ' + fmtArea(md.area) : ''}. Vai para o Drive sozinha.`, 3500); }
-    pedir(); }; }
+/* ================= MEDIR (no estilo do Avenza, melhorado) =================
+   Mira no centro: arraste o mapa até o ponto e toque em "＋ Ponto". Também vale tocar direto no mapa.
+   Linha · Área · Círculo · Rumo e distância. Ao vivo: segmento até a mira (distância e rumo), total, área, perímetro.
+   Melhorias: a mira ENCAIXA em vértices/pinos/pontos das camadas e no 1º ponto (fecha a área); "📍 Aqui" põe o ponto do GPS;
+   comprimento de cada segmento escrito no mapa; sair (voltar/✕) NUNCA perde a medição: salva e vai para o Drive sozinha. */
+const MED_COR = '#0EA5E9';
+function iniciarMedir() { if (!V.geo) return toast('Este mapa não tem georreferência.'); fecharSheetForca(); V.medir = []; V.medModo = LSx.get('medModo', 'linha'); V.el.classList.add('medindo'); desligarSeguir(); pintarMedBar(); pedir(); }
+function miraTela() { return [V.cw / 2, V.ch / 2]; }
+function encaixe(sx, sy) { // ponto conhecido perto da mira/toque (até 22 px): {ll, nome}
+  const ult = V.medir && V.medir.length ? V.medir[V.medir.length - 1] : null;
+  let melhor = null, dm = 22; const tenta = (lat, lon, nome) => { if (ult && dist(ult, [lat, lon]) < 0.5 && !/fecha/.test(nome)) return; const q = m2s(...V.geo.ll2px(lat, lon)); const d = Math.hypot(q[0] - sx, q[1] - sy); if (d < dm) { dm = d; melhor = { ll: [lat, lon], nome }; } };
+  if (V.medir && V.medir.length >= 3 && V.medModo !== 'circulo') tenta(V.medir[0][0], V.medir[0][1], '1º ponto — fecha a área');
+  for (const m of V.marcas || []) if (m.tipo === 'pino') tenta(m.lat, m.lon, m.nome);
+  const fs = [...(V.vetPx || []), ...V.camadas.filter(c => c.on).flatMap(c => c.f)];
+  for (const f of fs) { const n = f.c.length; if (n > 400) continue; for (let k = 0; k < n; k++) tenta(f.c[k][0], f.c[k][1], f.tipo === 'ponto' ? (f.nome || 'ponto') : `${f.nome || 'vértice'} · v${k + 1}`); }
+  return melhor; }
+function alvoMira() { const [sx, sy] = miraTela(); const e = encaixe(sx, sy); if (e) return e; const m = s2m(sx, sy); return { ll: V.geo.px2ll(m[0], m[1]), nome: '' }; }
+function ptsMedida(comMira) { // vértices da medição (com a mira como vértice provisório)
+  const pts = V.medir.slice(); if (comMira && V.medModo !== 'circulo') { const a = alvoMira(); const ult = pts[pts.length - 1]; if (!ult || dist(ult, a.ll) > 0.05) pts.push(a.ll); } return pts; }
+function circuloPts(c, r, n = 72) { const out = []; for (let i = 0; i < n; i++) out.push(destino(c, i * 360 / n, r)); return out; }
+function destino(p, rumoG, d) { const R = 6371008.8, δ = d / R, θ = rumoG * RAD, φ1 = p[0] * RAD, λ1 = p[1] * RAD;
+  const φ2 = Math.asin(Math.sin(φ1) * Math.cos(δ) + Math.cos(φ1) * Math.sin(δ) * Math.cos(θ)); const λ2 = λ1 + Math.atan2(Math.sin(θ) * Math.sin(δ) * Math.cos(φ1), Math.cos(δ) - Math.sin(φ1) * Math.sin(φ2)); return [φ2 / RAD, λ2 / RAD]; }
+function resumoMedida() { const md = V.medModo, pts = V.medir, a = alvoMira(); const L = [];
+  if (md === 'circulo') { if (!pts.length) return { linhas: ['Mire o CENTRO e toque em ＋ Ponto'], a };
+    const r = dist(pts[0], pts[1] || a.ll); L.push(`Raio <b>${fmtDist(r)}</b>`, `Área <b>${fmtArea(Math.PI * r * r)}</b>`, `Perímetro <b>${fmtDist(2 * Math.PI * r)}</b>`); return { linhas: L, a }; }
+  if (!pts.length) return { linhas: ['Mire o 1º ponto e toque em ＋ Ponto'], a };
+  const ult = pts[pts.length - 1], seg = dist(ult, a.ll), rm = rumo(ult, a.ll);
+  L.push(`Segmento <b>${fmtDist(seg)}</b> · rumo ${Math.round(rm)}° ${cardeal(rm)}`);
+  const pv = ptsMedida(true);
+  if (md === 'area') { if (pv.length >= 3) L.push(`Área <b>${fmtArea(areaLL(pv))}</b>`, `Perímetro <b>${fmtDist(compLL(pv, true))}</b>`); else L.push('Área: faltam ' + (3 - pv.length) + ' ponto(s)'); }
+  else L.push(`Total <b>${fmtDist(compLL(pv))}</b> · ${pts.length} ponto(s)`);
+  return { linhas: L, a }; }
+function pintarMedTop() { const el = $('#mpvMedTop'); if (!el || !V.medir) return; const r = resumoMedida(); const u = window.toUTM ? toUTM(r.a.ll[0], r.a.ll[1]) : null;
+  el.innerHTML = `<button class="ghost" id="medX" aria-label="Sair da medição">✕</button><div class="mt1">${r.linhas.join('<br>')}</div><div class="mt2">${r.a.nome ? '🧲 ' + esc(r.a.nome) + ' · ' : ''}mira: ${u ? `${u.zone}${u.hemi} E ${br(u.e)} N ${br(u.n)}` : r.a.ll.map(x => x.toFixed(6)).join(', ')}</div>`;
+  $('#medX').onclick = () => sairMedir(true); }
+function pintarMedBar() { const b = $('#mpvMedBar'); if (!b) return; const md = V.medModo, n = V.medir ? V.medir.length : 0;
+  b.innerHTML = `<div class="r1"><button id="medDesf" ${n ? '' : 'disabled'}>↶ Desfazer</button><button class="mais" id="medAdd">＋ Ponto</button><button id="medGps" ${V.pos ? '' : 'disabled'}>📍 Aqui</button></div>
+  <div class="r2"><div class="seg">${[['linha', 'Linha'], ['area', 'Área'], ['circulo', 'Círculo']].map(([k, t]) => `<button data-mm="${k}" class="${md === k ? 'on' : ''}">${t}</button>`).join('')}</div><button id="medRumo" ${md === 'circulo' ? 'disabled' : ''}>🧭 Rumo e dist.</button><button class="ok" id="medOk">✓ Salvar</button></div>`;
+  $('#medDesf').onclick = () => { V.medir.pop(); pintarMedBar(); pedir(); };
+  $('#medAdd').onclick = () => addMedida(alvoMira());
+  $('#medGps').onclick = () => { if (!V.pos) return toast('Ainda sem GPS.'); if (V.pos.acc > 20) toast(`GPS com ±${Math.round(V.pos.acc)} m — o ponto pode estar deslocado.`, 3000); addMedida({ ll: [V.pos.lat, V.pos.lon], nome: 'GPS' }); };
+  b.querySelectorAll('[data-mm]').forEach(x => x.onclick = () => { V.medModo = x.dataset.mm; LSx.set('medModo', V.medModo); if (V.medModo === 'circulo' && V.medir.length > 2) V.medir = V.medir.slice(0, 1); pintarMedBar(); pedir(); });
+  $('#medRumo').onclick = sheetRumo; $('#medOk').onclick = () => sairMedir(false, true); }
+function addMedida(a) { if (!V.medir) return; navigator.vibrate && navigator.vibrate(15);
+  if (V.medModo === 'circulo') { if (V.medir.length >= 2) V.medir = V.medir.slice(0, 1); if (V.medir.length && dist(V.medir[0], a.ll) < 0.5) return toast('Afaste a mira do centro para marcar o raio.'); V.medir.push(a.ll); if (V.medir.length === 2) toast('Raio marcado. Toque em ✓ Salvar ou mexa de novo.'); pintarMedBar(); pedir(); return; }
+  if (V.medir.length >= 3 && dist(a.ll, V.medir[0]) < 0.05) { V.medModo = 'area'; toast('Área fechada ✓'); pintarMedBar(); pedir(); return; }
+  const ult = V.medir[V.medir.length - 1]; if (ult && dist(ult, a.ll) < 0.05) return toast('Mesmo ponto do anterior.');
+  V.medir.push(a.ll); pintarMedBar(); pedir(); }
+function sheetRumo() { const ini = V.medir.length ? V.medir[V.medir.length - 1] : alvoMira().ll;
+  const s = sheet(`<h3>🧭 Rumo e distância</h3><div class="nota">A partir ${V.medir.length ? 'do último ponto' : 'da mira'}. Rumo em graus a partir do Norte (0 a 360), sentido horário — ex.: 90 = Leste.</div><div class="row"><input id="rgR" placeholder="Rumo (°)" inputmode="decimal"><input id="rgD" placeholder="Distância (m)" inputmode="decimal"></div><div class="lin"><button class="green" id="rgOk">＋ Adicionar ponto</button><button class="ghost" id="rgX">Voltar</button></div>`);
+  s.querySelector('#rgOk').onclick = () => { const r = parseFloat(String(s.querySelector('#rgR').value).replace(',', '.')), d = parseFloat(String(s.querySelector('#rgD').value).replace(/\./g, '').replace(',', '.'));
+    if (!isFinite(r) || r < 0 || r > 360 || !isFinite(d) || d <= 0) return toast('Rumo de 0 a 360 e distância em metros.');
+    if (!V.medir.length) V.medir.push(ini); V.medir.push(destino(ini, r, d)); fecharSheetForca(); pintarMedBar(); pedir(); toast(`Ponto a ${fmtDist(d)} no rumo ${r}° ✓`); };
+  s.querySelector('#rgX').onclick = fecharSheetForca; }
+async function sairMedir(perguntar, salvarDireto) { const pts = V.medir || []; const md = V.medModo;
+  const valida = md === 'circulo' ? pts.length >= 2 : pts.length >= 2;
+  if (perguntar && valida) { const r = await escolha('Sair da medição', 'A medição tem ' + pts.length + ' ponto(s).', [{ t: 'Salvar e sair', v: 's', cls: 'green' }, { t: 'Descartar', v: 'd', cls: 'sec' }]); if (!r) return; if (r === 'd') { fimMedir(); return; } }
+  if (valida) { const n = (V.marcas || []).filter(m => m.tipo === 'medida').length + 1; let reg;
+    if (md === 'circulo') { const r = dist(pts[0], pts[1]); reg = { nome: 'Círculo ' + n, pts: circuloPts(pts[0], r), fechado: true, raio: r, centro: pts[0], comp: 2 * Math.PI * r, perim: 2 * Math.PI * r, area: Math.PI * r * r }; }
+    else { const f = md === 'area' && pts.length >= 3; reg = { nome: (f ? 'Área ' : 'Medição ') + n, pts: pts.map(q => [q[0], q[1]]), fechado: f, comp: compLL(pts), perim: f ? compLL(pts, true) : null, area: f ? areaLL(pts) : null }; }
+    const reg2 = Object.assign({ id: uid('M'), obraId: V.ob.id, tipo: 'medida', modo: md, quem: (APP() && APP().quem) || '', criadoEm: new Date().toISOString(), enviado: false }, reg);
+    await MDB.put('marcas', reg2); V.marcas.push(reg2); agendarEnvio(V.ob);
+    toast(`${reg2.nome} salva: ${reg2.area ? fmtArea(reg2.area) + ' · ' : ''}${fmtDist(reg2.fechado ? reg2.perim : reg2.comp)}. Vai para o Drive sozinha.`, 3500); }
+  else if (salvarDireto) { toast(md === 'circulo' ? 'Marque o centro e o raio.' : 'Marque pelo menos 2 pontos.'); return; }
+  fimMedir(); }
+function fimMedir() { V.medir = null; V.el && V.el.classList.remove('medindo'); const t = $('#mpvMedTop'); if (t) t.innerHTML = ''; pedir(); }
+function desenharMedida(c) { if (!V.medir || !V.geo) return; const md = V.medModo, a = alvoMira();
+  if (md === 'circulo') { if (V.medir.length) { const r = dist(V.medir[0], V.medir[1] || a.ll); linhaLL(c, circuloPts(V.medir[0], r), MED_COR, 3, true); linhaLL(c, [V.medir[0], V.medir[1] || a.ll], MED_COR, 2); } }
+  else { const pv = ptsMedida(true); if (pv.length > 1) { linhaLL(c, pv, MED_COR, 3, md === 'area' && pv.length > 2);
+      for (let i = 1; i < pv.length; i++) { const p = m2s(...V.geo.ll2px(pv[i - 1][0], pv[i - 1][1])), q = m2s(...V.geo.ll2px(pv[i][0], pv[i][1])); if (Math.hypot(q[0] - p[0], q[1] - p[1]) < 70) continue;
+        const tx = fmtDist(dist(pv[i - 1], pv[i])); c.font = '700 12px system-ui,sans-serif'; const w = c.measureText(tx).width + 10, mx = (p[0] + q[0]) / 2, my = (p[1] + q[1]) / 2; c.fillStyle = 'rgba(255,255,255,.92)'; c.fillRect(mx - w / 2, my - 10, w, 20); c.fillStyle = '#075985'; c.fillText(tx, mx - w / 2 + 5, my + 4); } } }
+  for (const p of V.medir) { const s = m2s(...V.geo.ll2px(p[0], p[1])); c.fillStyle = '#fff'; c.strokeStyle = MED_COR; c.lineWidth = 3; c.beginPath(); c.arc(s[0], s[1], 6, 0, 7); c.fill(); c.stroke(); }
+  // mira
+  const [mx, my] = miraTela(); const enc = !!a.nome && a.nome !== 'GPS'; c.save(); c.strokeStyle = 'rgba(255,255,255,.95)'; c.lineWidth = 5; const cruz = () => { c.beginPath(); c.moveTo(mx - 22, my); c.lineTo(mx - 6, my); c.moveTo(mx + 6, my); c.lineTo(mx + 22, my); c.moveTo(mx, my - 22); c.lineTo(mx, my - 6); c.moveTo(mx, my + 6); c.lineTo(mx, my + 22); c.stroke(); };
+  cruz(); c.strokeStyle = enc ? '#16A34A' : '#DC2626'; c.lineWidth = 2.5; cruz(); if (enc) { const q = m2s(...V.geo.ll2px(a.ll[0], a.ll[1])); c.beginPath(); c.arc(q[0], q[1], 13, 0, 7); c.stroke(); } c.restore();
+  pintarMedTop(); }
 async function sheetMais() {
   const outros = (await MDB.obra('mapas', V.ob.id)).filter(m => m.id !== V.m.id && !m.camada);
   const pinos = (V.marcas || []).filter(m => m.tipo === 'pino'), trilhas = (V.marcas || []).filter(m => m.tipo === 'trilha'); const pend = (V.marcas || []).filter(m => !m.enviado).length;
@@ -957,6 +1031,7 @@ async function enviarTrilhaParcial(t) { if (!t || t.pts.length < 2 || typeof win
 function fecharVisual(trocando) {
   if (!V.aberto) return false; const ob = V.ob;
   if (V.trilha && !trocando) { if (!confirm('A trilha está sendo gravada. Fechar o mapa para a gravação. Fechar assim mesmo?')) { try { history.pushState({ t: 'mapa' }, ''); } catch (e) {} return true; } pararTrilha(); }
+  if (V.medir && !trocando) sairMedir(false);
   try { navigator.geolocation.clearWatch(V.watch); } catch (e) {} clearInterval(V.reserva); if (V.tarefa) try { V.tarefa.cancel(); } catch (e) {}
   if (V.bussolaOn) { window.removeEventListener('deviceorientationabsolute', ouvirB, true); window.removeEventListener('deviceorientation', ouvirB, true); }
   window.removeEventListener('resize', V.aoRedim); if (V.doc) try { V.doc.destroy(); } catch (e) {}
@@ -966,7 +1041,8 @@ function fecharVisual(trocando) {
 }
 function voltar() { // botão voltar do celular: fecha a escolha, o painel, depois o mapa; nunca sai do app
   if (ESC.aberto) { const f = ESC.aberto; f(-1); try { history.pushState({ t: V.aberto ? 'mapa' : 'app' }, ''); } catch (e) {} return true; }
-  if (!V.aberto) return false; const s = $('#mpvSh'); if (s && s.classList.contains('on')) { if (V.medir) V.medir = null; s.classList.remove('on'); V.sheetAberto = false; pedir(); try { history.pushState({ t: 'mapa' }, ''); } catch (e) {} return true; }
+  if (!V.aberto) return false; const s = $('#mpvSh'); if (s && s.classList.contains('on')) { s.classList.remove('on'); V.sheetAberto = false; pedir(); try { history.pushState({ t: 'mapa' }, ''); } catch (e) {} return true; }
+  if (V.medir) { sairMedir(false); try { history.pushState({ t: 'mapa' }, ''); } catch (e) {} return true; } /* voltar na medição: salva e sai, nunca perde */
   fecharVisual(); return true;
 }
 
@@ -978,5 +1054,6 @@ async function sincronizarTudo(forcar) { // abre o app com internet → mapas de
 setTimeout(() => sincronizarTudo(false), 20000);
 async function baixarTodas() { const obs = (APP() && APP().pacote && APP().pacote.obras) || []; let n = 0; for (const ob of obs) { if (!ob.pastaId) continue; await sincronizar(ob, { silencioso: true }); n++; } return n; }
 window.MAPAS = { tela, ligar, abrir, voltar, aberto: () => !!V.aberto, auto: ob => sincronizar(ob, { silencioso: true }), baixarTodas, sincronizarTudo, contar,
+  _dbg: { med: () => [V.medModo, V.medir], ll2s: (la, lo) => m2s(...V.geo.ll2px(la, lo)), pan: (sx, sy) => { V.tx += V.cw / 2 - sx; V.ty += V.ch / 2 - sy; pedir(); } },
   _t: { lerCoordTexto, sad69ParaSirgas, utmIe, lerGeoPDF, criarGeo, utmF, utmI, lerKML, lerGPX, analisar, unzip, dist, rumo, areaLL, epsgInfo } };
 })();

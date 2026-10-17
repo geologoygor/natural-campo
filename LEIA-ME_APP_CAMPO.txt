@@ -111,3 +111,13 @@ v1.23.2 (17/10/2026)
     com lat/lon e UTM.
   - Sem internet de verdade (Wi-Fi sem internet, sinal fraco) o envio não fica martelando: espera
     30 s, 1, 2, 5, até 10 min entre tentativas; a rede voltar ou "Enviar agora" zeram a espera.
+
+v1.24.0 (17/10/2026) — MEDIR no estilo do Avenza, melhorado
+  - Mira no centro: arraste o mapa e toque em "＋ Ponto" (tocar direto no mapa também vale).
+  - Modos Linha · Área · Círculo; "🧭 Rumo e dist." (graus a partir do Norte + metros); "📍 Aqui" (ponto do GPS);
+    "↶ Desfazer"; "✓ Salvar". Painel de cima ao vivo: segmento até a mira com distância e rumo, total,
+    área e perímetro (círculo: raio, área, perímetro) e a coordenada UTM da mira.
+  - A mira encaixa (🧲, fica verde) em vértices de camadas, pinos, pontos e no 1º ponto (fecha a área).
+  - Comprimento de cada segmento escrito no mapa.
+  - Voltar, ✕ ou fechar o mapa no meio da medição NÃO perde nada: salva (✕ pergunta "Salvar ou Descartar").
+    Medição salva vai sozinha para o Drive em KML e pode ir "Para GPS".
