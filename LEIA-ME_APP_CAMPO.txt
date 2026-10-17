@@ -78,3 +78,14 @@ MAPAS DA OBRA (v1.21.0, 17/10/2026) — substitui o Avenza
     só para pasta de obra aberta e só arquivo dentro dela.
   - PDF da Natural precisa ter a georreferência gravada: ferramentas/georref_pdf.py
     (chamar no nat_mapa logo depois de salvar o PDF). PDF sem isso abre só para ver.
+
+v1.22.0 (17/10/2026)
+  - "Enviar agora" SEMPRE ativo: um toque manda tudo o que está no celular (áudio gravado
+    que não passou pelo Enviar do Diário, fichas abertas como PARCIAL, fila de todas as obras).
+  - Tela inicial: "Enviados ao Drive", histórico por dia do que o robô confirmou.
+  - Mapas: sincroniza as obras todas em segundo plano (com internet, a cada 3 h); selo
+    "Pronto para o campo sem internet" e "Baixar tudo desta obra"; PDF de várias páginas
+    (◀ ▶); GeoTIFF repetido de um GeoPDF não desce; camada pesada (>600 KB) começa desligada;
+    rótulos de pontos não se sobrepõem.
+  - Robô v1.6: CLAUDE/campo_obras_fixas.json = obras do app fora do painel (prospecção),
+    somadas à lista do painel até a data 'ate'. Primeira: Reconhecimento Área Mucajaí.
