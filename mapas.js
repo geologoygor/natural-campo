@@ -514,7 +514,8 @@ function projVet(fs) { return fs.map(f => Object.assign({}, f, { p: f.c.map(c =>
 async function carregarCamadas() { // KML/GPX da mesma obra aparecem por cima (podem ser desligados no ☰)
   V.camadas = []; if (!V.geo) return; const desl = LSx.get('mpCamDesl_' + V.ob.id, {});
   for (const c of await MDB.obra('mapas', V.ob.id)) { if (c.id === V.m.id || !c.camada) continue;
-    try { const v = await vetorDe(c.tipo, new Uint8Array(await c.blob.arrayBuffer())); V.camadas.push({ id: c.id, nome: c.nome, on: desl[c.id] === undefined ? (c.tamanho || 0) < 600000 : !desl[c.id], f: projVet(v.feicoes) }); } catch (e) {} }
+    try { const v = await vetorDe(c.tipo, new Uint8Array(await c.blob.arrayBuffer())); const soPontos = v.feicoes.length > 25 && v.feicoes.every(f => f.tipo === 'ponto'); /* muitos pontos (vértices) e camada pesada (curvas) começam desligadas: ligam no ☰ */
+      V.camadas.push({ id: c.id, nome: c.nome, on: desl[c.id] === undefined ? ((c.tamanho || 0) < 600000 && !soPontos) : !desl[c.id], f: projVet(v.feicoes) }); } catch (e) {} }
 }
 function redimensionar() { if (!V.aberto) return; const r = $('#mpvC').getBoundingClientRect(); V.dpr = window.devicePixelRatio || 1; V.cw = r.width; V.ch = r.height; V.cv.width = Math.round(r.width * V.dpr); V.cv.height = Math.round(r.height * V.dpr); V.detalhe = null; pedir(); }
 function enquadrar() { const k = Math.min(V.cw / V.W, V.ch / V.H) * .96; V.k = k; V.kmin = k * .4; V.kmax = V.tipo === 'pdf' ? Math.max(k * 80, 12) : Math.max(k * 60, 6 / (V.s0 || 1)); V.tx = (V.cw - V.W * k) / 2; V.ty = (V.ch - V.H * k) / 2; V.detalhe = null; }
