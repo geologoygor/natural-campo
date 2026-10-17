@@ -30,7 +30,23 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&a
 const toast = (m, ms) => (window.toast ? window.toast(m, ms) : alert(m));
 const br = (x, d = 0) => Number(x).toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d });
 function fmtDist(m) { if (m == null || !isFinite(m)) return '—'; return m < 1000 ? br(Math.round(m)) + ' m' : br(m / 1000, m < 10000 ? 2 : 1) + ' km'; }
-function fmtArea(m2) { return m2 < 10000 ? br(Math.round(m2)) + ' m²' : br(m2 / 10000, 2) + ' ha'; }
+/* Unidades escolhidas pelo usuário (ficam no celular). Comprimento das MEDIÇÕES e toda ÁREA seguem a escolha;
+   distância de navegação e escala do mapa continuam automáticas. */
+const U_AREA = { auto: ['Automático (m² / ha)', 0], m2: ['m²', 1], ha: ['hectares (ha)', 1e4], km2: ['km²', 1e6], alqp: ['alqueire paulista (2,42 ha)', 24200], alqm: ['alqueire mineiro/goiano (4,84 ha)', 48400], alqn: ['alqueire do norte (2,7225 ha)', 27225] };
+const U_COMP = { auto: ['Automático (m / km)', 0], m: ['metros (m)', 1], km: ['quilômetros (km)', 1000] };
+const SUF_A = { m2: ' m²', ha: ' ha', km2: ' km²', alqp: ' alq. paulista', alqm: ' alq. mineiro', alqn: ' alq. do norte' };
+function uArea() { try { return (typeof LS !== 'undefined' && LS.get('uArea', 'auto')) || 'auto'; } catch (e) { return 'auto'; } }
+function uComp() { try { return (typeof LS !== 'undefined' && LS.get('uComp', 'auto')) || 'auto'; } catch (e) { return 'auto'; } }
+function fmtAreaEm(m2, u) { if (m2 == null || !isFinite(m2)) return '—'; if (u === 'auto') return m2 < 10000 ? br(Math.round(m2)) + ' m²' : br(m2 / 10000, 2) + ' ha';
+  const v = m2 / U_AREA[u][1]; return (u === 'm2' ? br(Math.round(v)) : br(v, v < 10 ? 4 : v < 1000 ? 2 : 1)) + SUF_A[u]; }
+function fmtArea(m2) { return fmtAreaEm(m2, uArea()); }
+function fmtAreaTodas(m2) { return ['m2', 'ha', 'km2', 'alqp', 'alqm'].map(u => fmtAreaEm(m2, u)).join(' = '); }
+function fmtCompM(m) { const u = uComp(); if (m == null || !isFinite(m)) return '—'; if (u === 'm') return br(m, m < 100 ? 1 : 0) + ' m'; if (u === 'km') return br(m / 1000, 3) + ' km'; return fmtDist(m); }
+async function escolherUnidades() {
+  const r = await escolha('Unidades das medições', `Área: <b>${esc(U_AREA[uArea()][0])}</b> · Comprimento: <b>${esc(U_COMP[uComp()][0])}</b>`,
+    [...Object.entries(U_AREA).map(([k, v]) => ({ t: 'Área em ' + v[0].replace(/^Automático.*/, 'automático (m² / ha)'), v: 'a:' + k, cls: uArea() === k ? 'green' : 'sec' })),
+     ...Object.entries(U_COMP).map(([k, v]) => ({ t: 'Comprimento em ' + v[0].replace(/^Automático.*/, 'automático (m / km)'), v: 'c:' + k, cls: uComp() === k ? 'green' : 'sec' }))]);
+  if (!r) return; const [t, k] = r.split(':'); try { LS.set(t === 'a' ? 'uArea' : 'uComp', k); } catch (e) {} toast('Unidade: ' + (t === 'a' ? U_AREA[k][0] : U_COMP[k][0])); if (V.aberto) { pedir(); if (V.medir) { pintarMedTop(); } } if (OB_ATUAL) pintarMarcas(OB_ATUAL); }
 function fmtTam(b) { return b > 1048576 ? br(b / 1048576, 1) + ' MB' : br(Math.max(1, Math.round(b / 1024))) + ' KB'; }
 function uid(p) { return p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 function carregarScript(src) {
@@ -68,7 +84,7 @@ const ESC = { aberto: null };
 function escolha(titulo, texto, opcoes) { // modal dentro do app; o voltar do celular fecha (MAPAS.voltar)
   return new Promise(ok => { fecharEscolha(); const d = document.createElement('div'); d.id = 'mpEsc';
     d.style.cssText = 'position:fixed;inset:0;z-index:9500;background:rgba(10,20,35,.55);display:flex;align-items:flex-end;justify-content:center';
-    d.innerHTML = `<div style="background:#fff;border-radius:16px 16px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom));width:100%;max-width:560px"><h3 style="margin:0 0 6px;color:var(--navy)">${esc(titulo)}</h3>${texto ? `<div class="nota" style="margin-bottom:10px">${texto}</div>` : ''}${opcoes.map((o, i) => `<button class="big ${o.cls || ''}" data-i="${i}" style="margin-top:8px">${esc(o.t)}</button>`).join('')}<button class="big ghost" data-i="-1" style="margin-top:8px">Cancelar</button></div>`;
+    d.innerHTML = `<div style="background:#fff;border-radius:16px 16px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom));width:100%;max-width:560px;max-height:88vh;overflow-y:auto"><h3 style="margin:0 0 6px;color:var(--navy)">${esc(titulo)}</h3>${texto ? `<div class="nota" style="margin-bottom:10px">${texto}</div>` : ''}${opcoes.map((o, i) => `<button class="big ${o.cls || ''}" data-i="${i}" style="margin-top:8px">${esc(o.t)}</button>`).join('')}<button class="big ghost" data-i="-1" style="margin-top:8px">Cancelar</button></div>`;
     d.onclick = e => { const b = e.target.closest('button'); if (b) fim(+b.dataset.i); else if (e.target === d) fim(-1); };
     const fim = i => { fecharEscolha(); ok(i >= 0 ? opcoes[i].v : null); }; ESC.aberto = fim; document.body.appendChild(d); try { history.pushState({ t: 'esc' }, ''); } catch (e) {} }); }
 function fecharEscolha() { const d = $('#mpEsc'); if (d) d.remove(); const f = ESC.aberto; ESC.aberto = null; return !!f; }
@@ -576,7 +592,7 @@ async function pintarMarcas(ob) {
   if (!ms.length) { el.innerHTML = '<div class="muted">Nenhum ainda. Dentro do mapa: 📍 Marcar guarda o ponto onde você está; ⏺ Trilha grava o caminho. Tudo sobe para o Drive da obra em KML.</div>'; return; }
   el.innerHTML = ms.map(m => m.tipo === 'pino'
     ? `<div class="chk" style="align-items:center"><span>📍</span><span style="flex:1"><b>${esc(m.nome)}</b><br><small class="muted">${esc(window.fmtCoordCurta ? fmtCoordCurta({ lat: m.lat, lon: m.lon }, APP() ? APP().fmt : 'utm') : m.lat + ',' + m.lon)}${p ? ' · a ' + fmtDist(dist([p.lat, p.lon], [m.lat, m.lon])) : ''} · ${m.enviado ? 'na fila / no Drive ✓' : 'vai para o Drive sozinho'}</small></span>${shBtn(m)}</div>`
-    : `<div class="chk" style="align-items:center"><span>${m.tipo === 'medida' ? '📏' : '〰'}</span><span style="flex:1"><b>${esc(m.nome)}</b><br><small class="muted">${fmtDist(m.comp || compLL(m.pts))}${m.area ? ' · ' + fmtArea(m.area) : ''} · ${m.pts.length} pontos · ${m.enviado ? 'na fila / no Drive ✓' : 'vai para o Drive sozinho'}</small></span>${shBtn(m)}</div>`).join('') +
+    : `<div class="chk" style="align-items:center"><span>${m.tipo === 'medida' ? '📏' : '〰'}</span><span style="flex:1"><b>${esc(m.nome)}</b><br><small class="muted">${fmtCompM(m.comp || compLL(m.pts))}${m.area ? ' · ' + fmtArea(m.area) : ''} · ${m.pts.length} pontos · ${m.enviado ? 'na fila / no Drive ✓' : 'vai para o Drive sozinho'}</small></span>${shBtn(m)}</div>`).join('') +
     `<div class="row" style="margin-top:8px"><button class="sec" id="mpShareTudo">⤴ Compartilhar (KML)</button><button class="sec" id="mpGpsTudo">🛰 Para GPS</button></div>`;
   el.querySelectorAll('[data-shm]').forEach(b => b.onclick = () => { const m = ms.find(x => x.id === b.dataset.shm); if (m) compartilharMarcas(ob, [m], m.nome); });
   const gt = $('#mpGpsTudo'); if (gt) gt.onclick = () => paraGPS('Marcacoes ' + ob.nome, ms.filter(m => m.tipo === 'pino' || (m.pts && m.pts.length > 1)));
@@ -613,7 +629,7 @@ function cssUmaVez() {
 #mpv .medTop{position:absolute;left:10px;right:10px;top:10px;background:rgba(255,255,255,.96);border-radius:14px;box-shadow:0 4px 16px rgba(0,0,0,.2);padding:10px 44px 10px 12px;display:none;z-index:3}
 #mpv.medindo .medTop{display:block}#mpv.medindo .av,#mpv.medindo .nav{display:none!important}#mpv.medindo .fab{display:none}
 #mpv .medTop .mt1{font-size:16px;color:#0C4A6E;line-height:1.45}#mpv .medTop .mt2{font-size:12px;color:var(--muted);margin-top:4px;font-family:ui-monospace,Menlo,monospace}
-#mpv .medTop #medX{position:absolute;right:4px;top:4px;font-size:20px;color:var(--muted);padding:6px 10px}
+#mpv .medTop #medX{position:absolute;right:4px;top:4px;font-size:20px;color:var(--muted);padding:6px 10px}#mpv .medTop #medU{position:absolute;right:4px;top:42px;font-size:12px;color:#075985;background:#E0F2FE;padding:6px 8px;border-radius:8px}#mpv .medTop .mt3{font-size:12px;color:#075985;margin-top:4px}
 #mpv .medBar{display:none;gap:6px}#mpv.medindo .medBar{display:grid}#mpv.medindo .ac{display:none}
 #mpv .medBar .r1{display:grid;grid-template-columns:1fr 1.4fr 1fr;gap:6px}#mpv .medBar .r2{display:grid;grid-template-columns:1.6fr 1fr 1fr;gap:6px}
 #mpv .medBar button{padding:10px 4px;font-size:14px;background:#E0F2FE;color:#075985}#mpv .medBar .mais{background:#0EA5E9;color:#fff;font-size:18px;font-weight:800}#mpv .medBar .ok{background:var(--green);color:#fff}
@@ -957,17 +973,18 @@ function destino(p, rumoG, d) { const R = 6371008.8, δ = d / R, θ = rumoG * RA
   const φ2 = Math.asin(Math.sin(φ1) * Math.cos(δ) + Math.cos(φ1) * Math.sin(δ) * Math.cos(θ)); const λ2 = λ1 + Math.atan2(Math.sin(θ) * Math.sin(δ) * Math.cos(φ1), Math.cos(δ) - Math.sin(φ1) * Math.sin(φ2)); return [φ2 / RAD, λ2 / RAD]; }
 function resumoMedida() { const md = V.medModo, pts = V.medir, a = alvoMira(); const L = [];
   if (md === 'circulo') { if (!pts.length) return { linhas: ['Mire o CENTRO e toque em ＋ Ponto'], a };
-    const r = dist(pts[0], pts[1] || a.ll); L.push(`Raio <b>${fmtDist(r)}</b>`, `Área <b>${fmtArea(Math.PI * r * r)}</b>`, `Perímetro <b>${fmtDist(2 * Math.PI * r)}</b>`); return { linhas: L, a }; }
+    const r = dist(pts[0], pts[1] || a.ll); L.push(`Raio <b>${fmtCompM(r)}</b>`, `Área <b>${fmtArea(Math.PI * r * r)}</b>`, `Perímetro <b>${fmtCompM(2 * Math.PI * r)}</b>`); return { linhas: L, a }; }
   if (!pts.length) return { linhas: ['Mire o 1º ponto e toque em ＋ Ponto'], a };
   const ult = pts[pts.length - 1], seg = dist(ult, a.ll), rm = rumo(ult, a.ll);
-  L.push(`Segmento <b>${fmtDist(seg)}</b> · rumo ${Math.round(rm)}° ${cardeal(rm)}`);
+  L.push(`Segmento <b>${fmtCompM(seg)}</b> · rumo ${Math.round(rm)}° ${cardeal(rm)}`);
   const pv = ptsMedida(true);
-  if (md === 'area') { if (pv.length >= 3) L.push(`Área <b>${fmtArea(areaLL(pv))}</b>`, `Perímetro <b>${fmtDist(compLL(pv, true))}</b>`); else L.push('Área: faltam ' + (3 - pv.length) + ' ponto(s)'); }
-  else L.push(`Total <b>${fmtDist(compLL(pv))}</b> · ${pts.length} ponto(s)`);
+  if (md === 'area') { if (pv.length >= 3) L.push(`Área <b>${fmtArea(areaLL(pv))}</b>`, `Perímetro <b>${fmtCompM(compLL(pv, true))}</b>`); else L.push('Área: faltam ' + (3 - pv.length) + ' ponto(s)'); }
+  else L.push(`Total <b>${fmtCompM(compLL(pv))}</b> · ${pts.length} ponto(s)`);
   return { linhas: L, a }; }
 function pintarMedTop() { const el = $('#mpvMedTop'); if (!el || !V.medir) return; const r = resumoMedida(); const u = window.toUTM ? toUTM(r.a.ll[0], r.a.ll[1]) : null;
-  el.innerHTML = `<button class="ghost" id="medX" aria-label="Sair da medição">✕</button><div class="mt1">${r.linhas.join('<br>')}</div><div class="mt2">${r.a.nome ? '🧲 ' + esc(r.a.nome) + ' · ' : ''}mira: ${u ? `${u.zone}${u.hemi} E ${br(u.e)} N ${br(u.n)}` : r.a.ll.map(x => x.toFixed(6)).join(', ')}</div>`;
-  $('#medX').onclick = () => sairMedir(true); }
+  const pv = V.medModo === 'circulo' ? null : ptsMedida(true); const aTot = V.medModo === 'circulo' ? (V.medir.length ? Math.PI * dist(V.medir[0], V.medir[1] || r.a.ll) ** 2 : 0) : (V.medModo === 'area' && pv.length >= 3 ? areaLL(pv) : 0);
+  el.innerHTML = `<button class="ghost" id="medX" aria-label="Sair da medição">✕</button><button class="ghost" id="medU" aria-label="Unidades">⇄ un.</button><div class="mt1">${r.linhas.join('<br>')}</div>${aTot ? `<div class="mt3">${fmtAreaTodas(aTot)}</div>` : ''}<div class="mt2">${r.a.nome ? '🧲 ' + esc(r.a.nome) + ' · ' : ''}mira: ${u ? `${u.zone}${u.hemi} E ${br(u.e)} N ${br(u.n)}` : r.a.ll.map(x => x.toFixed(6)).join(', ')}</div>`;
+  $('#medX').onclick = () => sairMedir(true); $('#medU').onclick = escolherUnidades; }
 function pintarMedBar() { const b = $('#mpvMedBar'); if (!b) return; const md = V.medModo, n = V.medir ? V.medir.length : 0;
   b.innerHTML = `<div class="r1"><button id="medDesf" ${n ? '' : 'disabled'}>↶ Desfazer</button><button class="mais" id="medAdd">＋ Ponto</button><button id="medGps" ${V.pos ? '' : 'disabled'}>📍 Aqui</button></div>
   <div class="r2"><div class="seg">${[['linha', 'Linha'], ['area', 'Área'], ['circulo', 'Círculo']].map(([k, t]) => `<button data-mm="${k}" class="${md === k ? 'on' : ''}">${t}</button>`).join('')}</div><button id="medRumo" ${md === 'circulo' ? 'disabled' : ''}>🧭 Rumo e dist.</button><button class="ok" id="medOk">✓ Salvar</button></div>`;
@@ -995,7 +1012,7 @@ async function sairMedir(perguntar, salvarDireto) { const pts = V.medir || []; c
     else { const f = md === 'area' && pts.length >= 3; reg = { nome: (f ? 'Área ' : 'Medição ') + n, pts: pts.map(q => [q[0], q[1]]), fechado: f, comp: compLL(pts), perim: f ? compLL(pts, true) : null, area: f ? areaLL(pts) : null }; }
     const reg2 = Object.assign({ id: uid('M'), obraId: V.ob.id, tipo: 'medida', modo: md, quem: (APP() && APP().quem) || '', criadoEm: new Date().toISOString(), enviado: false }, reg);
     await MDB.put('marcas', reg2); V.marcas.push(reg2); agendarEnvio(V.ob);
-    toast(`${reg2.nome} salva: ${reg2.area ? fmtArea(reg2.area) + ' · ' : ''}${fmtDist(reg2.fechado ? reg2.perim : reg2.comp)}. Vai para o Drive sozinha.`, 3500); }
+    toast(`${reg2.nome} salva: ${reg2.area ? fmtArea(reg2.area) + ' · ' : ''}${fmtCompM(reg2.fechado ? reg2.perim : reg2.comp)}. Vai para o Drive sozinha.`, 3500); }
   else if (salvarDireto) { toast(md === 'circulo' ? 'Marque o centro e o raio.' : 'Marque pelo menos 2 pontos.'); return; }
   fimMedir(); }
 function fimMedir() { V.medir = null; V.el && V.el.classList.remove('medindo'); const t = $('#mpvMedTop'); if (t) t.innerHTML = ''; pedir(); }
@@ -1003,7 +1020,7 @@ function desenharMedida(c) { if (!V.medir || !V.geo) return; const md = V.medMod
   if (md === 'circulo') { if (V.medir.length) { const r = dist(V.medir[0], V.medir[1] || a.ll); linhaLL(c, circuloPts(V.medir[0], r), MED_COR, 3, true); linhaLL(c, [V.medir[0], V.medir[1] || a.ll], MED_COR, 2); } }
   else { const pv = ptsMedida(true); if (pv.length > 1) { linhaLL(c, pv, MED_COR, 3, md === 'area' && pv.length > 2);
       for (let i = 1; i < pv.length; i++) { const p = m2s(...V.geo.ll2px(pv[i - 1][0], pv[i - 1][1])), q = m2s(...V.geo.ll2px(pv[i][0], pv[i][1])); if (Math.hypot(q[0] - p[0], q[1] - p[1]) < 70) continue;
-        const tx = fmtDist(dist(pv[i - 1], pv[i])); c.font = '700 12px system-ui,sans-serif'; const w = c.measureText(tx).width + 10, mx = (p[0] + q[0]) / 2, my = (p[1] + q[1]) / 2; c.fillStyle = 'rgba(255,255,255,.92)'; c.fillRect(mx - w / 2, my - 10, w, 20); c.fillStyle = '#075985'; c.fillText(tx, mx - w / 2 + 5, my + 4); } } }
+        const tx = fmtCompM(dist(pv[i - 1], pv[i])); c.font = '700 12px system-ui,sans-serif'; const w = c.measureText(tx).width + 10, mx = (p[0] + q[0]) / 2, my = (p[1] + q[1]) / 2; c.fillStyle = 'rgba(255,255,255,.92)'; c.fillRect(mx - w / 2, my - 10, w, 20); c.fillStyle = '#075985'; c.fillText(tx, mx - w / 2 + 5, my + 4); } } }
   for (const p of V.medir) { const s = m2s(...V.geo.ll2px(p[0], p[1])); c.fillStyle = '#fff'; c.strokeStyle = MED_COR; c.lineWidth = 3; c.beginPath(); c.arc(s[0], s[1], 6, 0, 7); c.fill(); c.stroke(); }
   // mira
   const [mx, my] = miraTela(); const enc = !!a.nome && a.nome !== 'GPS'; c.save(); c.strokeStyle = 'rgba(255,255,255,.95)'; c.lineWidth = 5; const cruz = () => { c.beginPath(); c.moveTo(mx - 22, my); c.lineTo(mx - 6, my); c.moveTo(mx + 6, my); c.lineTo(mx + 22, my); c.moveTo(mx, my - 22); c.lineTo(mx, my - 6); c.moveTo(mx, my + 6); c.lineTo(mx, my + 22); c.stroke(); };
@@ -1012,7 +1029,7 @@ function desenharMedida(c) { if (!V.medir || !V.geo) return; const md = V.medMod
 async function sheetMais() {
   const outros = (await MDB.obra('mapas', V.ob.id)).filter(m => m.id !== V.m.id && !m.camada);
   const pinos = (V.marcas || []).filter(m => m.tipo === 'pino'), trilhas = (V.marcas || []).filter(m => m.tipo === 'trilha'); const pend = (V.marcas || []).filter(m => !m.enviado).length;
-  const s = sheet(`<div class="lin" style="margin:0 0 8px"><button class="sec" id="shMapa">⤴ Compartilhar este mapa</button><button class="sec" id="shMarcas">⤴ Pinos e trilhas</button></div><div class="lin" style="margin:0 0 8px"><button class="sec" id="gpsMarcas">🛰 Pinos/trilhas para GPS</button>${V.camadas.length || V.vet ? '<button class="sec" id="gpsCamadas">🛰 Camadas para GPS</button>' : ''}</div><div class="lin" style="margin:0 0 8px"><button class="sec" id="bAbrir">🔎 Buscar no mapa</button><label class="chk" style="flex:1;margin:0;text-transform:none;letter-spacing:0;font-size:13px;color:var(--ink);font-weight:400;border:0;padding:4px 0"><input type="checkbox" id="alAreas" ${LSx.get('alertaAreas', true) ? 'checked' : ''}><span>🔔 Avisar ao entrar/sair das áreas</span></label></div><button class="big" id="ccAbrir">📌 Plotar coordenada / ir até um ponto</button><div class="nota">UTM, graus decimais, graus-minutos-segundos ou colar o texto (memorial, WhatsApp, Google Earth). SIRGAS 2000, WGS 84 ou SAD 69.</div>
+  const s = sheet(`<div class="lin" style="margin:0 0 8px"><button class="sec" id="shMapa">⤴ Compartilhar este mapa</button><button class="sec" id="shMarcas">⤴ Pinos e trilhas</button></div><div class="lin" style="margin:0 0 8px"><button class="sec" id="gpsMarcas">🛰 Pinos/trilhas para GPS</button>${V.camadas.length || V.vet ? '<button class="sec" id="gpsCamadas">🛰 Camadas para GPS</button>' : ''}</div><div class="lin" style="margin:0 0 8px"><button class="sec" id="bAbrir">🔎 Buscar no mapa</button><label class="chk" style="flex:1;margin:0;text-transform:none;letter-spacing:0;font-size:13px;color:var(--ink);font-weight:400;border:0;padding:4px 0"><input type="checkbox" id="alAreas" ${LSx.get('alertaAreas', true) ? 'checked' : ''}><span>🔔 Avisar ao entrar/sair das áreas</span></label></div><button class="sec" id="unAbrir" style="width:100%;margin-bottom:8px">📐 Unidades: ${esc(U_AREA[uArea()][0].split(' (')[0])} · ${esc(U_COMP[uComp()][0].split(' (')[0])}</button><button class="big" id="ccAbrir">📌 Plotar coordenada / ir até um ponto</button><div class="nota">UTM, graus decimais, graus-minutos-segundos ou colar o texto (memorial, WhatsApp, Google Earth). SIRGAS 2000, WGS 84 ou SAD 69.</div>
   ${V.camadas.length ? `<h3 style="margin-top:14px">Camadas por cima</h3>${V.camadas.map(c => `<label class="chk" style="text-transform:none;letter-spacing:0;font-size:15px;color:var(--ink);margin:0;font-weight:400"><input type="checkbox" data-cam="${esc(c.id)}" ${c.on ? 'checked' : ''}><span>${esc(c.nome)}</span></label>`).join('')}` : ''}
   <h3 style="margin-top:14px">Pinos (${pinos.length})</h3>${pinos.length ? pinos.map(p => `<div class="chk" style="align-items:center"><span style="flex:1"><b>${esc(p.nome)}</b>${V.pos ? `<br><small class="muted">a ${fmtDist(dist([V.pos.lat, V.pos.lon], [p.lat, p.lon]))}</small>` : ''}</span><button class="sec" data-ir="${esc(p.id)}" style="padding:8px 12px">➜ Ir</button></div>`).join('') : '<div class="muted">Nenhum. 📍 Marcar guarda onde você está; segurar o dedo no mapa marca outro ponto.</div>'}
   ${trilhas.length ? `<h3 style="margin-top:14px">Trilhas (${trilhas.length})</h3>${trilhas.map(t => `<div class="muted">〰 ${esc(t.nome)} · ${fmtDist(compLL(t.pts))}</div>`).join('')}` : ''}
@@ -1021,6 +1038,7 @@ async function sheetMais() {
   ${V.geo ? `<div class="nota" style="margin-top:12px">Sobre este mapa: UTM ${V.geo.z}${V.geo.sul ? 'S' : 'N'} · ajuste da georreferência ${V.geo.residuo < 1 ? 'menor que 1 m' : '±' + br(V.geo.residuo, 1) + ' m'}${V.geo.aviso ? ' · ' + esc(V.geo.aviso) : ''}</div>` : ''}`);
   s.querySelector('#ccAbrir').onclick = () => sheetCoord();
   s.querySelector('#bAbrir').onclick = () => sheetBusca('');
+  s.querySelector('#unAbrir').onclick = escolherUnidades;
   s.querySelector('#alAreas').onchange = e => { LSx.set('alertaAreas', e.target.checked); toast(e.target.checked ? 'Vai avisar (vibra e apita) ao entrar ou sair das áreas.' : 'Aviso de áreas desligado.'); };
   s.querySelector('#shMapa').onclick = () => compartilharMapa(V.m);
   s.querySelector('#gpsMarcas').onclick = () => paraGPS('Marcacoes ' + V.ob.nome, (V.marcas || []).filter(m => m.tipo === 'pino' || (m.pts && m.pts.length > 1)));
@@ -1133,7 +1151,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 function kmlDe(itens, ob) {
   const x = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
   const pm = itens.map(m => m.tipo === 'medida'
-    ? `<Placemark><name>${x(m.nome)}</name><description>${x(`${fmtDist(m.comp)}${m.fechado ? ' · perímetro ' + fmtDist(m.perim) + ' · área ' + fmtArea(m.area) : ''} · ${m.quem || ''} · ${m.criadoEm}`)}</description><styleUrl>#medida</styleUrl>${m.fechado ? `<Polygon><outerBoundaryIs><LinearRing><coordinates>${m.pts.concat([m.pts[0]]).map(p => `${p[1].toFixed(7)},${p[0].toFixed(7)}`).join(' ')}</coordinates></LinearRing></outerBoundaryIs></Polygon>` : `<LineString><coordinates>${m.pts.map(p => `${p[1].toFixed(7)},${p[0].toFixed(7)}`).join(' ')}</coordinates></LineString>`}</Placemark>`
+    ? `<Placemark><name>${x(m.nome)}</name><description>${x(`${m.fechado ? 'perímetro ' + fmtCompM(m.perim) + ' · área ' + fmtAreaTodas(m.area) : fmtCompM(m.comp)}${m.raio ? ' · raio ' + fmtCompM(m.raio) : ''} · ${m.quem || ''} · ${m.criadoEm}`)}</description><styleUrl>#medida</styleUrl><ExtendedData><Data name="comprimento_m"><value>${(m.fechado ? m.perim : m.comp || 0).toFixed(2)}</value></Data>${m.area ? `<Data name="area_m2"><value>${m.area.toFixed(1)}</value></Data><Data name="area_ha"><value>${(m.area / 1e4).toFixed(4)}</value></Data>` : ''}</ExtendedData>${m.fechado ? `<Polygon><outerBoundaryIs><LinearRing><coordinates>${m.pts.concat([m.pts[0]]).map(p => `${p[1].toFixed(7)},${p[0].toFixed(7)}`).join(' ')}</coordinates></LinearRing></outerBoundaryIs></Polygon>` : `<LineString><coordinates>${m.pts.map(p => `${p[1].toFixed(7)},${p[0].toFixed(7)}`).join(' ')}</coordinates></LineString>`}</Placemark>`
     : m.tipo === 'pino'
     ? `<Placemark><name>${x(m.nome)}</name><description>${x([attrTexto(m), m.nota, m.acc ? 'GPS ±' + Math.round(m.acc) + ' m' : m.digitado ? 'plotado por coordenada' : 'marcado no mapa', m.quem, m.criadoEm].filter(Boolean).join(' · '))}</description><styleUrl>#pino</styleUrl><ExtendedData>${[['categoria', m.cat ? nomeCat(m.cat) : ''], ['litologia', (m.attr || {}).lito], ['amostra', (m.attr || {}).amostra], ['dir_mergulho', (m.attr || {}).dirMerg], ['mergulho', (m.attr || {}).merg], ['fotos', (m.fotos || []).length || ''], ['obs', m.nota]].filter(d => d[1] != null && d[1] !== '').map(d => `<Data name="${d[0]}"><value>${x(d[1])}</value></Data>`).join('')}</ExtendedData><Point><coordinates>${m.lon.toFixed(7)},${m.lat.toFixed(7)}${m.alt != null ? ',' + m.alt : ''}</coordinates></Point></Placemark>`
     : `<Placemark><name>${x(m.nome)}</name><description>${x(`${fmtDist(compLL(m.pts))}${m.stats ? ` · ${Math.round(m.stats.ms / 6e4)} min · ${br(m.stats.vel, 1)} km/h · subida ${Math.round(m.stats.sobe)} m · descida ${Math.round(m.stats.desce)} m` : ''} · ${m.quem || ''}`)}</description><styleUrl>#trilha</styleUrl><LineString><tessellate>1</tessellate><coordinates>${m.pts.map(p => `${p[1].toFixed(7)},${p[0].toFixed(7)}${p[2] != null ? ',' + p[2] : ''}`).join(' ')}</coordinates></LineString></Placemark>`).join('\n');

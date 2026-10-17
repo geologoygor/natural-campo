@@ -134,3 +134,10 @@ v1.25.0 (17/10/2026) — recursos do Avenza Pro
     ▶ Retomar / ⏹ Parar e salvar; estatísticas vão no KML.
   - Importa Shapefile (.zip com .shp/.dbf/.prj): pontos, linhas e polígonos, UTM (SIRGAS/WGS/SAD 69) ou geográficas;
     nome tirado da tabela; vira camada por cima dos mapas (do celular; o Drive ainda não lista .zip).
+
+v1.25.1 (17/10/2026) — unidades
+  - Medições e áreas com unidade à escolha (fica no celular): área em automático (m²/ha), m², hectares, km²,
+    alqueire paulista (2,42 ha), alqueire mineiro/goiano (4,84 ha) ou alqueire do norte (2,7225 ha);
+    comprimento em automático (m/km), metros ou quilômetros. Botão "⇄ un." no painel da medição e no ☰.
+  - O painel da medição sempre mostra a área em todas as unidades (m² = ha = km² = alqueires).
+  - KML da medição leva comprimento em m e área em m² e ha (ExtendedData).
