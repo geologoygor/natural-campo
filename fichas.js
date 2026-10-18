@@ -1056,6 +1056,10 @@ function fotografarSistema(pronto){
     try{ const url=URL.createObjectURL(fl); const im=await new Promise((ok,er)=>{ const i=new Image(); i.onload=()=>ok(i); i.onerror=er; i.src=url; });
       carimbarFoto(im,pronto); URL.revokeObjectURL(url); }catch(e){ toast('Não consegui ler a foto: '+e.message,4000); } };
   inp.click(); }
+/* saiu do app com a câmera da ficha aberta: solta ao sair e religa ao voltar (antes voltava com a tela preta) */
+document.addEventListener('visibilitychange',()=>{ if(!FCAM) return;
+  if(document.visibilityState==='hidden'){ try{ FCAM.stream&&FCAM.stream.getTracks().forEach(t=>t.stop()); }catch(_){} FCAM.stream=null; }
+  else if(FCAM.ligar){ const t=FCAM.stream&&FCAM.stream.getVideoTracks()[0]; if(!t||t.readyState!=='live') FCAM.ligar().catch(()=>toast('A câmera não voltou: toque em Voltar e abra de novo.',4000)); } });
 function fecharFcam(){ if(!FCAM) return false; try{ FCAM.stream&&FCAM.stream.getTracks().forEach(t=>t.stop()); }catch(e){} FCAM.ov.remove(); FCAM=null; return true; }
 function sairFcam(){ if(history.state&&history.state.t==='fcam') history.back(); else fecharFcam(); }
 async function fotografar(pronto){
@@ -1078,7 +1082,11 @@ async function fotografar(pronto){
       try{ const url=URL.createObjectURL(fl); const im=await new Promise((ok,er)=>{ const i=new Image(); i.onload=()=>ok(i); i.onerror=er; i.src=url; }); carimbarFoto(im,pronto); URL.revokeObjectURL(url); sairFcam(); }catch(e){ toast('Não consegui ler a foto: '+e.message,4000); } };
     inp.click(); };
   const vid=ov.querySelector('#fcVid');
-  try{ FCAM.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1440}}, audio:false}); if(!FCAM){ return; } vid.srcObject=FCAM.stream; }
+  const ligarFc=async()=>{ if(FCAM&&FCAM.stream){ try{ FCAM.stream.getTracks().forEach(t=>t.stop()); }catch(_){} }
+    const st=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1440}}, audio:false});
+    if(!FCAM){ st.getTracks().forEach(t=>t.stop()); return; } FCAM.stream=st; vid.srcObject=st; try{ vid.play().catch(()=>{}); }catch(_){} };
+  FCAM.ligar=ligarFc;
+  try{ await ligarFc(); if(!FCAM) return; }
   catch(e){ sairFcam(); toast('A câmera do app não abriu; abrindo a câmera do celular.',3500); return fotografarSistema(pronto); }
   ov.querySelector('#fcTira').onclick=()=>{ if(!vid.videoWidth) return toast('Câmera ainda carregando…');
     try{ carimbarFoto(vid,pronto); toast('Foto guardada na ficha'); }catch(e){ toast('Não consegui fotografar: '+e.message,4000); return; }

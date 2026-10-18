@@ -135,6 +135,11 @@ v1.25.0 (17/10/2026) — recursos do Avenza Pro
   - Importa Shapefile (.zip com .shp/.dbf/.prj): pontos, linhas e polígonos, UTM (SIRGAS/WGS/SAD 69) ou geográficas;
     nome tirado da tabela; vira camada por cima dos mapas (do celular; o Drive ainda não lista .zip).
 
+v1.26.3 (18/10/2026) — CÂMERA NÃO FICA PRETA AO VOLTAR PARA O APP
+- Sair do app com a câmera aberta fazia o celular cortar a câmera; na volta a tela ficava preta até fechar o app.
+  Agora a câmera é solta ao sair (vídeo que estava gravando é encerrado e salvo) e religada sozinha ao voltar.
+  Vale para a câmera da obra e para a câmera das fichas. Se o sistema cortar a câmera com o app na frente, religa também.
+
 v1.26.2 (18/10/2026) — MAPA NÃO DISTORCE AO GIRAR O CELULAR
 - Ao girar (retrato ↔ paisagem) o mapa voltava esticado: o aviso de "tela mudou" chegava antes de a tela terminar de girar
   e a medida ficava velha. Agora o mapa mede de novo sempre que o tamanho real muda (e confere a cada desenho), e

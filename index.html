@@ -260,16 +260,16 @@ button.mini{padding:8px 12px;font-size:14px;margin-top:6px}
 <div class="toast" id="toast"></div>
 <canvas id="cv" class="hide"></canvas>
 
-<script src="geofisica.js?v=1.26.2"></script>
-<script src="fichas.js?v=1.26.2"></script>
-<script src="mapas.js?v=1.26.2"></script>
+<script src="geofisica.js?v=1.26.3"></script>
+<script src="fichas.js?v=1.26.3"></script>
+<script src="mapas.js?v=1.26.3"></script>
 <script>
 /* ============================================================
    CAMPO · Natural Engenharia — app de campo (PWA)
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.26.2';
+const APP_VERSAO = '1.26.3';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -760,8 +760,21 @@ async function ligarStream(){
   if(CAM.modo!=='video'){ // iPhone costuma entregar menos do que pediram: pede o máximo que o aparelho diz ter
     try{ const cap=tr.getCapabilities&&tr.getCapabilities(); if(cap&&cap.width&&cap.height) await tr.applyConstraints({width:{ideal:cap.width.max}, height:{ideal:cap.height.max}}); }catch(e){}
   }
-  $('#video').srcObject=CAM.stream; mostrarResolucao();
+  $('#video').srcObject=CAM.stream; try{ $('#video').play().catch(()=>{}); }catch(_){} mostrarResolucao();
+  /* o sistema pode cortar a câmera (outro app, ligação, tela apagada): se a imagem cair com o app na frente, religa sozinho */
+  tr.addEventListener('ended',()=>{ if(document.visibilityState==='visible' && $('#cam').classList.contains('on') && CAM.stream && CAM.stream.getVideoTracks()[0]===tr) religarCamera(); });
 }
+/* v1.26.3: saiu do app com a câmera aberta → o celular corta a câmera e, na volta, a tela ficava preta até fechar o app.
+   Agora: ao sair, solta a câmera (e fecha o vídeo que estava gravando, que fica salvo); ao voltar, liga de novo. */
+async function religarCamera(){ if(CAM.religando) return; CAM.religando=true;
+  try{ for(let i=0;i<3;i++){ try{ await ligarStream(); const t=CAM.stream&&CAM.stream.getVideoTracks()[0]; if(t&&t.readyState==='live') break; }catch(e){ if(i===2) toast('A câmera não voltou: feche e abra a câmera de novo.',4000); } await new Promise(r=>setTimeout(r,400)); } }
+  finally{ CAM.religando=false; } }
+document.addEventListener('visibilitychange',()=>{
+  if(!$('#cam').classList.contains('on')) return;
+  if(document.visibilityState==='hidden'){ if(CAM.rec){ try{ pararGravacao(); }catch(_){} } if(CAM.stream){ CAM.stream.getTracks().forEach(t=>t.stop()); CAM.stream=null; } }
+  else { const t=CAM.stream&&CAM.stream.getVideoTracks()[0]; if(!t || t.readyState!=='live' || t.muted) religarCamera(); else { try{ $('#video').play().catch(()=>{}); }catch(_){} } }
+});
+window.addEventListener('pageshow',()=>{ if($('#cam').classList.contains('on')){ const t=CAM.stream&&CAM.stream.getVideoTracks()[0]; if(!t||t.readyState!=='live') religarCamera(); } });
 function mostrarResolucao(){ /* a câmera abre sempre na resolução máxima; nada é mostrado na tela */ }
 function abrirCamHist(){ try{ history.pushState({t:'cam'},''); }catch(e){} }
 function fecharCamera(){ if(CAM.rec) pararGravacao(); if(window.MAPAS&&MAPAS.camFechou&&CAM.extra&&CAM.extra.pino){ const pid=CAM.extra.pino; setTimeout(()=>MAPAS.camFechou(pid),50); } CAM.extra=null; CAM.slotTitulo=null; modoCamera('foto'); $('#cam').classList.remove('on'); if(CAM.stream){ CAM.stream.getTracks().forEach(t=>t.stop()); CAM.stream=null; } }
