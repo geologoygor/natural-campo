@@ -689,6 +689,175 @@ function cartaoGeo(f){
    ${l.pulou?`<button class="big ghost" id="gDespula" style="margin-top:8px">Desmarcar "não deu para medir"</button>`:''}
    <div class="mini" style="margin-top:6px">Os três números do visor do X6xtal, na ordem em que ele mostra (SP em mV · voltagem em mV · corrente em mA). Valor negativo no visor? Digite o número e toque em <b>± negativo</b>. Pular é melhor do que chutar.</div></div>`;
 }
+/* ============================================================
+   TRENA GPS — locar a linha andando, sem trena (v1.26.0, pedido do Ygor 17/10/2026)
+   Marca a origem (estaca 0 do caminhamento ou centro da SEV) e vai andando:
+   a tela mostra, em número grande, quanto já andou e quanto falta para a
+   próxima estaca, e, com o rumo fixado, quanto está desviado para o lado.
+   Ao chegar, apita e vibra; "Cravei aqui" grava a coordenada (média de 4 s
+   parado). Depois da estaca final, projeta os infinitos (N em L+rem, B em −rem)
+   ou qualquer distância digitada, e guia até bater certinho.
+   Conta plana local (ENU) a partir da origem: em 1 km o erro é de milímetros.
+   ============================================================ */
+const TR = { el:null, f:null, tick:null, buf:[], ultEm:0, alvo:null, avisou:null, wake:null, marcando:false, ac:null };
+/* raios do elipsoide GRS80 na latitude da origem (esfera erraria 0,5 % aqui no equador: 2 m em 400 m) */
+function raios(lat){ const A=6378137, E2=0.00669438002290, s=Math.sin(lat*Math.PI/180), w=1-E2*s*s; return { M:A*(1-E2)/Math.pow(w,1.5), N:A/Math.sqrt(w) }; }
+function enu(o, p){ const k=Math.PI/180, R=raios(o.lat); return { x:(p.lon-o.lon)*k*R.N*Math.cos(o.lat*k), y:(p.lat-o.lat)*k*R.M }; }
+function trOrigemKey(f){ return f.tipo==='geof_sev' ? 'c_centro' : 'c_ini'; }
+function trRumo(f){ const d=f.dados; if(f.tipo==='geof_cam'){ const c=conferirLinha(f); if(c.az!=null) return c.az; }
+  const z=NUM(d.azim); return isFinite(z) ? ((z%360)+360)%360 : null; }
+/* alvos ao longo da linha (distância a partir da origem; negativo = para trás) */
+function trAlvos(f){
+  const d=f.dados, out=[];
+  if(f.tipo==='geof_cam'){ const g=geoDe(d);
+    for(let s=0;s<=g.L+1e-6;s+=g.a) out.push({ id:'e'+s, rot: s===0?'Estaca 0':(Math.abs(s-g.L)<1e-6?`Estaca ${fmtN(s)} (final)`:`Estaca ${fmtN(s)}`), s, campo: s===0?'c_ini':(Math.abs(s-g.L)<1e-6?'c_fim':null) });
+    out.push({ id:'N', rot:`Infinito N (${fmtN(g.L+g.rem)} m)`, s:g.L+g.rem, campo:'c_n', rem:true });
+    out.push({ id:'B', rot:`Infinito B (−${fmtN(g.rem)} m)`, s:-g.rem, campo:'c_b', rem:true });
+  } else {
+    const vs=[...new Set(SEV_PARES.map(p=>p[0]).filter(v=>v>=10))];
+    out.push({ id:'c', rot:'Centro', s:0, campo:'c_centro' });
+    for(const v of vs){ out.push({ id:'B'+v, rot:`B a ${fmtN(v)} m`, s:v }); out.push({ id:'A'+v, rot:`A a ${fmtN(v)} m`, s:-v }); }
+  }
+  const x=NUM(d._trLivre); if(isFinite(x)) out.push({ id:'livre', rot:`Ponto a ${fmtN(x)} m`, s:x, livre:true });
+  return out; }
+function trFeito(f, a){ const d=f.dados; return !!((a.campo && d[a.campo]) || (d.locacao && d.locacao[a.id])); }
+function trProximo(f, depoisDe){ const L=trAlvos(f).filter(a=>!a.livre); const i=depoisDe?L.findIndex(a=>a.id===depoisDe):-1;
+  return L.slice(i+1).find(a=>!trFeito(f,a)) || L.find(a=>!trFeito(f,a)) || L[L.length-1]; }
+/* onde a pessoa está em relação à linha: ao longo (m desde a origem) e de lado */
+function trOnde(f, pos){ const o=coordDe(f.dados[trOrigemKey(f)]); if(!o||!pos) return null; const p=enu(o,pos), rumo=trRumo(f);
+  if(rumo==null) return { dist:Math.hypot(p.x,p.y), ao:null, lat:null };
+  const r=rumo*Math.PI/180, ux=Math.sin(r), uy=Math.cos(r); return { dist:Math.hypot(p.x,p.y), ao:p.x*ux+p.y*uy, lat:p.x*uy-p.y*ux }; }
+/* posição: média das leituras de GPS dos últimos 2 s (tira a tremida sem atrasar quem anda) */
+function trColher(){ if(!S.pos||!S.posEm||S.posEm===TR.ultEm) return; TR.ultEm=S.posEm;
+  TR.buf.push({ lat:S.pos.lat, lon:S.pos.lon, acc:S.pos.acc||10, t:S.posEm }); const lim=Date.now()-20000; TR.buf=TR.buf.filter(p=>p.t>=lim); }
+function trMedia(ms){ const lim=Date.now()-ms; let L=TR.buf.filter(p=>p.t>=lim);
+  /* parado, alguns celulares só mandam posição nova quando mexe: vale a última dos últimos 15 s */
+  if(!L.length){ const u=TR.buf[TR.buf.length-1]; if(u && Date.now()-u.t<15000) L=[u]; else if(S.pos&&S.posEm&&Date.now()-S.posEm<15000) L=[{lat:S.pos.lat,lon:S.pos.lon,acc:S.pos.acc||10,t:S.posEm}]; else return null; }
+  let w=0, la=0, lo=0, ac=0; for(const p of L){ const k=1/Math.max(1,p.acc*p.acc); w+=k; la+=p.lat*k; lo+=p.lon*k; ac+=p.acc; }
+  return { lat:la/w, lon:lo/w, acc:ac/L.length/Math.sqrt(L.length>1?Math.min(L.length,4):1), n:L.length }; }
+function trBip(forte){ try{ navigator.vibrate && navigator.vibrate(forte?[300,120,300]:[120]); }catch(e){}
+  try{ const A=TR.ac||(TR.ac=new (window.AudioContext||window.webkitAudioContext)()); const o=A.createOscillator(), g=A.createGain();
+    o.frequency.value=forte?1320:880; g.gain.value=0.25; o.connect(g); g.connect(A.destination); o.start(); o.stop(A.currentTime+(forte?0.35:0.15)); }catch(e){} }
+function fecharTrena(){ if(!TR.el) return false; clearInterval(TR.tick); try{ navigator.geolocation.clearWatch(TR.watch); }catch(e){} TR.el.remove(); TR.el=null;
+  try{ TR.wake && TR.wake.release(); }catch(e){} TR.wake=null; const f=TR.f; TR.f=null; if(f && ABERTA===f.id) desenharEditor(); return true; }
+function abrirTrena(f){
+  if(TR.el) fecharTrena(); TR.f=f; TR.buf=[]; TR.ultEm=0; TR.avisou=null; TR.alvo=null;
+  iniciarGPS(true);
+  /* GPS próprio da trena, colado no do app: se o do app cair, a trena continua recebendo */
+  try{ TR.watch=navigator.geolocation.watchPosition(g=>{ S.pos={lat:g.coords.latitude, lon:g.coords.longitude, acc:g.coords.accuracy, alt:g.coords.altitude}; S.posEm=Date.now(); S.gpsErro=null; trColher(); },
+    ()=>{}, {enableHighAccuracy:true, maximumAge:0, timeout:30000}); }catch(e){}
+  try{ if(navigator.wakeLock) navigator.wakeLock.request('screen').then(w=>TR.wake=w).catch(()=>{}); }catch(e){}
+  const ov=document.createElement('div'); TR.el=ov;
+  ov.style.cssText='position:fixed;inset:0;z-index:9990;background:#0B1730;color:#fff;display:flex;flex-direction:column;font-family:system-ui,Roboto,sans-serif;overflow-y:auto';
+  document.body.appendChild(ov);
+  try{ history.pushState({t:'zoom'},''); }catch(e){}
+  ov.addEventListener('click', trClique);
+  ov.addEventListener('change', e=>{ if(e.target.id==='trRumoIn'){ const v=NUM(e.target.value); if(isFinite(v)&&v>=0&&v<=360){ f.dados.azim=Math.round(v); gravar(f); toast('Rumo fixado em '+Math.round(v)+'°'); } trPintar(true); }
+    if(e.target.id==='trLivreIn'){ const v=NUM(e.target.value); if(isFinite(v)){ f.dados._trLivre=String(v); gravar(f); TR.alvo='livre'; TR.avisou=null; } trPintar(true); } });
+  trPintar(true); TR.tick=setInterval(()=>{ trColher(); trPintar(false); }, 700);
+}
+function trBotao(id, txt, cor, extra){ return `<button data-tr="${id}" style="width:100%;min-height:58px;border:0;border-radius:14px;font:700 18px system-ui;margin-top:10px;background:${cor||'#00A651'};color:#fff;${extra||''}">${txt}</button>`; }
+function trPintar(tudo){
+  const f=TR.f, ov=TR.el; if(!f||!ov) return; const d=f.dados, ok=trOrigemKey(f);
+  const pos=trMedia(2000), o=coordDe(d[ok]), rumo=trRumo(f);
+  const gps = pos ? `GPS ±${Math.max(1,Math.round(pos.acc))} m` : (S.gpsErro&&S.gpsErro.code!==3 ? 'GPS com problema' : 'procurando GPS…');
+  const gpsCor = !pos ? '#F59E0B' : pos.acc<=4 ? '#22C55E' : pos.acc<=8 ? '#F59E0B' : '#EF4444';
+  const tit = f.tipo==='geof_sev' ? `SEV ${esc(d.sev_id||'')}` : `Linha ${esc(d.linha_id||'')} · a ${geoDe(d).a} m · L ${geoDe(d).L} m · infinitos ${geoDe(d).rem} m`;
+  let corpo='';
+  if(!o){
+    corpo = `<div style="font-size:22px;font-weight:700;margin-top:18px">1 · Vá até ${f.tipo==='geof_sev'?'o CENTRO da SEV':'a ESTACA 0'} e fique em cima dela</div>
+      <div style="opacity:.8;margin-top:6px">Toque quando estiver parado em cima. O app fica 4 segundos tirando a média do GPS para marcar o ponto com mais precisão.</div>
+      ${trBotao('origem', TR.marcando?'Marcando… fique parado':'📍 Estou aqui — marcar a origem')}`;
+  } else {
+    const p = pos ? enu(o, pos) : null;
+    const dist = p ? Math.hypot(p.x, p.y) : null;
+    const alvos=trAlvos(f); if(!TR.alvo || !alvos.find(a=>a.id===TR.alvo)) TR.alvo=trProximo(f).id;
+    const a=alvos.find(x=>x.id===TR.alvo);
+    let big='—', sub='', lado='', chegou=false;
+    if(p && rumo!=null){
+      const r=rumo*Math.PI/180, ux=Math.sin(r), uy=Math.cos(r);
+      const ao=p.x*ux+p.y*uy, lat=p.x*uy-p.y*ux;       /* ao longo da linha; lateral (+ = à direita de quem olha no rumo) */
+      const falta=a.s-ao, tolA=Math.max(1, Math.min(3, pos.acc*0.5)), tolL=Math.max(1.5, Math.min(4, pos.acc*0.7));
+      chegou = Math.abs(falta)<=tolA && Math.abs(lat)<=tolL;
+      big = chegou ? 'CHEGOU' : (Math.abs(falta)<0.5?'0':fmtN(Math.abs(falta).toFixed(1)))+' m';
+      sub = chegou ? `Crave ${esc(a.rot)} aqui` : `até ${esc(a.rot)} — ande no rumo <b>${Math.round(falta>0?rumo:(rumo+180)%360)}°</b> (${falta>0?'para a frente':'para trás'})`;
+      lado = Math.abs(lat)<=tolL ? '<span style="color:#22C55E">✓ em cima da linha</span>'
+           : `<span style="color:#FBBF24">${lat>0?'⬅':'➡'} ${fmtN(Math.abs(lat).toFixed(1))} m ${lat>0?'para a ESQUERDA':'para a DIREITA'}</span> <span style="opacity:.7">(você está ${lat>0?'à direita':'à esquerda'} da linha)</span>`;
+      if(chegou && TR.avisou!==a.id){ TR.avisou=a.id; trBip(true); }
+      if(!chegou && TR.avisou===a.id && Math.abs(falta)>tolA*3) TR.avisou=null;
+      sub += `<div style="opacity:.75;font-size:15px;margin-top:4px">andou ${fmtN(ao.toFixed(1))} m desde ${f.tipo==='geof_sev'?'o centro':'a estaca 0'}</div>`;
+    } else if(p){
+      /* ainda sem rumo: distância em linha reta da origem, e o alvo pela distância */
+      const falta=Math.abs(a.s)-dist; chegou=Math.abs(falta)<=Math.max(1,Math.min(3,pos.acc*0.5));
+      big = fmtN(dist.toFixed(1))+' m';
+      sub = `${f.tipo==='geof_sev'?'do centro':'da estaca 0'} em linha reta · ${chegou?`<b style="color:#22C55E">${esc(a.rot)}: CHEGOU</b>`:`${esc(a.rot)}: ${falta>0?'faltam '+fmtN(falta.toFixed(1)):'passou '+fmtN((-falta).toFixed(1))} m`}`;
+      if(chegou && TR.avisou!==a.id){ TR.avisou=a.id; trBip(true); }
+      lado = `<span style="color:#FBBF24">Sem rumo ainda: só a distância. Fixe o rumo lá embaixo para o app dizer se você saiu da linha.</span>`;
+    }
+    const chips = alvos.map(x=>`<button data-tralvo="${x.id}" style="flex:0 0 auto;border-radius:999px;padding:9px 13px;font:600 14px system-ui;border:2px solid ${x.id===TR.alvo?'#fff':'rgba(255,255,255,.25)'};background:${trFeito(f,x)?'#0E7A43':(x.rem?'#7C2D12':'rgba(255,255,255,.08)')};color:#fff">${trFeito(f,x)?'✓ ':''}${esc(x.rot)}</button>`).join('');
+    const podeRumo = !!(p && dist>=15);
+    corpo = `
+      <div style="text-align:center;margin-top:14px;font-size:${chegou?'64px':'76px'};font-weight:800;line-height:1;color:${chegou?'#22C55E':'#fff'}">${big}</div>
+      <div style="text-align:center;font-size:18px;margin-top:8px">${sub}</div>
+      <div style="text-align:center;font-size:18px;margin-top:10px;min-height:24px">${lado}</div>
+      ${trBotao('cravar', TR.marcando?'Marcando… fique parado 4 s':`📌 Cravei ${esc(a.rot)} aqui — gravar`, chegou?'#00A651':'#2B4C7E')}
+      <div style="margin-top:16px;font-weight:700">Para onde ir</div>
+      <div id="trChips" style="display:flex;gap:8px;overflow-x:auto;padding:8px 0">${chips}</div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:4px"><span style="flex:1;opacity:.85">Outra distância (m, negativo = para trás):</span><input id="trLivreIn" inputmode="decimal" value="${esc(d._trLivre||'')}" placeholder="ex.: 250" style="width:100px;font-size:18px;padding:10px;border-radius:10px;border:0"></div>
+      <div style="margin-top:16px;font-weight:700">Rumo da linha ${rumo!=null?`: <span style="color:#22C55E">${Math.round(rumo)}°</span>`:'<span style="color:#FBBF24">: ainda não fixado</span>'}</div>
+      <div style="opacity:.8;font-size:14px;margin-top:4px">${f.tipo==='geof_cam'&&d.c_fim?'Calculado pelas duas pontas da linha (estaca 0 e estaca final).':'Ande uns 20 m na direção da linha e toque em "usar a direção que andei", ou digite o rumo da bússola.'}</div>
+      ${f.tipo==='geof_cam'&&d.c_fim?'':`<div style="display:flex;gap:8px;margin-top:8px"><button data-tr="rumoAndei" ${podeRumo?'':'disabled'} style="flex:1;min-height:50px;border:0;border-radius:12px;font:700 15px system-ui;background:${podeRumo?'#2B4C7E':'#33415580'};color:#fff">↗ Usar a direção que andei${podeRumo?'':' (ande 15 m)'}</button><input id="trRumoIn" inputmode="decimal" placeholder="graus" value="${d.azim!=null&&d.azim!==''?esc(d.azim):''}" style="width:90px;font-size:18px;padding:10px;border-radius:10px;border:0"></div>`}
+      <button data-tr="refazOrigem" style="margin-top:14px;background:none;border:0;color:#93C5FD;font:600 14px system-ui;text-decoration:underline">Marcar a origem de novo</button>`;
+  }
+  const aviso = pos && pos.acc>6 ? `<div style="background:#7C2D12;border-radius:10px;padding:8px 10px;margin-top:10px;font-size:14px">GPS fraco (±${Math.round(pos.acc)} m): a distância pode errar alguns metros. Céu aberto e celular parado na mão ajudam. Para os infinitos, sobra precisão; para estaca de ${f.tipo==='geof_cam'?geoDe(d).a:10} m, confira se o GPS voltar a ±4 m.</div>` : '';
+  const html = `<div style="padding:calc(10px + env(safe-area-inset-top)) 14px calc(20px + env(safe-area-inset-bottom));max-width:620px;margin:0 auto;width:100%;box-sizing:border-box">
+    <div style="display:flex;align-items:center;gap:10px"><button data-tr="fechar" style="background:#fff;color:#14284D;border:0;border-radius:10px;padding:10px 16px;font:700 15px system-ui">✕ Fechar</button><b style="flex:1;font-size:15px">📏 Trena GPS</b><span style="background:${gpsCor};color:#000;border-radius:999px;padding:5px 10px;font:700 13px system-ui">${gps}</span></div>
+    <div style="opacity:.75;font-size:13px;margin-top:6px">${tit}</div>${aviso}${corpo}</div>`;
+  if(tudo || !TR.el.dataset.h || TR.el.dataset.h!==html){ const ae=document.activeElement, foco=ae&&ae.id&&TR.el.contains(ae)?ae.id:null;
+    if(foco && !tudo) return;   /* digitando: não redesenha por cima */
+    const ch=TR.el.querySelector('#trChips'), sl=ch?ch.scrollLeft:null, alvoAnt=TR.el.dataset.alvo;
+    TR.el.innerHTML=html; TR.el.dataset.h=html; TR.el.dataset.alvo=TR.alvo||'';
+    const ch2=TR.el.querySelector('#trChips'); if(ch2){ if(sl!=null && alvoAnt===(TR.alvo||'')) ch2.scrollLeft=sl;
+      else { const b=ch2.querySelector(`[data-tralvo="${TR.alvo}"]`); if(b) ch2.scrollLeft=Math.max(0,b.offsetLeft-ch2.clientWidth/2+b.offsetWidth/2); } } }
+}
+async function trMarcar(){ /* média de 4 s parado */
+  TR.marcando=true; trPintar(true); const t0=Date.now();
+  await new Promise(r=>{ const iv=setInterval(()=>{ trColher(); if(Date.now()-t0>=4000){ clearInterval(iv); r(); } }, 300); });
+  TR.marcando=false; const p=trMedia(4000); if(!p){ toast('Sem GPS agora — espere fixar e toque de novo.',4000); trPintar(true); return null; }
+  return p; }
+async function trClique(e){
+  const b=e.target.closest('[data-tr],[data-tralvo]'); if(!b||!TR.f) return; const f=TR.f, d=f.dados;
+  if(b.dataset.tralvo){ TR.alvo=b.dataset.tralvo; TR.avisou=null; trBip(false); trPintar(true); return; }
+  const a=b.dataset.tr;
+  if(a==='fechar'){ if(history.state&&history.state.t==='zoom') history.back(); else fecharTrena(); return; }
+  if(TR.marcando) return;
+  if(a==='origem' || a==='refazOrigem'){
+    if(a==='refazOrigem' && !confirm('Marcar a origem de novo? As distâncias passam a contar do novo ponto.')) return;
+    const p=await trMarcar(); if(!p) return; d[trOrigemKey(f)]=textoCoordFicha({lat:p.lat,lon:p.lon,acc:p.acc});
+    d.locacao=d.locacao||{}; d.locacao[f.tipo==='geof_sev'?'c':'e0']=d[trOrigemKey(f)];
+    if(f.tipo==='geof_cam'){ const c=conferirLinha(f); if(c.az!=null) d.azim=Math.round(c.az); }
+    gravar(f); trBip(true); toast('Origem marcada (±'+Math.round(p.acc)+' m). Agora é só andar.'); TR.alvo=null; trPintar(true); return; }
+  if(a==='rumoAndei'){ const p=trMedia(2000), o=coordDe(d[trOrigemKey(f)]); if(!p||!o) return;
+    d.azim=Math.round(azimute(o,p)); gravar(f); trBip(false); toast('Rumo fixado: '+d.azim+'°'); trPintar(true); return; }
+  if(a==='cravar'){ let al=trAlvos(f).find(x=>x.id===TR.alvo); if(!al) return;
+    /* gravou longe do alvo escolhido: se estiver em cima de outra estaca, grava nela; senão pergunta */
+    const w=trOnde(f, trMedia(2000));
+    if(w){ const pos0 = w.ao!=null ? w.ao : w.dist, err = s0 => w.ao!=null ? Math.abs(s0-pos0) : Math.abs(Math.abs(s0)-pos0);
+      if(err(al.s)>4){ const perto=trAlvos(f).filter(x=>!x.livre && (w.ao!=null || x.s>=0)).sort((u,v)=>err(u.s)-err(v.s))[0];
+        if(perto && err(perto.s)<=3){ al=perto; TR.alvo=perto.id; }
+        else if(!confirm(`Você está a ${fmtN(err(al.s).toFixed(1))} m de ${al.rot}. Gravar ${al.rot} aqui mesmo assim?`)) return; } }
+    const p=await trMarcar(); if(!p) return;
+    const txt=textoCoordFicha({lat:p.lat,lon:p.lon,acc:p.acc}); d.locacao=d.locacao||{}; d.locacao[al.id]=txt;
+    if(al.campo){ d[al.campo]=txt; if(f.tipo==='geof_cam'){ const c=conferirLinha(f); if(c.az!=null) d.azim=Math.round(c.az); } }
+    gravar(f); trBip(false); toast(`${al.rot} gravada (±${Math.round(p.acc)} m)`);
+    if(!al.livre){ TR.alvo=trProximo(f, al.id).id; TR.avisou=null; } trPintar(true); return; }
+}
+function cartaoTrena(f){
+  const d=f.dados, n=Object.keys(d.locacao||{}).length;
+  return `<div class="card" style="border-left:5px solid #0B1730"><h2>📏 Trena GPS — locar ${f.tipo==='geof_sev'?'a abertura':'a linha'} andando</h2>
+    <div class="nota">${f.tipo==='geof_sev'?'Marque o centro e vá andando: a tela mostra a distância e apita em cada AB/2 (de 10 m para cima).':'Marque a estaca 0 e vá andando: a tela mostra quanto andou, quanto falta para a próxima estaca, se você saiu da linha, e apita ao chegar. Depois projeta os infinitos (N e B) ou qualquer distância que você digitar.'}</div>
+    <button class="big green" id="trAbrir" style="margin-top:8px">📏 Abrir a trena GPS</button>${n?`<div class="mini" style="margin-top:6px">${n} ponto(s) já cravado(s) com o GPS.</div>`:''}</div>`;
+}
 /* ---------- caminhamento: espaçamento e infinitos, escolhidos ANTES da primeira leitura ---------- */
 const GEO_ESC = {};   // escolha em andamento, por ficha (só vira dado quando confirma)
 function desenharEscolhaGeo(f){
@@ -1157,6 +1326,7 @@ function desenharEditor(){
   if(f.tipo==='poco_teste' && !ro) h+=cartaoLeitura(d);
   if((f.tipo==='poco_teste' && d.modo!=='escolher' || f.tipo==='vazao') && !ro) h+=cartaoCalcVazao(f);
   if(f.tipo==='geof_cam' && !ro) h+=cartaoLinhaGeo(f);
+  if(ehGeo(f.tipo) && !ro) h+=cartaoTrena(f);
   if(ehGeo(f.tipo) && !ro) h+=cartaoPontos(f);
   if(ehGeo(f.tipo) && !ro) h+=cartaoGeo(f);
   def.blocos.forEach((b0,bi)=>{
@@ -1205,7 +1375,7 @@ function ligarEditor(f){
   document.querySelectorAll('[data-gagua]').forEach(b=>b.onclick=()=>{ const [k,i]=b.dataset.gagua.split('.'); const tb=def.blocos.find(x=>x.tabela&&x.tabela.k===k).tabela; const l=f.dados[k][+i]; f.dados[tb.agua]=l.de||l.ate||''; gravar(f); desenharEditor(); toast(`"Água apareceu a" = ${f.dados[tb.agua]||'?'} m. Confira lá embaixo.`); });
   document.querySelectorAll('[data-gfoto]').forEach(b=>b.onclick=()=>{ const [k,i]=b.dataset.gfoto.split('.'); const tb=def.blocos.find(x=>x.tabela&&x.tabela.k===k).tabela; const l=f.dados[k][+i];
     CAM.extra={ fichaId:f.id, ficha:def.ident(f.dados), tabela:k, linha:+i, trecho:`${l.de||'?'} a ${l.ate||'?'} m` }; abrirCamera('amostra', `${tb.foto.replace(/^Foto d[ao] /,'').replace(/^./,x=>x.toUpperCase())} · ${def.ident(f.dados)} · ${l.de||'?'} a ${l.ate||'?'} m`); });
-  ligarPontos(f);
+  ligarPontos(f); const trB=$('#trAbrir'); if(trB) trB.onclick=()=>abrirTrena(f);
   repintarGeof(f);
   document.querySelectorAll('[data-figver]').forEach(x=>{ x.onclick=()=>verGrandeGeof(f, x.dataset.figver); }); document.querySelectorAll('[data-zoom]').forEach(x=>{ x.onclick=()=>verGrandeImg(x.dataset.zoom, x.alt); });
   document.querySelectorAll('[data-terreno] [data-tv]').forEach(x=>{ x.onclick=async()=>{
@@ -1491,7 +1661,7 @@ function repintarGeof(f){
     const src=GEOF_PIX[f.id+'_'+b.grafico], cv=$('#fig_'+b.grafico);
     if(src && cv){ cv.width=src.width; cv.height=src.height; cv.getContext('2d').drawImage(src,0,0); cv.style.display=''; } }
 }
-/* Figura de instrução ampliada DENTRO do app (antes abria numa aba nova e, no app instalado, não tinha como voltar no meio do levantamento). Zoom por pinça ou pelos botões; fecha no botão Fechar ou no voltar do celular. */ let ZOOM_OV=null; function fecharZoom(){ if(!ZOOM_OV) return false; ZOOM_OV.remove(); ZOOM_OV=null; return true; } function verGrandeImg(src, titulo){ if(ZOOM_OV) fecharZoom(); const ov=document.createElement('div'); ov.style.cssText='position:fixed;inset:0;background:#0B1220;z-index:9999;display:flex;flex-direction:column;touch-action:none'; ov.innerHTML=`<div style="padding:10px 14px;color:#fff;font:600 15px system-ui;display:flex;align-items:center;gap:10px"><button id="zX" style="background:#fff;color:#14284D;border:0;border-radius:8px;padding:9px 16px;font:700 15px system-ui">Fechar</button><span style="flex:1;opacity:.85;font-weight:400">${esc(titulo||'')} — pinça ou botões para o zoom; arraste para ver</span><button id="zMenos" style="background:#243B5C;color:#fff;border:0;border-radius:8px;width:42px;height:38px;font:700 22px system-ui">−</button><button id="zMais" style="background:#243B5C;color:#fff;border:0;border-radius:8px;width:42px;height:38px;font:700 22px system-ui">+</button></div><div id="zBox" style="flex:1;overflow:auto;-webkit-overflow-scrolling:touch"><img id="zImg" src="${src}" alt="" style="display:block;max-width:none;transform-origin:0 0"></div>`; document.body.appendChild(ov); ZOOM_OV=ov; const box=ov.querySelector('#zBox'), img=ov.querySelector('#zImg'); let esc0=1; const aplica=()=>{ img.style.width=(box.clientWidth*esc0)+'px'; }; img.onload=aplica; aplica(); const zoom=(fz,cx,cy)=>{ const n=Math.min(6,Math.max(1,esc0*fz)); if(n===esc0) return; const rx=(box.scrollLeft+(cx==null?box.clientWidth/2:cx))/esc0, ry=(box.scrollTop+(cy==null?box.clientHeight/2:cy))/esc0; esc0=n; aplica(); box.scrollLeft=rx*esc0-(cx==null?box.clientWidth/2:cx); box.scrollTop=ry*esc0-(cy==null?box.clientHeight/2:cy); }; ov.querySelector('#zMais').onclick=()=>zoom(1.5); ov.querySelector('#zMenos').onclick=()=>zoom(1/1.5); let d0=null, e0=1; box.addEventListener('touchstart',e=>{ if(e.touches.length===2){ d0=Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY); e0=esc0; } },{passive:true}); box.addEventListener('touchmove',e=>{ if(e.touches.length===2 && d0){ e.preventDefault(); const d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY); const alvo=e0*d/d0; const r=box.getBoundingClientRect(); zoom(alvo/esc0, (e.touches[0].clientX+e.touches[1].clientX)/2-r.left, (e.touches[0].clientY+e.touches[1].clientY)/2-r.top); } },{passive:false}); box.addEventListener('touchend',()=>{ d0=null; },{passive:true}); img.ondblclick=()=>zoom(esc0>1?1/esc0:2); ov.querySelector('#zX').onclick=()=>{ if(history.state&&history.state.t==='zoom') history.back(); else fecharZoom(); }; try{ history.pushState({t:'zoom'},''); }catch(e){} }function verGrandeGeof(f,k){
+/* Figura de instrução ampliada DENTRO do app (antes abria numa aba nova e, no app instalado, não tinha como voltar no meio do levantamento). Zoom por pinça ou pelos botões; fecha no botão Fechar ou no voltar do celular. */ let ZOOM_OV=null; function fecharZoom(){ if(fecharTrena()) return true; if(!ZOOM_OV) return false; ZOOM_OV.remove(); ZOOM_OV=null; return true; } function verGrandeImg(src, titulo){ if(ZOOM_OV) fecharZoom(); const ov=document.createElement('div'); ov.style.cssText='position:fixed;inset:0;background:#0B1220;z-index:9999;display:flex;flex-direction:column;touch-action:none'; ov.innerHTML=`<div style="padding:10px 14px;color:#fff;font:600 15px system-ui;display:flex;align-items:center;gap:10px"><button id="zX" style="background:#fff;color:#14284D;border:0;border-radius:8px;padding:9px 16px;font:700 15px system-ui">Fechar</button><span style="flex:1;opacity:.85;font-weight:400">${esc(titulo||'')} — pinça ou botões para o zoom; arraste para ver</span><button id="zMenos" style="background:#243B5C;color:#fff;border:0;border-radius:8px;width:42px;height:38px;font:700 22px system-ui">−</button><button id="zMais" style="background:#243B5C;color:#fff;border:0;border-radius:8px;width:42px;height:38px;font:700 22px system-ui">+</button></div><div id="zBox" style="flex:1;overflow:auto;-webkit-overflow-scrolling:touch"><img id="zImg" src="${src}" alt="" style="display:block;max-width:none;transform-origin:0 0"></div>`; document.body.appendChild(ov); ZOOM_OV=ov; const box=ov.querySelector('#zBox'), img=ov.querySelector('#zImg'); let esc0=1; const aplica=()=>{ img.style.width=(box.clientWidth*esc0)+'px'; }; img.onload=aplica; aplica(); const zoom=(fz,cx,cy)=>{ const n=Math.min(6,Math.max(1,esc0*fz)); if(n===esc0) return; const rx=(box.scrollLeft+(cx==null?box.clientWidth/2:cx))/esc0, ry=(box.scrollTop+(cy==null?box.clientHeight/2:cy))/esc0; esc0=n; aplica(); box.scrollLeft=rx*esc0-(cx==null?box.clientWidth/2:cx); box.scrollTop=ry*esc0-(cy==null?box.clientHeight/2:cy); }; ov.querySelector('#zMais').onclick=()=>zoom(1.5); ov.querySelector('#zMenos').onclick=()=>zoom(1/1.5); let d0=null, e0=1; box.addEventListener('touchstart',e=>{ if(e.touches.length===2){ d0=Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY); e0=esc0; } },{passive:true}); box.addEventListener('touchmove',e=>{ if(e.touches.length===2 && d0){ e.preventDefault(); const d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY); const alvo=e0*d/d0; const r=box.getBoundingClientRect(); zoom(alvo/esc0, (e.touches[0].clientX+e.touches[1].clientX)/2-r.left, (e.touches[0].clientY+e.touches[1].clientY)/2-r.top); } },{passive:false}); box.addEventListener('touchend',()=>{ d0=null; },{passive:true}); img.ondblclick=()=>zoom(esc0>1?1/esc0:2); ov.querySelector('#zX').onclick=()=>{ if(history.state&&history.state.t==='zoom') history.back(); else fecharZoom(); }; try{ history.pushState({t:'zoom'},''); }catch(e){} }function verGrandeGeof(f,k){
   const src=GEOF_PIX[f.id+'_'+k]; if(!src) return;
   const ov=document.createElement('div');
   ov.style.cssText='position:fixed;inset:0;background:#0B1220;z-index:9999;display:flex;flex-direction:column';

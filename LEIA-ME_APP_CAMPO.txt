@@ -135,6 +135,17 @@ v1.25.0 (17/10/2026) — recursos do Avenza Pro
   - Importa Shapefile (.zip com .shp/.dbf/.prj): pontos, linhas e polígonos, UTM (SIRGAS/WGS/SAD 69) ou geográficas;
     nome tirado da tabela; vira camada por cima dos mapas (do celular; o Drive ainda não lista .zip).
 
+v1.26.0 (17/10/2026) — TRENA GPS NA GEOFÍSICA (locar a linha sem trena)
+- Ficha de caminhamento e de SEV: cartão "📏 Trena GPS" abre uma tela cheia, de números grandes, para usar andando.
+- Marca a origem (estaca 0 ou centro da SEV) com média de 4 s do GPS; depois mostra quanto andou, quanto falta para a
+  estaca escolhida e, com o rumo fixado, quantos metros está para a esquerda/direita da linha. Apita e vibra ao chegar.
+- Rumo: sai sozinho das duas pontas da linha, ou "usar a direção que andei" (após 15 m), ou digitado da bússola.
+- Alvos prontos: todas as estacas, infinito N (L + distância) e infinito B (−distância); na SEV, A e B em cada AB/2 de 10 m
+  para cima. Também qualquer distância digitada (negativo = para trás).
+- "Cravei aqui" grava a coordenada na ficha (estaca 0, final, B e N vão direto nos campos da ficha; as demais em locacao).
+  Se gravar longe do alvo escolhido, encaixa na estaca mais próxima (até 3 m) ou pergunta.
+- Conta no elipsoide GRS80 (a esfera erraria 2 m em 400 m aqui no equador). Tela fica acesa enquanto a trena está aberta.
+
 v1.25.2 (17/10/2026) — FOTOS DO PONTO NO MAPA
 - "Tirar fotos do ponto" agora abre a câmera do próprio app (a mesma da obra): carimbo com coordenada e logo da Natural,
   GPS ligado o tempo todo, e dá para tirar quantas fotos quiser antes de fechar. Todas ficam ligadas ao ponto.
