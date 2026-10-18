@@ -623,6 +623,7 @@ function cssUmaVez() {
 #mpv .mb{background:#fff;flex:none;padding:8px 10px calc(8px + var(--sab));border-top:1px solid var(--line)}
 #mpv .co{font-family:ui-monospace,Menlo,monospace;font-size:13px;color:var(--navy);text-align:center;padding:2px 0 8px}
 #mpv .ac{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}#mpv .ac button{padding:10px 4px;font-size:13px;background:#E8F1FA;color:var(--navy)}#mpv .ac button.on{background:var(--err);color:#fff}#mpv .ac button.m{background:var(--green);color:#fff}
+#mpv .mpFts{display:flex;gap:8px;overflow-x:auto;padding:4px 0 8px}#mpv .mpFts button{flex:0 0 auto;width:84px;height:84px;padding:0;border-radius:10px;overflow:hidden;border:2px solid #CBD5E1;background:#F1F5F9;font-size:26px}#mpv .mpFts img{width:100%;height:100%;object-fit:cover;display:block}
 #mpv .sheet{position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:16px 16px 0 0;box-shadow:0 -6px 24px rgba(0,0,0,.2);padding:14px 14px calc(14px + var(--sab));max-height:72%;overflow-y:auto;display:none;z-index:5;touch-action:pan-y}#mpv .sheet.on{display:block}
 #mpv .sheet h3{margin:0 0 8px;color:var(--navy);font-size:16px}#mpv .sheet .lin{display:flex;gap:8px;margin-top:10px}#mpv .sheet .lin button{flex:1}
 #mpv .sheet .geo{font-size:12px;margin:6px 0}#mpv .sheet .chips{display:flex;flex-wrap:wrap;gap:6px}#mpv .sheet .chips button{flex:0 0 auto;background:#fff;color:var(--navy);border:1.5px solid var(--line);padding:7px 11px;font-size:13px;border-radius:999px}#mpv .sheet .thumbs{grid-template-columns:repeat(auto-fill,minmax(70px,1fr))}
@@ -884,14 +885,14 @@ const nomeCat = k => (CATS.find(c => c[0] === k) || CATS[CATS.length - 1])[1];
 const LITO = ['Granito', 'Gnaisse', 'Granodiorito', 'Diorito', 'Basalto', 'Diabásio', 'Quartzito', 'Xisto', 'Migmatito', 'Laterita', 'Arenito', 'Siltito', 'Argilito', 'Conglomerado', 'Solo residual', 'Aluvião', 'Saprólito', 'Veio de quartzo'];
 function attrTexto(p) { const a = p.attr || {}; return [p.cat ? nomeCat(p.cat) : '', a.lito ? 'Litologia: ' + a.lito : '', a.amostra ? 'Amostra: ' + a.amostra : '', a.dirMerg != null && a.merg != null ? `Atitude: ${String(Math.round(a.dirMerg)).padStart(3, '0')}/${Math.round(a.merg)} (dir. mergulho/mergulho)` : '', p.fotos && p.fotos.length ? p.fotos.length + ' foto(s)' : ''].filter(Boolean).join(' · '); }
 function popPino(p) {
-  p.attr = p.attr || {}; p.fotos = p.fotos || [];
+  p.attr = p.attr || {}; p.fotos = p.fotos || []; V.sheetPino = p.id;
   const s = sheet(`<h3>📍 Ponto</h3><label>Nome</label><input id="shNome" value="${esc(p.nome)}">
   <label>Categoria</label><div class="chips" id="shCat">${CATS.map(c => `<button data-c="${c[0]}" class="${p.cat === c[0] ? 'on' : ''}" style="${p.cat === c[0] ? `background:${c[2]};border-color:${c[2]};color:#fff` : ''}">${c[1]}</button>`).join('')}</div>
   <div class="row"><div><label>Litologia</label><input id="shLito" list="dlLito" value="${esc(p.attr.lito || '')}" placeholder="ex.: granito"></div><div><label>Amostra nº</label><input id="shAm" value="${esc(p.attr.amostra || '')}" placeholder="ex.: MUC-01"></div></div><datalist id="dlLito">${LITO.map(l => `<option value="${l}">`).join('')}</datalist>
   <label>Atitude (direção de mergulho / mergulho)</label><div class="row"><input id="shDM" inputmode="decimal" placeholder="dir. (0–360°)" value="${p.attr.dirMerg ?? ''}"><input id="shMg" inputmode="decimal" placeholder="mergulho (0–90°)" value="${p.attr.merg ?? ''}"><button class="sec" id="shClin" style="flex:0 0 auto">📐 Medir</button></div>
   <label>Observação</label><textarea id="shNota" placeholder="o que viu, condição do acesso, etc." style="min-height:60px">${esc(p.nota || '')}</textarea>
-  <label>Fotos deste ponto</label><div class="thumbs" id="shFotos">${p.fotos.map(f => `<div class="th">${f.thumb ? `<img src="${f.thumb}" alt="">` : '📷'}</div>`).join('')}</div>
-  <div class="lin"><button class="sec" id="shFoto">📷 Tirar foto do ponto</button><button class="sec" id="shGal">🖼 Da galeria</button></div>
+  <label>Fotos deste ponto${p.fotos.length ? ` (${p.fotos.length}) — toque para ver` : ''}</label>${p.fotos.length ? `<div class="mpFts" id="shFotos">${p.fotos.map((f, i) => `<button data-f="${i}">${f.thumb ? `<img src="${f.thumb}" alt="">` : '📷'}</button>`).join('')}</div>` : '<div class="muted" style="margin:2px 0 6px">nenhuma foto ainda</div>'}
+  <div class="lin"><button class="sec" id="shFoto">📷 ${p.fotos.length ? 'Tirar mais fotos' : 'Tirar fotos do ponto'}</button><button class="sec" id="shGal">🖼 Da galeria</button></div>
   <input type="file" id="shFotoIn" accept="image/*" capture="environment" style="display:none"><input type="file" id="shGalIn" accept="image/*" multiple style="display:none">
   ${blocoCoord(p.lat, p.lon)}<div class="muted">${p.digitado ? 'plotado por coordenada · ' : p.acc ? `GPS ±${Math.round(p.acc)} m · ` : 'marcado no mapa · '}${window.fmtData ? fmtData(p.criadoEm) : ''} · ${esc(p.quem || '')}</div>${linhaDistDeMim(p.lat, p.lon)}
   <div class="lin"><button id="shIr">➜ Ir até</button><button class="sec" id="shOk">✓ Pronto</button></div><div class="lin"><button class="ghost" id="shCop">Copiar</button><button class="ghost" id="shShare">Compartilhar</button><button class="ghost" id="shDel" style="color:var(--err)">Apagar</button></div>`);
@@ -907,9 +908,14 @@ function popPino(p) {
   const fotoDe = async (files, fonte) => { for (const f of files) { try { let gps = null, dataOrig = null;
       if (fonte === 'galeria' && window.lerExif) { try { const ex = lerExif(await f.arrayBuffer()); gps = ex && ex.gps; dataOrig = ex && ex.data; } catch (e) {} }
       const r = await enfileirarFoto(f, { slot: 'ponto', slotTitulo: 'Ponto ' + p.nome, fonte, gpsOrig: gps, dataOrig, extra: { pino: p.id, ponto: p.nome, lat: p.lat, lon: p.lon, cat: p.cat || null }, semRender: true });
-      if (r && r.id) { p.fotos.push({ id: r.id, thumb: r.thumb, em: new Date().toISOString() }); p.enviado = false; await MDB.put('marcas', p); agendarEnvio(V.ob); } } catch (e) { toast('Foto: ' + (e.message || e)); } }
-    if (V.aberto && $('#mpvSh').classList.contains('on')) popPino(p); };
-  s.querySelector('#shFoto').onclick = () => s.querySelector('#shFotoIn').click(); s.querySelector('#shGal').onclick = () => s.querySelector('#shGalIn').click();
+      if (r && r.id && !p.fotos.some(x => x.id === r.id)) { p.fotos.push({ id: r.id, thumb: r.thumb, em: new Date().toISOString() }); p.enviado = false; await MDB.put('marcas', p); agendarEnvio(V.ob); } } catch (e) { toast('Foto: ' + (e.message || e)); } }
+    if (V.aberto && $('#mpvSh').classList.contains('on') && V.sheetPino === p.id) popPino(p); };
+  /* câmera do próprio app (a mesma de toda a obra): carimbo com coordenada + logo, GPS ligado o tempo todo, e tira quantas fotos quiser antes de fechar */
+  s.querySelector('#shFoto').onclick = async () => { await salvar();
+    if (typeof abrirCamera === 'function' && typeof CAM !== 'undefined') { CAM.extra = { pino: p.id, ponto: p.nome, lat: p.lat, lon: p.lon, cat: p.cat || null }; abrirCamera('ponto_' + p.id, 'Ponto ' + p.nome); }
+    else s.querySelector('#shFotoIn').click(); };
+  s.querySelector('#shGal').onclick = () => s.querySelector('#shGalIn').click();
+  s.querySelectorAll('#shFotos [data-f]').forEach(b => b.onclick = () => verFotosPonto(p, +b.dataset.f));
   s.querySelector('#shFotoIn').onchange = e => { const fs = [...e.target.files]; e.target.value = ''; fotoDe(fs, 'camera'); };
   s.querySelector('#shGalIn').onchange = e => { const fs = [...e.target.files]; e.target.value = ''; fotoDe(fs, 'galeria'); };
   s.querySelector('#shClin').onclick = () => clinometro(async (dm, mg) => { s.querySelector('#shDM').value = Math.round(dm); s.querySelector('#shMg').value = Math.round(mg); await salvar(); });
@@ -919,6 +925,33 @@ function popPino(p) {
   s.querySelector('#shShare').onclick = () => compartilhar(p.nome + (attrTexto(p) ? ' — ' + attrTexto(p) : ''), p.lat, p.lon);
   s.querySelector('#shDel').onclick = async () => { const r = await escolha('Apagar o ponto?', p.fotos.length ? 'As fotos já tiradas continuam guardadas e vão para o Drive.' : '', [{ t: 'Apagar o ponto', v: 1, cls: 'danger' }]); if (!r) return;
     await MDB.del('marcas', p.id); V.marcas = V.marcas.filter(x => x.id !== p.id); if (V.alvo && V.alvo.id === p.id) { V.alvo = null; painelNav(); } fecharSheet(); pedir(); toast('Ponto apagado'); }; }
+/* foto que acabou de entrar na fila (câmera do app ou galeria) e é deste ponto: liga ao ponto, salva e manda sozinho */
+async function fotoDoPonto(pid, f) {
+  let p = (V.marcas || []).find(m => m.id === pid); if (!p) { try { p = await MDB.get('marcas', pid); } catch (e) {} } if (!p) return;
+  p.fotos = p.fotos || []; if (p.fotos.some(x => x.id === f.id)) return;
+  p.fotos.push({ id: f.id, thumb: f.thumb, em: new Date().toISOString() }); p.enviado = false; await MDB.put('marcas', p); if (V.ob) agendarEnvio(V.ob);
+  if (V.aberto && V.sheetAberto && V.sheetPino === pid) popPino(p); pedir(); }
+function camFechou(pid) { const p = (V.marcas || []).find(m => m.id === pid); if (!p || !V.aberto) return; popPino(p); if (p.fotos && p.fotos.length) toast(p.fotos.length + ' foto(s) neste ponto ✓'); }
+/* ver as fotos do ponto em tela cheia: ‹ › ou arrastar para o lado; voltar do celular fecha só a foto */
+const FV = { el: null, url: null };
+function fecharFotoPonto() { if (!FV.el) return false; FV.el.remove(); FV.el = null; if (FV.url) { URL.revokeObjectURL(FV.url); FV.url = null; } return true; }
+async function verFotosPonto(p, i) {
+  fecharFotoPonto(); const L = p.fotos || []; if (!L.length) return; i = (i + L.length) % L.length;
+  const d = document.createElement('div'); FV.el = d;
+  d.style.cssText = 'position:fixed;inset:0;z-index:9700;background:#000;display:flex;flex-direction:column;touch-action:none';
+  d.innerHTML = `<div style="display:flex;align-items:center;gap:8px;padding:calc(10px + var(--sat,0px)) 12px 10px;color:#fff;font-size:14px"><b style="flex:1">${esc(p.nome)} · foto ${i + 1} de ${L.length}</b><button id="fvX" style="background:rgba(255,255,255,.18);color:#fff;border:0;border-radius:10px;padding:10px 14px;font-size:15px">✕ Fechar</button></div>
+  <img id="fvI" style="flex:1 1 0;min-height:0;width:100%;object-fit:contain" alt=""><div id="fvInf" style="color:#aaa;font-size:12px;text-align:center;padding:4px"></div>
+  <div style="display:flex;gap:10px;padding:10px 14px calc(14px + var(--sab,0px))"><button id="fvA" style="flex:1;min-height:50px;font-size:20px;border-radius:12px;border:0;background:#222;color:#fff" ${L.length < 2 ? 'disabled' : ''}>‹</button><button id="fvP" style="flex:1;min-height:50px;font-size:20px;border-radius:12px;border:0;background:#222;color:#fff" ${L.length < 2 ? 'disabled' : ''}>›</button></div>`;
+  document.body.appendChild(d);
+  const img = d.querySelector('#fvI'), inf = d.querySelector('#fvInf'); let reg = null;
+  try { if (typeof DB !== 'undefined') reg = await DB.get(L[i].id); } catch (e) {}
+  if (FV.el !== d) return;
+  if (reg && reg.blob) { FV.url = URL.createObjectURL(reg.blob); img.src = FV.url; inf.textContent = (reg.status === 'enviado' ? 'já no Drive' : 'na fila para o Drive') + ' · ' + (reg.blob.size / 1048576).toFixed(1) + ' MB'; }
+  else { img.src = L[i].thumb || ''; inf.textContent = 'foto já enviada ao Drive (aqui fica a miniatura)'; }
+  d.querySelector('#fvX').onclick = () => fecharFotoPonto();
+  d.querySelector('#fvA').onclick = () => verFotosPonto(p, i - 1); d.querySelector('#fvP').onclick = () => verFotosPonto(p, i + 1);
+  let x0 = null; d.onpointerdown = e => { x0 = e.clientX; e.stopPropagation(); };
+  d.onpointerup = e => { if (x0 == null || L.length < 2) return; const dx = e.clientX - x0; x0 = null; if (Math.abs(dx) > 60) verFotosPonto(p, dx < 0 ? i + 1 : i - 1); }; }
 /* 📐 Clinômetro: celular deitado SOBRE o plano (tela para cima). Lê a inclinação e a bússola; média de 2 s. */
 function clinometro(pronto) {
   const L = []; let ouvindo = true; const ouvir = e => { if (!ouvindo || e.beta == null || e.gamma == null) return; let alfa = null;
@@ -1183,6 +1216,7 @@ function fecharVisual(trocando) {
   return true;
 }
 function voltar() { // botão voltar do celular: fecha a escolha, o painel, depois o mapa; nunca sai do app
+  if (fecharFotoPonto()) { try { history.pushState({ t: 'mapa' }, ''); } catch (e) {} return true; }
   if (ESC.aberto) { const f = ESC.aberto; f(-1); try { history.pushState({ t: V.aberto ? 'mapa' : 'app' }, ''); } catch (e) {} return true; }
   if (!V.aberto) return false; const s = $('#mpvSh'); if (s && s.classList.contains('on')) { s.classList.remove('on'); V.sheetAberto = false; pedir(); try { history.pushState({ t: 'mapa' }, ''); } catch (e) {} return true; }
   if (V.medir) { sairMedir(false); try { history.pushState({ t: 'mapa' }, ''); } catch (e) {} return true; } /* voltar na medição: salva e sai, nunca perde */
@@ -1196,7 +1230,7 @@ async function sincronizarTudo(forcar) { // abre o app com internet → mapas de
   sincronizarTudo.rodando = true; try { await baixarTodas(); LSx.set('mapasTudoEm', Date.now()); } finally { sincronizarTudo.rodando = false; } }
 setTimeout(() => sincronizarTudo(false), 20000);
 async function baixarTodas() { const obs = (APP() && APP().pacote && APP().pacote.obras) || []; let n = 0; for (const ob of obs) { if (!ob.pastaId) continue; await sincronizar(ob, { silencioso: true }); n++; } return n; }
-window.MAPAS = { tela, ligar, abrir, voltar, aberto: () => !!V.aberto, auto: ob => sincronizar(ob, { silencioso: true }), baixarTodas, sincronizarTudo, contar,
+window.MAPAS = { tela, ligar, abrir, voltar, fotoDoPonto, camFechou, aberto: () => !!V.aberto, auto: ob => sincronizar(ob, { silencioso: true }), baixarTodas, sincronizarTudo, contar,
   _dbg: { med: () => [V.medModo, V.medir], ll2s: (la, lo) => m2s(...V.geo.ll2px(la, lo)), pan: (sx, sy) => { V.tx += V.cw / 2 - sx; V.ty += V.ch / 2 - sy; pedir(); } },
   _t: { lerCoordTexto, sad69ParaSirgas, utmIe, lerGeoPDF, criarGeo, utmF, utmI, lerKML, lerGPX, analisar, unzip, dist, rumo, areaLL, epsgInfo } };
 })();

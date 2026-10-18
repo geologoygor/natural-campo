@@ -145,7 +145,7 @@ details.card{border-top:0}details.empresa>summary{color:var(--navy)}
 details.instalar>summary{color:#fff}details.instalar>summary::after{color:#fff}
 button.mini{padding:8px 12px;font-size:14px;margin-top:6px}
 /* câmera */
-#cam{position:fixed;inset:0;background:#000;z-index:50;display:none;flex-direction:column}
+#cam{position:fixed;inset:0;background:#000;z-index:9600;display:none;flex-direction:column}
 #verPdf{position:fixed;inset:0;z-index:60;background:#3a3f47;display:flex;flex-direction:column}
 #verPdf .vtop{display:flex;align-items:center;gap:8px;padding:calc(8px + var(--sat)) 10px 8px;background:var(--navy);color:#fff}
 #verPdf .vtop b{flex:1;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -195,7 +195,7 @@ button.mini{padding:8px 12px;font-size:14px;margin-top:6px}
 .desfazer-bar,#desfazer{position:fixed;left:12px;right:12px;bottom:calc(84px + var(--sab));z-index:71;background:var(--ink);color:#fff;border-radius:12px;padding:10px 12px;display:flex;align-items:center;gap:10px;font-size:14px;box-shadow:0 4px 16px rgba(0,0,0,.3)}
 #desfazer span{flex:1}
 #desfazer button{background:var(--green);color:#fff;border:0;border-radius:8px;padding:8px 14px;font-weight:700;min-height:0}
-.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(80px + var(--sab));background:var(--ink);color:#fff;padding:10px 16px;border-radius:999px;font-size:14px;z-index:70;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw;text-align:center}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(80px + var(--sab));background:var(--ink);color:#fff;padding:10px 16px;border-radius:999px;font-size:14px;z-index:9900;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw;text-align:center}
 .toast.on{opacity:1}
 .rec{width:88px;height:88px;border-radius:50%;background:var(--err);color:#fff;font-size:30px;margin:10px auto;display:flex;align-items:center;justify-content:center;padding:0}
 .rec.on{animation:pulse 1s infinite}
@@ -260,16 +260,16 @@ button.mini{padding:8px 12px;font-size:14px;margin-top:6px}
 <div class="toast" id="toast"></div>
 <canvas id="cv" class="hide"></canvas>
 
-<script src="geofisica.js?v=1.25.1"></script>
-<script src="fichas.js?v=1.25.1"></script>
-<script src="mapas.js?v=1.25.1"></script>
+<script src="geofisica.js?v=1.25.2"></script>
+<script src="fichas.js?v=1.25.2"></script>
+<script src="mapas.js?v=1.25.2"></script>
 <script>
 /* ============================================================
    CAMPO · Natural Engenharia — app de campo (PWA)
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.25.1';
+const APP_VERSAO = '1.25.2';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -620,7 +620,7 @@ async function enfileirarFoto(blobOriginal, opts){
      respondia "já recebi" para a segunda — que era apagada do celular sem nunca ter chegado */
   const stamp = opts.fonte==='galeria' ? data : new Date();
   const nomeBase= opts.slot==='marco' ? `${carimboArq(stamp)}_MARCO_${(opts.extra&&opts.extra.marco)||'SEM_CODIGO'}${sufixo(id)}` : `${carimboArq(stamp)}_${slug(opts.slotTitulo||'foto')}${sufixo(id)}`;
-  const thumb=await miniatura(bmp);
+  const thumb=await miniatura($('#cv')); /* miniatura já com o carimbo: o funcionário confere coordenada e logo na hora */
   const meta={ lat:pos?.lat??null, lon:pos?.lon??null, acc:pos?.acc??null, alt:pos?.alt??null, fmt:S.fmt, utm:pos?toUTM(pos.lat,pos.lon):null, fonte, marca:S.marca, quando:data.toISOString(), origem:opts.fonte, app:APP_VERSAO, extra:opts.extra||null };
   await guardar({ id, tipo:'foto', obraId:ob.id, obraNome:ob.nome, pastaId:ob.pastaId||null, quem:S.quem, slot:opts.slot, slotTitulo:opts.slotTitulo, nome:nomeBase+'.jpg', mime:'image/jpeg', blob:comExif, thumb, meta, status:'pendente', criadoEm:new Date().toISOString() });
   if(S.salvarCel && opts.fonte==='camera' && !EH_IOS){ /* Android: cópia vai sozinha para Downloads */
@@ -632,6 +632,7 @@ async function enfileirarFoto(blobOriginal, opts){
     await guardar({ id:id+'o', tipo:'foto', obraId:ob.id, obraNome:ob.nome, pastaId:ob.pastaId||null, quem:S.quem, slot:opts.slot, slotTitulo:opts.slotTitulo, nome:nomeBase+'_original.'+(blobOriginal.type.split('/')[1]||'jpg').replace('jpeg','jpg'), mime:blobOriginal.type||'image/jpeg', blob:blobOriginal, thumb:null, meta:Object.assign({},meta,{original:true}), status:'pendente', criadoEm:new Date().toISOString() }); }
   await recarregarFila(); if(!opts.semRender) render(); toast('Foto guardada na fila'+(pos?'':(opts.fonte==='camera'&&S.pos?' — SEM coordenada (GPS desatualizado: espere fixar)':' — sem coordenada')));
   if(navigator.onLine) enviarFila();
+  if(opts.extra&&opts.extra.pino&&window.MAPAS&&MAPAS.fotoDoPonto){ try{ await MAPAS.fotoDoPonto(opts.extra.pino,{id,thumb}); }catch(e){} }
   return { id, thumb };
 }
 /* ---------- CÓPIA NO CELULAR (v1.17.0) ----------
@@ -763,7 +764,7 @@ async function ligarStream(){
 }
 function mostrarResolucao(){ /* a câmera abre sempre na resolução máxima; nada é mostrado na tela */ }
 function abrirCamHist(){ try{ history.pushState({t:'cam'},''); }catch(e){} }
-function fecharCamera(){ if(CAM.rec) pararGravacao(); CAM.extra=null; CAM.slotTitulo=null; modoCamera('foto'); $('#cam').classList.remove('on'); if(CAM.stream){ CAM.stream.getTracks().forEach(t=>t.stop()); CAM.stream=null; } }
+function fecharCamera(){ if(CAM.rec) pararGravacao(); if(window.MAPAS&&MAPAS.camFechou&&CAM.extra&&CAM.extra.pino){ const pid=CAM.extra.pino; setTimeout(()=>MAPAS.camFechou(pid),50); } CAM.extra=null; CAM.slotTitulo=null; modoCamera('foto'); $('#cam').classList.remove('on'); if(CAM.stream){ CAM.stream.getTracks().forEach(t=>t.stop()); CAM.stream=null; } }
 async function fotografar(){
   const track=CAM.stream?.getVideoTracks()[0]; if(!track) return;
   const fl=$('#flash'); fl.style.opacity=.8; setTimeout(()=>fl.style.opacity=0,120);
@@ -1553,6 +1554,7 @@ function ligarOcorr(ob){
   // Botão "voltar": fecha a câmera/ficha, volta para a lista de obras e NUNCA sai do app
     try{ history.replaceState({t:'base'},''); history.pushState({t:'app'},''); }catch(e){}
   window.addEventListener('popstate',()=>{
+    if($('#cam').classList.contains('on') && window.MAPAS && MAPAS.aberto()){ fecharCamera(); return; } /* câmera aberta por cima do mapa: voltar fecha só a câmera */
     if(window.MAPAS && MAPAS.voltar()) return; /* mapa aberto: o voltar fecha o painel, depois o mapa */
     if(window.FICHAS && FICHAS.fecharZoom && FICHAS.fecharZoom()) return; if(window.FICHAS && FICHAS.fecharFcam && FICHAS.fecharFcam()) return; /* câmera da ficha: o voltar fecha só ela */ /* figura ampliada: o voltar só fecha ela */ if(VER.aberto){ fecharPDF(); return; }
     if($('#cam').classList.contains('on')){ fecharCamera(); return; }

@@ -135,6 +135,13 @@ v1.25.0 (17/10/2026) — recursos do Avenza Pro
   - Importa Shapefile (.zip com .shp/.dbf/.prj): pontos, linhas e polígonos, UTM (SIRGAS/WGS/SAD 69) ou geográficas;
     nome tirado da tabela; vira camada por cima dos mapas (do celular; o Drive ainda não lista .zip).
 
+v1.25.2 (17/10/2026) — FOTOS DO PONTO NO MAPA
+- "Tirar fotos do ponto" agora abre a câmera do próprio app (a mesma da obra): carimbo com coordenada e logo da Natural,
+  GPS ligado o tempo todo, e dá para tirar quantas fotos quiser antes de fechar. Todas ficam ligadas ao ponto.
+- As miniaturas da ficha do ponto abrem a foto em tela cheia (‹ › ou arrastar para o lado; voltar do celular fecha só a foto).
+- Miniaturas em todo o app já mostram o carimbo.
+- Avisos (toasts) passam a aparecer por cima do mapa.
+
 v1.25.1 (17/10/2026) — unidades
   - Medições e áreas com unidade à escolha (fica no celular): área em automático (m²/ha), m², hectares, km²,
     alqueire paulista (2,42 ha), alqueire mineiro/goiano (4,84 ha) ou alqueire do norte (2,7225 ha);
