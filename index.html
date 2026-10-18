@@ -260,16 +260,16 @@ button.mini{padding:8px 12px;font-size:14px;margin-top:6px}
 <div class="toast" id="toast"></div>
 <canvas id="cv" class="hide"></canvas>
 
-<script src="geofisica.js?v=1.26.3"></script>
-<script src="fichas.js?v=1.26.3"></script>
-<script src="mapas.js?v=1.26.3"></script>
+<script src="geofisica.js?v=1.26.4"></script>
+<script src="fichas.js?v=1.26.4"></script>
+<script src="mapas.js?v=1.26.4"></script>
 <script>
 /* ============================================================
    CAMPO · Natural Engenharia — app de campo (PWA)
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.26.3';
+const APP_VERSAO = '1.26.4';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -687,7 +687,8 @@ async function autoAudios(tudo){ let n=0; for(const it of (S.fila||[])){ if(it.s
     it.status='pendente'; it.erro=null; await DB.put(it); n++; }
   if(n){ await recarregarFila(); if(!(window.FICHAS && FICHAS.aberta())) render(); if(navigator.onLine) enviarFila(); } }
 setInterval(()=>autoAudios(false),10000);
-document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='hidden') autoAudios(true); });
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='hidden'){ if(REC.mr && REC.mr.state!=='inactive'){ try{ REC.mr.stop(); }catch(_){} } autoAudios(true); }
+  else if(S.falhaOculta){ S.falhaOculta=false; S.semRedeAte=0; if(navigator.onLine) enviarFila(true); } });
 /* v1.22.0: UM toque manda tudo o que está no celular, sem exigir requisito nenhum:
    áudio gravado que ainda não passou pelo "Enviar" do Diário, fichas abertas (como PARCIAL) e a fila inteira, de todas as obras. */
 async function enviarTudoAgora(){
@@ -713,6 +714,7 @@ async function enviarFila(forcar){
   if(S.enviando || !navigator.onLine) return; if(!S.cfg.script){ pintarFila(); return; }
   if(!forcar && S.semRedeAte && Date.now()<S.semRedeAte){ pintarFila(); return; }
   S.enviando=true; pintarFila();
+  let telaAcesa=null; try{ if(navigator.wakeLock && document.visibilityState==='visible') telaAcesa=await navigator.wakeLock.request('screen').catch(()=>null); }catch(_){}   /* tela não apaga enquanto sobe */
   try{
     const fila=S.fila.filter(x=>x.status==='pendente'||x.status==='erro').sort((a,b)=>((a.blob&&a.blob.size)||0)-((b.blob&&b.blob.size)||0));
     for(const it of fila){
@@ -721,19 +723,21 @@ async function enviarFila(forcar){
         const ac=new AbortController(), lim=setTimeout(()=>ac.abort(), 60000 + 15000*(((it.blob&&it.blob.size)||0)/1e6));
         const corpo={ token:S.cfg.token, acao:'enviar', id:it.id, obraId:it.obraId, obraNome:it.obraNome, pastaId:it.pastaId, quem:it.quem, tipo:it.tipo, slot:it.slot, slotTitulo:it.slotTitulo, nome:it.nome, mime:it.mime, meta:it.meta, criadoEm:it.criadoEm, b64: await b64(it.blob) };
         const r=await fetch(S.cfg.script,{method:'POST',body:JSON.stringify(corpo),signal:ac.signal}); clearTimeout(lim);
-        const j=await r.json().catch(()=>({ok:false,erro:'resposta inválida'}));
+        const j=await r.json().catch(()=>({ok:false,erro:'resposta inválida',cortada:true}));
         if(j.ok){ redeOk(); it.status='enviado'; it.enviadoEm=new Date().toISOString(); it.url=j.url||null; it.pasta=j.pasta||null; it.marco=j.marco||null; it.transito=!!j.transito; it.erro=null; it.erroEm=null;
           try{ const at=await DB.get(it.id); if(at&&at.noCel) it.noCel=true; }catch(_){}
           /* v1.17.0: foto da câmera que ainda não foi salva no celular guarda o arquivo até ser salva (iPhone pede um toque) */
           if(!(S.salvarCel && it.tipo==='foto' && it.meta?.origem==='camera' && !it.meta?.original && !it.noCel)) it.blob=null; }
+        else if(j.cortada && (document.visibilityState==='hidden' || r.status===0 || r.status>=500)){ it.status='pendente'; it.erro=null; S.falhaOculta=document.visibilityState==='hidden'; await DB.put(it); break; }   /* resposta cortada (tela apagou / sinal caiu): tenta de novo, não é erro */
         else { it.status='erro'; it.erro=j.erro||('HTTP '+r.status); it.erroEm=new Date().toISOString(); }
-      }catch(e){ if(e instanceof TypeError || e.name==='AbortError' || !navigator.onLine){ it.status='pendente'; it.erro=null; await DB.put(it); if(!grande) falhaDeRede();
+      }catch(e){ if(document.visibilityState==='hidden'){ it.status='pendente'; it.erro=null; await DB.put(it); S.falhaOculta=true; break; }   /* tela apagou no meio do envio: o celular cortou a conexão; manda de novo ao voltar, sem contar como falha */
+        if(e instanceof TypeError || e.name==='AbortError' || !navigator.onLine){ it.status='pendente'; it.erro=null; await DB.put(it); if(!grande) falhaDeRede();
           if(grande && navigator.onLine) continue;   /* vídeo grande caiu no sinal fraco: os pequenos de trás ainda tentam */
           break; } it.status='erro'; it.erro=String(e.message||e); it.erroEm=new Date().toISOString(); }
       await DB.put(it); pintarFila();
       if(it.status==='erro' && !navigator.onLine) break;
     }
-  } finally { S.enviando=false; await recarregarFila(); setTimeout(relatarEstado, 1500); try{ if(window.FICHAS && FICHAS.aliviarMemoria) FICHAS.aliviarMemoria(); }catch(e){} if(!(window.FICHAS && FICHAS.aberta())) render(); }
+  } finally { try{ telaAcesa&&telaAcesa.release(); }catch(_){} S.enviando=false; await recarregarFila(); setTimeout(relatarEstado, 1500); try{ if(window.FICHAS && FICHAS.aliviarMemoria) FICHAS.aliviarMemoria(); }catch(e){} if(!(window.FICHAS && FICHAS.aberta())) render(); }
 }
 async function baixarPacote(silencioso){
   if(!S.cfg.script){ if(!silencioso) toast('Configure a URL do robô em Ajustes'); return false; }
@@ -897,12 +901,14 @@ async function daGaleria(files, slot, slotTitulo, extra){
 const REC={ mr:null, chunks:[], t0:0, timer:null, blob:null, obraId:null, ultimoId:null }; // obraId: o áudio gravado é só da obra em que foi gravado
 async function gravar(){
   if(REC.mr){ REC.mr.stop(); return; }
-  const ob=obraAtual(); if(ob && audiosDeHoje(ob)>=2){ toast('Já são 2 áudios desta obra hoje. Apague um na aba Fotos se precisar gravar outro.',5000); return; }
   try{ const st=await navigator.mediaDevices.getUserMedia({audio:true}); const mime=['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/aac',''].find(m=>!m||MediaRecorder.isTypeSupported(m));
     REC.mr=new MediaRecorder(st, mime?{mimeType:mime}:undefined); REC.chunks=[]; REC.blob=null; REC.obraId=S.obraId;
-    REC.mr.ondataavailable=e=>REC.chunks.push(e.data);
-    REC.mr.onstop=async()=>{ st.getTracks().forEach(t=>t.stop()); REC.blob=new Blob(REC.chunks,{type:REC.mr.mimeType||'audio/webm'}); REC.mr=null; clearInterval(REC.timer); const ext=(REC.blob.type.includes('mp4')||REC.blob.type.includes('aac'))?'m4a':'webm'; try{ REC.ultimoId=await enfileirarArquivo(REC.blob,'audio',`${agoraArq()}_diario_${slug(S.quem)}.${ext}`,null,{obraId:REC.obraId, status:'aguardando'}); toast('Áudio gravado. Ouça e toque em ENVIAR.'); }catch(e){} render(); };
-    REC.mr.start(); REC.t0=Date.now(); REC.timer=setInterval(()=>{ const s=Math.floor((Date.now()-REC.t0)/1000); const el=$('#timer'); if(el) el.textContent=`${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')} / 00:40`; if(s>=40 && REC.mr) REC.mr.stop(); },250);
+    REC.mr.ondataavailable=e=>{ if(e.data&&e.data.size) REC.chunks.push(e.data); };
+    REC.mr.onerror=()=>{ try{ if(REC.mr&&REC.mr.state!=='inactive') REC.mr.stop(); }catch(_){} };
+    try{ if(navigator.wakeLock) navigator.wakeLock.request('screen').then(w=>{ REC.wake=w; }).catch(()=>{}); }catch(_){}   /* tela não apaga no meio da gravação */
+    REC.mr.onstop=async()=>{ st.getTracks().forEach(t=>t.stop()); try{ REC.wake&&REC.wake.release(); }catch(_){} REC.wake=null;
+      if(!REC.chunks.length){ REC.mr=null; clearInterval(REC.timer); toast('A gravação foi interrompida antes de captar som. Grave de novo.',4500); render(); return; } REC.blob=new Blob(REC.chunks,{type:REC.mr.mimeType||'audio/webm'}); REC.mr=null; clearInterval(REC.timer); const ext=(REC.blob.type.includes('mp4')||REC.blob.type.includes('aac'))?'m4a':'webm'; try{ REC.ultimoId=await enfileirarArquivo(REC.blob,'audio',`${agoraArq()}_diario_${slug(S.quem)}.${ext}`,null,{obraId:REC.obraId, status:'aguardando'}); toast('Áudio gravado. Ouça e toque em ENVIAR.'); }catch(e){} render(); };
+    REC.mr.start(1000); REC.t0=Date.now();   /* pedaços de 1 s: se o celular cortar o microfone, o que já foi falado fica salvo */ REC.timer=setInterval(()=>{ const s=Math.floor((Date.now()-REC.t0)/1000); const el=$('#timer'); if(el) el.textContent=`${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')} / 00:40`; if(s>=40 && REC.mr) REC.mr.stop(); },250);
     render();
   }catch(e){ toast('Microfone indisponível: '+e.message); }
 }
@@ -1430,10 +1436,10 @@ const URLS_AUDIO={};
 function urlAudio(it){ if(!it||!it.blob) return null; return URLS_AUDIO[it.id]||(URLS_AUDIO[it.id]=URL.createObjectURL(it.blob)); }
 function audiosDeHoje(ob){ return (S.fila||[]).filter(x=>x.tipo==='audio' && x.obraId===ob.id && hojeISO(x.criadoEm)).length; }
 function telaDiario(ob){
-  const P=S.pacote; const avc = mostraAvanco(ob) ? cartaoAvanco(ob) : ''; const gravando=!!REC.mr; const nAud=audiosDeHoje(ob); const cheio=nAud>=2; const meuAudio = REC.blob && REC.obraId===ob.id; // áudio de outra obra não aparece aqui
+  const P=S.pacote; const avc = mostraAvanco(ob) ? cartaoAvanco(ob) : ''; const gravando=!!REC.mr; const nAud=audiosDeHoje(ob); const cheio=false; /* v1.26.4: sem limite de áudios por dia */ const meuAudio = REC.blob && REC.obraId===ob.id; // áudio de outra obra não aparece aqui
   let h=avc+`<div class="card"><h2>Diário de obra — 40 segundos</h2><div class="nota">Cinco frases, nesta ordem. O escritório transcreve e vira o registro do dia.</div>`;
   h+=(P.roteiroDiario||[]).map((f,i)=>`<div class="frase"><span>${i+1}</span><div>${esc(f)}</div></div>`).join('');
-  h+=`<div class="timer" id="timer">${gravando?'00:00 / 00:40':'00:40'}</div><button class="rec ${gravando?'on':''}" id="rec" ${cheio&&!gravando?'disabled':''}>${gravando?'■':'●'}</button><div class="nota" style="text-align:center">${gravando?'Gravando… toque para parar':(cheio?'Os 2 áudios do dia já foram gravados':'Toque para gravar')}</div><div class="nota" style="text-align:center">${cheio?'Precisa falar mais? Apague um dos áudios na aba Fotos e grave de novo, ou escreva no campo de observação do Roteiro.':`Cabem 2 áudios por dia nesta obra (${nAud} de 2 gravados).`}</div>`;
+  h+=`<div class="timer" id="timer">${gravando?'00:00 / 00:40':'00:40'}</div><button class="rec ${gravando?'on':''}" id="rec" ${cheio&&!gravando?'disabled':''}>${gravando?'■':'●'}</button><div class="nota" style="text-align:center">${gravando?'Gravando… toque para parar':(cheio?'Os 2 áudios do dia já foram gravados':'Toque para gravar')}</div><div class="nota" style="text-align:center">${nAud?`${nAud} áudio(s) gravado(s) hoje nesta obra. Pode gravar quantos precisar.`:'Pode gravar quantos áudios precisar.'}</div>`;
   const it=audioDaVez(ob);
   if(it && !gravando){ const src=urlAudio(it);
     if(src) h+=`<audio controls src="${src}" style="width:100%;margin-top:8px"></audio>`;

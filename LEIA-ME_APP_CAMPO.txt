@@ -135,6 +135,12 @@ v1.25.0 (17/10/2026) — recursos do Avenza Pro
   - Importa Shapefile (.zip com .shp/.dbf/.prj): pontos, linhas e polígonos, UTM (SIRGAS/WGS/SAD 69) ou geográficas;
     nome tirado da tabela; vira camada por cima dos mapas (do celular; o Drive ainda não lista .zip).
 
+v1.26.4 (18/10/2026) — ÁUDIOS SEM LIMITE E SEM ERRO QUANDO A TELA APAGA
+- Acabou o limite de 2 áudios por dia por obra: grava quantos precisar.
+- Gravando: a tela fica acesa; se o celular for para o fundo mesmo assim, o que já foi falado é salvo (gravação em pedaços de 1 s).
+- Enviando: a tela fica acesa enquanto a fila sobe. Se apagar no meio, o envio cortado NÃO vira erro: o item volta para a
+  fila e sobe sozinho assim que a tela acender, sem esperar o intervalo de "sem sinal".
+
 v1.26.3 (18/10/2026) — CÂMERA NÃO FICA PRETA AO VOLTAR PARA O APP
 - Sair do app com a câmera aberta fazia o celular cortar a câmera; na volta a tela ficava preta até fechar o app.
   Agora a câmera é solta ao sair (vídeo que estava gravando é encerrado e salvo) e religada sozinha ao voltar.
