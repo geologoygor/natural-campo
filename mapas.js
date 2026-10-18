@@ -708,7 +708,15 @@ async function carregarCamadas() { // KML/GPX da mesma obra aparecem por cima (p
     try { const v = await vetorDe(c.tipo, new Uint8Array(await c.blob.arrayBuffer())); const soPontos = v.feicoes.length > 25 && v.feicoes.every(f => f.tipo === 'ponto'); /* muitos pontos (vértices) e camada pesada (curvas) começam desligadas: ligam no ☰ */
       V.camadas.push({ id: c.id, nome: c.nome, on: desl[c.id] === undefined ? ((c.tamanho || 0) < 600000 && !soPontos) : !desl[c.id], f: projVet(v.feicoes) }); } catch (e) {} }
 }
-function redimensionar() { if (!V.aberto) return; const r = $('#mpvC').getBoundingClientRect(); V.dpr = window.devicePixelRatio || 1; V.cw = r.width; V.ch = r.height; V.cv.width = Math.round(r.width * V.dpr); V.cv.height = Math.round(r.height * V.dpr); V.detalhe = null; pedir(); }
+/* Girar o celular: o 'resize' chega antes de a tela terminar de girar (Android) e a medida vinha velha — o desenho
+   ficava esticado. Agora mede de novo sempre que o tamanho real mudar (ResizeObserver + giro + conferência a cada quadro)
+   e mantém o mesmo ponto do mapa no centro da tela. */
+function redimensionar() { if (!V.aberto) return; const box = $('#mpvC'); if (!box) return; const r = box.getBoundingClientRect(); if (r.width < 2 || r.height < 2) return;
+  const dpr = window.devicePixelRatio || 1, W = Math.round(r.width * dpr), H = Math.round(r.height * dpr);
+  if (V.cv.width === W && V.cv.height === H && V.cw === r.width && V.ch === r.height && V.dpr === dpr) return;
+  if (V.cw && V.ch) { V.tx += (r.width - V.cw) / 2; V.ty += (r.height - V.ch) / 2; }
+  V.dpr = dpr; V.cw = r.width; V.ch = r.height; V.cv.width = W; V.cv.height = H; V.cv.style.width = r.width + 'px'; V.cv.style.height = r.height + 'px'; V.detalhe = null; desenhar(); pedir(); }
+function aoGirar() { redimensionar(); [80, 250, 500, 900].forEach(t => setTimeout(redimensionar, t)); }
 function enquadrar() { const k = Math.min(V.cw / V.W, V.ch / V.H) * .96; V.k = k; V.kmin = k * .4; V.kmax = V.tipo === 'pdf' ? Math.max(k * 80, 12) : Math.max(k * 60, 6 / (V.s0 || 1)); V.tx = (V.cw - V.W * k) / 2; V.ty = (V.ch - V.H * k) / 2; V.detalhe = null; }
 const s2m = (x, y) => [(x - V.tx) / V.k, (y - V.ty) / V.k], m2s = (x, y) => [x * V.k + V.tx, y * V.k + V.ty];
 function zoomEm(f, sx, sy) { const k = Math.max(V.kmin, Math.min(V.kmax, V.k * f)); const m = s2m(sx, sy); V.k = k; V.tx = sx - m[0] * k; V.ty = sy - m[1] * k; pedir(); }
@@ -726,7 +734,7 @@ async function detalhar() { // PDF: refaz a parte da tela em alta definição de
 
 /* ---------------- desenho ---------------- */
 function desenhar() {
-  const c = V.ctx; if (!c) return; ROT = []; c.setTransform(V.dpr, 0, 0, V.dpr, 0, 0); c.fillStyle = V.soVetor ? '#F6F7F2' : '#E9EDF2'; c.fillRect(0, 0, V.cw, V.ch);
+  const c = V.ctx; if (!c) return; { const b = $('#mpvC'); if (b && !V.emRedim && (Math.abs(b.clientWidth - V.cw) > 1 || Math.abs(b.clientHeight - V.ch) > 1)) { V.emRedim = true; try { redimensionar(); } finally { V.emRedim = false; } } } ROT = []; c.setTransform(V.dpr, 0, 0, V.dpr, 0, 0); c.fillStyle = V.soVetor ? '#F6F7F2' : '#E9EDF2'; c.fillRect(0, 0, V.cw, V.ch);
   if (V.base) { c.imageSmoothingEnabled = V.k * V.dpr < V.s0 * 2; c.drawImage(V.base, V.tx, V.ty, V.W * V.k, V.H * V.k); c.imageSmoothingEnabled = true; }
   if (V.detalhe) { const d = V.detalhe, r = V.k / d.k; c.drawImage(d.c, V.tx - r * d.tx, V.ty - r * d.ty, d.c.width / V.dpr * r, d.c.height / V.dpr * r); }
   if (V.soVetor) grade(c);
@@ -842,7 +850,10 @@ function ligarVisual() {
     if (P.size === 1) { const [a] = [...P.values()]; ini = null; mexeu = true; P.set([...P.keys()][0], a); } };
   cv.addEventListener('pointerup', fim); cv.addEventListener('pointercancel', fim);
   cv.addEventListener('wheel', e => { e.preventDefault(); zoomEm(Math.exp(-e.deltaY * .0015), e.offsetX, e.offsetY); }, { passive: false });
-  V.aoRedim = () => redimensionar(); window.addEventListener('resize', V.aoRedim);
+  V.aoRedim = () => aoGirar(); window.addEventListener('resize', V.aoRedim); window.addEventListener('orientationchange', V.aoRedim);
+  try { screen.orientation && screen.orientation.addEventListener('change', V.aoRedim); } catch (e) {}
+  try { window.visualViewport && window.visualViewport.addEventListener('resize', V.aoRedim); } catch (e) {}
+  try { if (window.ResizeObserver) { V.ro = new ResizeObserver(() => redimensionar()); V.ro.observe($('#mpvC')); } } catch (e) {}
   $('#mpvVolta').onclick = () => fecharVisual(); $('#mpvMais').onclick = () => sheetMais();
   $('#mpvEu').onclick = () => { if (!V.pos) return toast('Ainda sem GPS. Vá para céu aberto e espere alguns segundos.'); if (!V.geo) return toast('Este mapa não tem georreferência.'); V.seguir = !V.seguir; $('#mpvEu').classList.toggle('on', V.seguir);
     if (V.seguir) { if (V.k * V.geo.pxm < .15) V.k = Math.min(V.kmax, .6 / V.geo.pxm); V.detalhe = null; centrarEm(V.pos); toast('Seguindo você. Arraste o mapa para parar.'); } };
@@ -1210,7 +1221,8 @@ function fecharVisual(trocando) {
   if (V.medir && !trocando) sairMedir(false);
   try { navigator.geolocation.clearWatch(V.watch); } catch (e) {} clearInterval(V.reserva); if (V.tarefa) try { V.tarefa.cancel(); } catch (e) {}
   if (V.bussolaOn) { window.removeEventListener('deviceorientationabsolute', ouvirB, true); window.removeEventListener('deviceorientation', ouvirB, true); }
-  window.removeEventListener('resize', V.aoRedim); if (V.doc) try { V.doc.destroy(); } catch (e) {}
+  window.removeEventListener('resize', V.aoRedim); window.removeEventListener('orientationchange', V.aoRedim);
+  try { screen.orientation && screen.orientation.removeEventListener('change', V.aoRedim); } catch (e) {} try { window.visualViewport && window.visualViewport.removeEventListener('resize', V.aoRedim); } catch (e) {} try { V.ro && V.ro.disconnect(); V.ro = null; } catch (e) {} if (V.doc) try { V.doc.destroy(); } catch (e) {}
   V.el && V.el.remove(); const tr = V.trilha, wk = V.wake; Object.keys(V).forEach(k => delete V[k]); V.aberto = false; if (trocando && tr) { V.trilha = tr; V.wake = wk; }
   if (!trocando && ob) { enviarMarcas(ob, true); if (OB_ATUAL && OB_ATUAL.id === ob.id) pintarLista(ob); }
   return true;
