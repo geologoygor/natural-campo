@@ -710,9 +710,13 @@ function trRumo(f){ const d=f.dados; if(f.tipo==='geof_cam'){ const c=conferirLi
 function trAlvos(f){
   const d=f.dados, out=[];
   if(f.tipo==='geof_cam'){ const g=geoDe(d);
-    for(let s=0;s<=g.L+1e-6;s+=g.a) out.push({ id:'e'+s, rot: s===0?'Estaca 0':(Math.abs(s-g.L)<1e-6?`Estaca ${fmtN(s)} (final)`:`Estaca ${fmtN(s)}`), s, campo: s===0?'c_ini':(Math.abs(s-g.L)<1e-6?'c_fim':null) });
+    /* padrão da Natural: estacas medidas com TRENA; o GPS loca as duas pontas (dão o rumo) e os INFINITOS.
+       Estacas intermediárias pelo GPS só como último caso (botão escondido). */
+    out.push({ id:'e0', rot:'Estaca 0', s:0, campo:'c_ini' });
+    out.push({ id:'e'+g.L, rot:`Estaca ${fmtN(g.L)} (final)`, s:g.L, campo:'c_fim' });
     out.push({ id:'N', rot:`Infinito N (${fmtN(g.L+g.rem)} m)`, s:g.L+g.rem, campo:'c_n', rem:true });
     out.push({ id:'B', rot:`Infinito B (−${fmtN(g.rem)} m)`, s:-g.rem, campo:'c_b', rem:true });
+    if(d._trEstacas) for(let s=g.a;s<g.L-1e-6;s+=g.a) out.push({ id:'e'+s, rot:`Estaca ${fmtN(s)}`, s, inter:true });
   } else {
     const vs=[...new Set(SEV_PARES.map(p=>p[0]).filter(v=>v>=10))];
     out.push({ id:'c', rot:'Centro', s:0, campo:'c_centro' });
@@ -803,9 +807,10 @@ function trPintar(tudo){
       ${trBotao('cravar', TR.marcando?'Marcando… fique parado 4 s':`📌 Cravei ${esc(a.rot)} aqui — gravar`, chegou?'#00A651':'#2B4C7E')}
       <div style="margin-top:16px;font-weight:700">Para onde ir</div>
       <div id="trChips" style="display:flex;gap:8px;overflow-x:auto;padding:8px 0">${chips}</div>
+      ${f.tipo==='geof_cam'?`<button data-tr="inter" style="background:none;border:0;color:#93C5FD;font:600 14px system-ui;text-decoration:underline;padding:4px 0">${d._trEstacas?'Esconder as estacas intermediárias':'Estacas intermediárias pelo GPS (só em último caso — o padrão é trena)'}</button>`:''}
       <div style="display:flex;gap:8px;align-items:center;margin-top:4px"><span style="flex:1;opacity:.85">Outra distância (m, negativo = para trás):</span><input id="trLivreIn" inputmode="decimal" value="${esc(d._trLivre||'')}" placeholder="ex.: 250" style="width:100px;font-size:18px;padding:10px;border-radius:10px;border:0"></div>
       <div style="margin-top:16px;font-weight:700">Rumo da linha ${rumo!=null?`: <span style="color:#22C55E">${Math.round(rumo)}°</span>`:'<span style="color:#FBBF24">: ainda não fixado</span>'}</div>
-      <div style="opacity:.8;font-size:14px;margin-top:4px">${f.tipo==='geof_cam'&&d.c_fim?'Calculado pelas duas pontas da linha (estaca 0 e estaca final).':'Ande uns 20 m na direção da linha e toque em "usar a direção que andei", ou digite o rumo da bússola.'}</div>
+      <div style="opacity:.8;font-size:14px;margin-top:4px">${f.tipo==='geof_cam'&&d.c_fim?'Calculado pelas duas pontas da linha (estaca 0 e estaca final).':(f.tipo==='geof_cam'?'Vá até a estaca final (já medida com trena), escolha "Estaca final" e toque em Cravei: o rumo sai das duas pontas. Ou use a direção que andou, ou digite o rumo da bússola.':'Ande uns 20 m na direção da abertura e toque em "usar a direção que andei", ou digite o rumo da bússola.')}</div>
       ${f.tipo==='geof_cam'&&d.c_fim?'':`<div style="display:flex;gap:8px;margin-top:8px"><button data-tr="rumoAndei" ${podeRumo?'':'disabled'} style="flex:1;min-height:50px;border:0;border-radius:12px;font:700 15px system-ui;background:${podeRumo?'#2B4C7E':'#33415580'};color:#fff">↗ Usar a direção que andei${podeRumo?'':' (ande 15 m)'}</button><input id="trRumoIn" inputmode="decimal" placeholder="graus" value="${d.azim!=null&&d.azim!==''?esc(d.azim):''}" style="width:90px;font-size:18px;padding:10px;border-radius:10px;border:0"></div>`}
       <button data-tr="refazOrigem" style="margin-top:14px;background:none;border:0;color:#93C5FD;font:600 14px system-ui;text-decoration:underline">Marcar a origem de novo</button>`;
   }
@@ -829,6 +834,7 @@ async function trClique(e){
   const b=e.target.closest('[data-tr],[data-tralvo]'); if(!b||!TR.f) return; const f=TR.f, d=f.dados;
   if(b.dataset.tralvo){ TR.alvo=b.dataset.tralvo; TR.avisou=null; trBip(false); trPintar(true); return; }
   const a=b.dataset.tr;
+  if(a==='inter'){ d._trEstacas=!d._trEstacas; gravar(f); if(d._trEstacas) toast('Estacas pelo GPS: confira o erro do GPS no selo lá em cima. Com ±3 m, numa estaca de '+geoDe(d).a+' m, o erro já pesa.',5000); trPintar(true); return; }
   if(a==='fechar'){ if(history.state&&history.state.t==='zoom') history.back(); else fecharTrena(); return; }
   if(TR.marcando) return;
   if(a==='origem' || a==='refazOrigem'){
@@ -854,8 +860,8 @@ async function trClique(e){
 }
 function cartaoTrena(f){
   const d=f.dados, n=Object.keys(d.locacao||{}).length;
-  return `<div class="card" style="border-left:5px solid #0B1730"><h2>📏 Trena GPS — locar ${f.tipo==='geof_sev'?'a abertura':'a linha'} andando</h2>
-    <div class="nota">${f.tipo==='geof_sev'?'Marque o centro e vá andando: a tela mostra a distância e apita em cada AB/2 (de 10 m para cima).':'Marque a estaca 0 e vá andando: a tela mostra quanto andou, quanto falta para a próxima estaca, se você saiu da linha, e apita ao chegar. Depois projeta os infinitos (N e B) ou qualquer distância que você digitar.'}</div>
+  return `<div class="card" style="border-left:5px solid #0B1730"><h2>📏 Trena GPS — ${f.tipo==='geof_sev'?'locar a abertura andando':'locar os infinitos andando'}</h2>
+    <div class="nota">${f.tipo==='geof_sev'?'Marque o centro e vá andando: a tela mostra a distância e apita em cada AB/2 (de 10 m para cima).':'As estacas da linha são medidas com a trena. Depois, marque a estaca 0 e a estaca final no GPS (dão o rumo) e a trena GPS leva você até os infinitos N e B no prolongamento da linha: mostra quanto falta, se saiu da linha para o lado, e apita ao chegar. Também vai para qualquer distância que você digitar.'}</div>
     <button class="big green" id="trAbrir" style="margin-top:8px">📏 Abrir a trena GPS</button>${n?`<div class="mini" style="margin-top:6px">${n} ponto(s) já cravado(s) com o GPS.</div>`:''}</div>`;
 }
 /* ---------- caminhamento: espaçamento e infinitos, escolhidos ANTES da primeira leitura ---------- */

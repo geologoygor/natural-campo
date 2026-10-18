@@ -135,6 +135,11 @@ v1.25.0 (17/10/2026) — recursos do Avenza Pro
   - Importa Shapefile (.zip com .shp/.dbf/.prj): pontos, linhas e polígonos, UTM (SIRGAS/WGS/SAD 69) ou geográficas;
     nome tirado da tabela; vira camada por cima dos mapas (do celular; o Drive ainda não lista .zip).
 
+v1.26.1 (17/10/2026) — TRENA GPS: padrão da Natural
+- Estacas da linha são medidas com TRENA (padrão). A trena GPS do caminhamento vai direto para: Estaca 0 → Estaca final
+  (as duas pontas dão o rumo) → Infinito N → Infinito B. Estacas intermediárias pelo GPS ficam escondidas num botão
+  "só em último caso".
+
 v1.26.0 (17/10/2026) — TRENA GPS NA GEOFÍSICA (locar a linha sem trena)
 - Ficha de caminhamento e de SEV: cartão "📏 Trena GPS" abre uma tela cheia, de números grandes, para usar andando.
 - Marca a origem (estaca 0 ou centro da SEV) com média de 4 s do GPS; depois mostra quanto andou, quanto falta para a
