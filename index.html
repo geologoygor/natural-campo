@@ -260,16 +260,16 @@ button.mini{padding:8px 12px;font-size:14px;margin-top:6px}
 <div class="toast" id="toast"></div>
 <canvas id="cv" class="hide"></canvas>
 
-<script src="geofisica.js?v=1.26.5"></script>
-<script src="fichas.js?v=1.26.5"></script>
-<script src="mapas.js?v=1.26.5"></script>
+<script src="geofisica.js?v=1.26.6"></script>
+<script src="fichas.js?v=1.26.6"></script>
+<script src="mapas.js?v=1.26.6"></script>
 <script>
 /* ============================================================
    CAMPO · Natural Engenharia — app de campo (PWA)
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.26.5';
+const APP_VERSAO = '1.26.6';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -758,7 +758,7 @@ async function abrirCamera(slot, titulo){
 async function ligarStream(){
   if(CAM.stream) CAM.stream.getTracks().forEach(t=>t.stop());
   const alvo = CAM.modo==='video' ? {facingMode:{ideal:CAM.facing}, width:{ideal:1280}, height:{ideal:720}}
-                                  : {facingMode:{ideal:CAM.facing}, width:{ideal:4096}, height:{ideal:3072}, frameRate:{ideal:15}};
+                                  : {facingMode:{ideal:CAM.facing}, width:{ideal:4096}, height:{ideal:3072}, frameRate:{ideal:30}};
   CAM.stream=await navigator.mediaDevices.getUserMedia({video:alvo, audio:false});
   const tr=CAM.stream.getVideoTracks()[0];
   if(CAM.modo!=='video'){ // iPhone costuma entregar menos do que pediram: pede o máximo que o aparelho diz ter
@@ -782,15 +782,25 @@ window.addEventListener('pageshow',()=>{ if($('#cam').classList.contains('on')){
 function mostrarResolucao(){ /* a câmera abre sempre na resolução máxima; nada é mostrado na tela */ }
 function abrirCamHist(){ try{ history.pushState({t:'cam'},''); }catch(e){} }
 function fecharCamera(){ if(CAM.rec) pararGravacao(); if(window.MAPAS&&MAPAS.camFechou&&CAM.extra&&CAM.extra.pino){ const pid=CAM.extra.pino; setTimeout(()=>MAPAS.camFechou(pid),50); } CAM.extra=null; CAM.slotTitulo=null; modoCamera('foto'); $('#cam').classList.remove('on'); if(CAM.stream){ CAM.stream.getTracks().forEach(t=>t.stop()); CAM.stream=null; } }
+/* v1.26.5: captura NA HORA do toque. Antes usava ImageCapture.takePhoto(): no Android ele para a pré-visualização,
+   reconfigura a câmera e refaz foco/exposição antes de capturar — vários segundos com o celular parado, senão a foto
+   saía tremida. Agora o app copia o quadro que está na tela no instante do toque (a câmera já roda na resolução máxima)
+   e o carimbo/coordenada/gravação seguem depois, em fila, sem prender a pessoa. Pode mexer o celular logo após o clique. */
 async function fotografar(){
   const track=CAM.stream?.getVideoTracks()[0]; if(!track) return;
+  const v=$('#video'); if(!v.videoWidth){ toast('A câmera ainda está abrindo. Tente de novo.'); return; }
+  const oc=document.createElement('canvas'); oc.width=v.videoWidth; oc.height=v.videoHeight;
+  oc.getContext('2d').drawImage(v,0,0);   /* o retrato é este: o quadro do instante do toque */
   const fl=$('#flash'); fl.style.opacity=.8; setTimeout(()=>fl.style.opacity=0,120);
-  let blob=null;
-  if(window.ImageCapture){ try{ blob=await new ImageCapture(track).takePhoto(); }catch(e){ blob=null; } }
-  if(!blob){ const v=$('#video'); const oc=document.createElement('canvas'); oc.width=v.videoWidth; oc.height=v.videoHeight; oc.getContext('2d').drawImage(v,0,0); blob=await new Promise(ok=>oc.toBlob(ok,'image/jpeg',0.95)); }
+  try{ navigator.vibrate&&navigator.vibrate(40); }catch(_){}
   const slot=$('#camSlot').value; const st=(slot===CAM.slot&&CAM.slotTitulo)?{t:CAM.slotTitulo}:(slotsDaObra().find(s=>s.k===slot)||{t:slot});
-  await enfileirarFoto(blob,{slot, slotTitulo:st.t, fonte:'camera', extra:(slot===CAM.slot?CAM.extra:null)||null});
-  toast('Foto '+st.t+' guardada'); pintarTiras();
+  const extra=(slot===CAM.slot?CAM.extra:null)||null;
+  toast('📸 Capturada — pode mexer o celular',1500);
+  CAM.proc=(CAM.proc||Promise.resolve()).then(async()=>{
+    const blob=await new Promise(ok=>oc.toBlob(ok,'image/jpeg',0.95)); oc.width=oc.height=0;
+    await enfileirarFoto(blob,{slot, slotTitulo:st.t, fonte:'camera', extra});
+    toast('Foto '+st.t+' guardada ✓'); pintarTiras();
+  }).catch(e=>toast('Não consegui guardar a foto: '+(e&&e.message||e)+'. Tire de novo.',5000));
 }
 /* ---------------- Vídeo (câmera do app e galeria) ----------------
    Gravado pelo app: 720p, carimbo de coordenada/data/obra na própria imagem, até 90 s (~15 MB).
