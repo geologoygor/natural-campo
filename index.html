@@ -260,16 +260,16 @@ button.mini{padding:8px 12px;font-size:14px;margin-top:6px}
 <div class="toast" id="toast"></div>
 <canvas id="cv" class="hide"></canvas>
 
-<script src="geofisica.js?v=1.26.6"></script>
-<script src="fichas.js?v=1.26.6"></script>
-<script src="mapas.js?v=1.26.6"></script>
+<script src="geofisica.js?v=1.26.7"></script>
+<script src="fichas.js?v=1.26.7"></script>
+<script src="mapas.js?v=1.26.7"></script>
 <script>
 /* ============================================================
    CAMPO · Natural Engenharia — app de campo (PWA)
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.26.6';
+const APP_VERSAO = '1.26.7';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -1094,8 +1094,8 @@ function ligarAvanco(ob){
     const pres=Object.keys(r.pres); const eqs=((S.pacote&&S.pacote.equipe)||[]);
     const itens=et.filter(e=>r.it[e.id]!=null && +r.it[e.id]!==pctAtual(ob,e)).map(e=>({id:e.id, desc:String(e.desc||'').slice(0,120), antes:pctAtual(ob,e), agora:+r.it[e.id]}));
     if(sem){ if(!r.sem) return toast('Escolha o motivo de não ter tido serviço.',3500); }
-    else { if(!pres.length) return toast('Marque quem trabalhou hoje (pelo menos você).',3500);
-      if(!itens.length && !(r.txt||'').trim()) { if(et.length) { if(!confirm('Nenhum item andou hoje e nada foi escrito. Enviar assim mesmo?')) return; } else return toast('Escreva o que foi feito hoje.',3500); } }
+    /* v1.26.7: sem trava nem confirmação — manda como estiver (regra 17/10/2026). Sem ninguém marcado, vai quem está no aparelho. */
+    else if(!pres.length && S.quemId) pres.push(S.quemId);
     const em=new Date().toISOString();
     const reg={ tipo:'rdo_dia', obraId:ob.id, obra:ob.nome, data:hoje(), em, quem:S.quem, quemId:S.quemId||'', presentes:sem?[]:pres.map(id=>({id, nome:(eqs.find(f=>f.id===id)||{}).nome||id})),
       clima:r.clima||'', itens:sem?[]:itens, texto:sem?'':(r.txt||'').trim(), travou:(r.travou||'').trim(), semServico:sem?r.sem:'', correcao:!!r.enviadoEm, app:APP_VERSAO };
@@ -1409,9 +1409,10 @@ function ligarRoteiro(ob){
   $('#obsDia').oninput=e=>LS.set('obs_'+ob.id+'_'+hoje(),e.target.value);
   $('#fecharDia').onclick=async()=>{ const chk=checklistDaObra(ob); const est=estadoChk(ob); const obs=$('#obsDia').value.trim();
     const falta=chk.filter(c=>!c.ok).map(c=>c.t);
-    if(falta.length && !confirm(`REGISTRO DO DIA INCOMPLETO\n\nAinda não marcado:\n• ${falta.join('\n• ')}\n\nO escritório recebe o registro avisando que saiu incompleto. Enviar assim mesmo?`)) return;
+    /* v1.26.7: enviar NUNCA pede confirmação (regra 17/10/2026: "mandar dados precisa ser fácil sempre").
+       O que faltou vai marcado no registro (incompleto/pendentes) e o escritório vê lá. */
     await enfileirarRegistro({ tipo:'dia', incompleto:falta.length>0, obraId:ob.id, obra:ob.nome, quem:S.quem, data:new Date().toISOString(), coordenada:posFresca(5*60000), feitos:chk.filter(c=>c.ok).map(c=>c.t), pendentes:chk.filter(c=>!c.ok).map(c=>c.t), fotos:fotosDaObra(ob).length, obs, app:APP_VERSAO }, `${agoraArq()}_registro_do_dia_${slug(S.quem)}.json`);
-    toast('Registro do dia na fila'); };
+    toast(falta.length?`Registro do dia na fila (foi avisando: faltou ${falta.length} item${falta.length>1?'s':''})`:'Registro do dia na fila',3500); };
   ligarDesmob(ob);
 }
 function cartaoMarcos(ob){
