@@ -269,7 +269,7 @@ button.mini{padding:8px 12px;font-size:14px;margin-top:6px}
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.27.1';
+const APP_VERSAO = '1.27.2';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -414,7 +414,7 @@ function pintarFila(){
   const outras = S.obraId ? S.fila.filter(x=>x.obraId && x.obraId!==S.obraId && naFila(x)).length : 0;
   const hojeEnv=daObra.filter(x=>x.status==='enviado' && (x.enviadoEm||'').slice(0,10)===hoje()).length;
   const t=$('#filaTxt'), b=$('#filaBtn');
-  if(S.enviando){ const P=S.prog, pc=P&&P.total? Math.min(99,Math.floor(100*(P.feito+P.atual)/P.total)) : 0;
+  if(S.enviando){ const P=S.prog, at=progEstimado(), pc=P&&P.total? Math.min(99,Math.floor(100*(P.feito+at)/P.total)) : 0; if(P&&P.tamIt) P.itemPct=Math.min(99,Math.floor(100*at/P.tamIt));
     t.innerHTML=`<b>Enviando… ${pc}%</b>${P&&P.n?` · arquivo ${Math.min(P.i+1,P.n)} de ${P.n}${P.itemPct!=null?` (este: ${P.itemPct}%)`:''}`:''}`+
       `<div style="height:8px;background:#E8ECF1;border-radius:4px;margin-top:6px;overflow:hidden"><div style="height:8px;width:${pc}%;background:var(--green-2,#1E8E3E);transition:width .4s"></div></div>`;
     b.disabled=true; return; }
@@ -723,25 +723,37 @@ window.addEventListener('online',()=>{ redeOk(); setTimeout(()=>enviarFila(),150
      "com erro" para sempre. */
 const PARTE_BYTES = 3*512*1024;   /* 1,5 MB — múltiplo de 3: as partes em base64 se juntam direto no robô */
 function corpoEnvio(it, extra){ return Object.assign({ token:S.cfg.token, acao:'enviar', id:it.id, obraId:it.obraId, obraNome:it.obraNome, pastaId:it.pastaId, quem:it.quem, tipo:it.tipo, slot:it.slot, slotTitulo:it.slotTitulo, nome:it.nome, mime:it.mime, meta:it.meta, criadoEm:it.criadoEm }, extra); }
-async function postRobo(corpo, ms){
-  const ac=new AbortController(), lim=setTimeout(()=>ac.abort(), ms);
+/* v1.27.2: a porcentagem anda de 1 em 1. O navegador não informa quanto de um pedido já subiu, então durante cada pedido
+   o app ESTIMA pelo ritmo medido nos pedidos anteriores (nunca passa de 95% do pedido) e corrige para o valor real
+   quando o robô confirma. Assim não fica parado e depois pula. */
+S.vel = S.vel || 250e3;   /* bytes/s; começa com um palpite e aprende com cada pedido */
+async function postRobo(corpo, ms, bytes){
+  const ac=new AbortController(), lim=setTimeout(()=>ac.abort(), ms), t0=Date.now();
+  if(S.prog){ S.prog.reqIni=t0; S.prog.reqBytes=bytes||0; S.prog.reqBase=S.prog.atual; }
   try{ const r=await fetch(S.cfg.script,{method:'POST',body:JSON.stringify(corpo),signal:ac.signal});
-    const j=await r.json().catch(()=>({ok:false,erro:'resposta inválida',cortada:true})); return { r, j }; }
-  finally{ clearTimeout(lim); } }
+    const j=await r.json().catch(()=>({ok:false,erro:'resposta inválida',cortada:true}));
+    if(j.ok && bytes>2e5){ const v=bytes/Math.max(0.3,(Date.now()-t0)/1000); S.vel=0.6*S.vel+0.4*v; }
+    return { r, j }; }
+  finally{ clearTimeout(lim); if(S.prog) S.prog.reqIni=0; } }
+function progEstimado(){ const P=S.prog; if(!P) return 0; let a=P.atual;
+  if(P.reqIni && P.reqBytes){ const est=P.reqBase + Math.min(0.95*P.reqBytes, (Date.now()-P.reqIni)/1000*S.vel); if(est>a) a=est; }
+  return a; }
+setInterval(()=>{ if(S.enviando && S.prog && S.prog.reqIni) pintarFila(); }, 400);
 async function enviarItem(it){
   const tam=it.blob.size;
-  if(tam<=PARTE_BYTES || S.semPartes) return postRobo(corpoEnvio(it,{b64:await b64(it.blob)}), 60000 + 15000*(tam/1e6));
+  if(tam<=PARTE_BYTES || S.semPartes) return postRobo(corpoEnvio(it,{b64:await b64(it.blob)}), 60000 + 15000*(tam/1e6), tam);
   const total=Math.ceil(tam/PARTE_BYTES); let n=Math.min(it.partesOk||0, total-1), voltas=0, res=null;
-  if(S.prog){ S.prog.atual=n*PARTE_BYTES; S.prog.itemPct=Math.floor(100*n/total); pintarFila(); }
+  if(S.prog){ S.prog.atual=n*PARTE_BYTES; pintarFila(); }
   while(n<total && voltas++<total*3){
-    const b=await b64(it.blob.slice(n*PARTE_BYTES, Math.min(tam,(n+1)*PARTE_BYTES)));
-    res=await postRobo(corpoEnvio(it,{acao:'parte', n, total, b64:b}), 90000);
+    const ini=n*PARTE_BYTES, fim=Math.min(tam,(n+1)*PARTE_BYTES); const b=await b64(it.blob.slice(ini, fim));
+    if(S.prog) S.prog.atual=ini;
+    res=await postRobo(corpoEnvio(it,{acao:'parte', n, total, b64:b}), 90000, fim-ini);
     const j=res.j;
-    if(!j.ok && n===0 && /faltou arquivo/i.test(j.erro||'')){ S.semPartes=true; return postRobo(corpoEnvio(it,{b64:await b64(it.blob)}), 60000 + 15000*(tam/1e6)); }   /* robô ainda sem partes */
+    if(!j.ok && n===0 && /faltou arquivo/i.test(j.erro||'')){ S.semPartes=true; return postRobo(corpoEnvio(it,{b64:await b64(it.blob)}), 60000 + 15000*(tam/1e6), tam); }   /* robô ainda sem partes */
     if(!j.ok && Array.isArray(j.faltam) && j.faltam.length){ n=j.faltam[0]; it.partesOk=n; await DB.put(it); continue; }   /* uma parte se perdeu: reenvia a partir dela */
     if(!j.ok) return res;
     if(n<total-1){ it.partesOk=n+1; it.partesTotal=total; await DB.put(it); }
-    if(S.prog){ S.prog.atual=Math.min(tam,(n+1)*PARTE_BYTES); S.prog.itemPct=Math.floor(100*S.prog.atual/tam); } pintarFila();
+    if(S.prog){ S.prog.atual=Math.min(tam,(n+1)*PARTE_BYTES); } pintarFila();
     n++;
   }
   return res; }
@@ -756,7 +768,7 @@ async function enviarFila(forcar){
     /* v1.27.1: porcentagem do envio na barra (pedido do Ygor 04/11/2026: saber se a coisa está acontecendo) */
     S.prog={ total:fila.reduce((t,x)=>t+((x.blob&&x.blob.size)||0),0), feito:0, atual:0, n:fila.length, i:0, itemPct:null }; pintarFila();
     for(const it of fila){
-      const tamIt=(it.blob&&it.blob.size)||0; S.prog.atual=0; S.prog.itemPct=tamIt>PARTE_BYTES?0:null; pintarFila();
+      const tamIt=(it.blob&&it.blob.size)||0; S.prog.atual=0; S.prog.tamIt=tamIt; S.prog.itemPct=tamIt>4e5?0:null; pintarFila();
       if(!it.blob || !it.blob.size){ it.status='perdido'; it.erro='o arquivo sumiu da memória do celular antes de subir (nada a enviar)'; it.erroEm=new Date().toISOString(); await DB.put(it); S.prog.i++; continue; }
       const grande = it.blob.size > 5e6;
       try{
