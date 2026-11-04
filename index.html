@@ -269,7 +269,7 @@ button.mini{padding:8px 12px;font-size:14px;margin-top:6px}
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.27.0';
+const APP_VERSAO = '1.27.1';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -414,7 +414,10 @@ function pintarFila(){
   const outras = S.obraId ? S.fila.filter(x=>x.obraId && x.obraId!==S.obraId && naFila(x)).length : 0;
   const hojeEnv=daObra.filter(x=>x.status==='enviado' && (x.enviadoEm||'').slice(0,10)===hoje()).length;
   const t=$('#filaTxt'), b=$('#filaBtn');
-  if(S.enviando){ t.innerHTML=`<b>Enviando…</b> ${pend.length} na fila`; b.disabled=true; return; }
+  if(S.enviando){ const P=S.prog, pc=P&&P.total? Math.min(99,Math.floor(100*(P.feito+P.atual)/P.total)) : 0;
+    t.innerHTML=`<b>Enviando… ${pc}%</b>${P&&P.n?` · arquivo ${Math.min(P.i+1,P.n)} de ${P.n}${P.itemPct!=null?` (este: ${P.itemPct}%)`:''}`:''}`+
+      `<div style="height:8px;background:#E8ECF1;border-radius:4px;margin-top:6px;overflow:hidden"><div style="height:8px;width:${pc}%;background:var(--green-2,#1E8E3E);transition:width .4s"></div></div>`;
+    b.disabled=true; return; }
   // v1.16.0: ficha aberta com dado novo também conta — o botão manda como PARCIAL, sem exigir critério nenhum
   let parc=0; try{ if(window.FICHAS_PARCIAIS) parc=window.FICHAS_PARCIAIS.pendentes(S.obraId||null); }catch(e){}
   b.disabled = false; /* v1.22.0: SEMPRE ativo — mandar dado tem que ser fácil; sem pendência, o toque só confirma que está tudo no Drive */
@@ -729,6 +732,7 @@ async function enviarItem(it){
   const tam=it.blob.size;
   if(tam<=PARTE_BYTES || S.semPartes) return postRobo(corpoEnvio(it,{b64:await b64(it.blob)}), 60000 + 15000*(tam/1e6));
   const total=Math.ceil(tam/PARTE_BYTES); let n=Math.min(it.partesOk||0, total-1), voltas=0, res=null;
+  if(S.prog){ S.prog.atual=n*PARTE_BYTES; S.prog.itemPct=Math.floor(100*n/total); pintarFila(); }
   while(n<total && voltas++<total*3){
     const b=await b64(it.blob.slice(n*PARTE_BYTES, Math.min(tam,(n+1)*PARTE_BYTES)));
     res=await postRobo(corpoEnvio(it,{acao:'parte', n, total, b64:b}), 90000);
@@ -736,7 +740,8 @@ async function enviarItem(it){
     if(!j.ok && n===0 && /faltou arquivo/i.test(j.erro||'')){ S.semPartes=true; return postRobo(corpoEnvio(it,{b64:await b64(it.blob)}), 60000 + 15000*(tam/1e6)); }   /* robô ainda sem partes */
     if(!j.ok && Array.isArray(j.faltam) && j.faltam.length){ n=j.faltam[0]; it.partesOk=n; await DB.put(it); continue; }   /* uma parte se perdeu: reenvia a partir dela */
     if(!j.ok) return res;
-    if(n<total-1){ it.partesOk=n+1; it.partesTotal=total; await DB.put(it); pintarFila(); }
+    if(n<total-1){ it.partesOk=n+1; it.partesTotal=total; await DB.put(it); }
+    if(S.prog){ S.prog.atual=Math.min(tam,(n+1)*PARTE_BYTES); S.prog.itemPct=Math.floor(100*S.prog.atual/tam); } pintarFila();
     n++;
   }
   return res; }
@@ -748,8 +753,11 @@ async function enviarFila(forcar){
   try{
     const peso=x=>((x.meta&&x.meta.original)?1e12:0)+((x.blob&&x.blob.size)||0);   /* carimbada primeiro, original por último */
     const fila=S.fila.filter(x=>x.status==='pendente'||x.status==='erro').sort((a,b)=>peso(a)-peso(b));
+    /* v1.27.1: porcentagem do envio na barra (pedido do Ygor 04/11/2026: saber se a coisa está acontecendo) */
+    S.prog={ total:fila.reduce((t,x)=>t+((x.blob&&x.blob.size)||0),0), feito:0, atual:0, n:fila.length, i:0, itemPct:null }; pintarFila();
     for(const it of fila){
-      if(!it.blob || !it.blob.size){ it.status='perdido'; it.erro='o arquivo sumiu da memória do celular antes de subir (nada a enviar)'; it.erroEm=new Date().toISOString(); await DB.put(it); continue; }
+      const tamIt=(it.blob&&it.blob.size)||0; S.prog.atual=0; S.prog.itemPct=tamIt>PARTE_BYTES?0:null; pintarFila();
+      if(!it.blob || !it.blob.size){ it.status='perdido'; it.erro='o arquivo sumiu da memória do celular antes de subir (nada a enviar)'; it.erroEm=new Date().toISOString(); await DB.put(it); S.prog.i++; continue; }
       const grande = it.blob.size > 5e6;
       try{
         const { r, j } = await enviarItem(it);
@@ -764,12 +772,12 @@ async function enviarFila(forcar){
         else { it.status='erro'; it.erro=j.erro||('HTTP '+r.status); it.erroEm=new Date().toISOString(); }
       }catch(e){ if(document.visibilityState==='hidden'){ it.status='pendente'; it.erro=null; await DB.put(it); S.falhaOculta=true; break; }   /* tela apagou no meio do envio: manda de novo ao voltar, da parte onde parou */
         if(e instanceof TypeError || e.name==='AbortError' || !navigator.onLine){ it.status='pendente'; it.erro=null; await DB.put(it); if(!grande) falhaDeRede();
-          if(grande && navigator.onLine) continue;   /* arquivo grande caiu no sinal fraco: os pequenos de trás ainda tentam */
+          if(grande && navigator.onLine){ S.prog.total-=tamIt; S.prog.atual=0; S.prog.i++; pintarFila(); continue; }   /* arquivo grande caiu no sinal fraco: os pequenos de trás ainda tentam */
           break; } it.status='erro'; it.erro=String(e.message||e); it.erroEm=new Date().toISOString(); }
-      await DB.put(it); pintarFila();
+      await DB.put(it); S.prog.feito+=tamIt; S.prog.atual=0; S.prog.i++; pintarFila();
       if(it.status==='erro' && !navigator.onLine) break;
     }
-  } finally { try{ telaAcesa&&telaAcesa.release(); }catch(_){} S.enviando=false; await recarregarFila(); setTimeout(relatarEstado, 1500); try{ if(window.FICHAS && FICHAS.aliviarMemoria) FICHAS.aliviarMemoria(); }catch(e){} if(!(window.FICHAS && FICHAS.aberta())) render(); }
+  } finally { try{ telaAcesa&&telaAcesa.release(); }catch(_){} S.enviando=false; S.prog=null; await recarregarFila(); setTimeout(relatarEstado, 1500); try{ if(window.FICHAS && FICHAS.aliviarMemoria) FICHAS.aliviarMemoria(); }catch(e){} if(!(window.FICHAS && FICHAS.aberta())) render(); }
 }
 async function baixarPacote(silencioso){
   if(!S.cfg.script){ if(!silencioso) toast('Configure a URL do robô em Ajustes'); return false; }
