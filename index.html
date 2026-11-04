@@ -269,7 +269,7 @@ button.mini{padding:8px 12px;font-size:14px;margin-top:6px}
    Fonte da verdade: painel (via campo.json exportado). O app só lê.
    Envio: Apps Script (Robô de Campo) grava em 03_CAMPO da obra.
    ============================================================ */
-const APP_VERSAO = '1.26.7';
+const APP_VERSAO = '1.27.0';
 const CFG_PADRAO = {
   script: 'https://script.google.com/macros/s/AKfycbx2mpnzRDmODfpWl3qX_fLr80RYK09kOIikrvhDUxU0vBzJC3RvL6ol93gADXptqkVF/exec', // Robô de Campo (Apps Script). Pode ser ajustada em Ajustes.
   token: 'natural-campo-2026',
@@ -710,29 +710,61 @@ const ESPERAS_REDE=[30e3,60e3,120e3,300e3,600e3];
 function falhaDeRede(){ S.falhasRede=(S.falhasRede||0)+1; S.semRedeAte=Date.now()+ESPERAS_REDE[Math.min(S.falhasRede-1,ESPERAS_REDE.length-1)]; clearTimeout(S.tRede); S.tRede=setTimeout(()=>enviarFila(),S.semRedeAte-Date.now()+500); }
 function redeOk(){ S.falhasRede=0; S.semRedeAte=0; clearTimeout(S.tRede); }
 window.addEventListener('online',()=>{ redeOk(); setTimeout(()=>enviarFila(),1500); });
+/* v1.27.0 (04/11/2026): ENVIO QUE NÃO TRAVA.
+   - arquivo acima de 1,5 MB sobe em PARTES (acao=parte): cada pedido é pequeno, passa em sinal fraco, e o progresso
+     fica guardado — se cair, a tela apagar ou o app fechar, continua da parte onde parou (não recomeça do zero);
+   - robô antigo (sem partes) responde "faltou arquivo" na 1ª parte: o app volta sozinho ao envio inteiro;
+   - "robô ocupado" e resposta cortada NÃO viram erro: o item volta para a fila e tenta de novo sozinho;
+   - foto carimbada sobe antes da original (a original, pesada, vai por último);
+   - item sem arquivo dentro (memória do celular apagada pelo sistema) sai da fila com aviso claro, em vez de ficar
+     "com erro" para sempre. */
+const PARTE_BYTES = 3*512*1024;   /* 1,5 MB — múltiplo de 3: as partes em base64 se juntam direto no robô */
+function corpoEnvio(it, extra){ return Object.assign({ token:S.cfg.token, acao:'enviar', id:it.id, obraId:it.obraId, obraNome:it.obraNome, pastaId:it.pastaId, quem:it.quem, tipo:it.tipo, slot:it.slot, slotTitulo:it.slotTitulo, nome:it.nome, mime:it.mime, meta:it.meta, criadoEm:it.criadoEm }, extra); }
+async function postRobo(corpo, ms){
+  const ac=new AbortController(), lim=setTimeout(()=>ac.abort(), ms);
+  try{ const r=await fetch(S.cfg.script,{method:'POST',body:JSON.stringify(corpo),signal:ac.signal});
+    const j=await r.json().catch(()=>({ok:false,erro:'resposta inválida',cortada:true})); return { r, j }; }
+  finally{ clearTimeout(lim); } }
+async function enviarItem(it){
+  const tam=it.blob.size;
+  if(tam<=PARTE_BYTES || S.semPartes) return postRobo(corpoEnvio(it,{b64:await b64(it.blob)}), 60000 + 15000*(tam/1e6));
+  const total=Math.ceil(tam/PARTE_BYTES); let n=Math.min(it.partesOk||0, total-1), voltas=0, res=null;
+  while(n<total && voltas++<total*3){
+    const b=await b64(it.blob.slice(n*PARTE_BYTES, Math.min(tam,(n+1)*PARTE_BYTES)));
+    res=await postRobo(corpoEnvio(it,{acao:'parte', n, total, b64:b}), 90000);
+    const j=res.j;
+    if(!j.ok && n===0 && /faltou arquivo/i.test(j.erro||'')){ S.semPartes=true; return postRobo(corpoEnvio(it,{b64:await b64(it.blob)}), 60000 + 15000*(tam/1e6)); }   /* robô ainda sem partes */
+    if(!j.ok && Array.isArray(j.faltam) && j.faltam.length){ n=j.faltam[0]; it.partesOk=n; await DB.put(it); continue; }   /* uma parte se perdeu: reenvia a partir dela */
+    if(!j.ok) return res;
+    if(n<total-1){ it.partesOk=n+1; it.partesTotal=total; await DB.put(it); pintarFila(); }
+    n++;
+  }
+  return res; }
 async function enviarFila(forcar){
   if(S.enviando || !navigator.onLine) return; if(!S.cfg.script){ pintarFila(); return; }
   if(!forcar && S.semRedeAte && Date.now()<S.semRedeAte){ pintarFila(); return; }
   S.enviando=true; pintarFila();
   let telaAcesa=null; try{ if(navigator.wakeLock && document.visibilityState==='visible') telaAcesa=await navigator.wakeLock.request('screen').catch(()=>null); }catch(_){}   /* tela não apaga enquanto sobe */
   try{
-    const fila=S.fila.filter(x=>x.status==='pendente'||x.status==='erro').sort((a,b)=>((a.blob&&a.blob.size)||0)-((b.blob&&b.blob.size)||0));
+    const peso=x=>((x.meta&&x.meta.original)?1e12:0)+((x.blob&&x.blob.size)||0);   /* carimbada primeiro, original por último */
+    const fila=S.fila.filter(x=>x.status==='pendente'||x.status==='erro').sort((a,b)=>peso(a)-peso(b));
     for(const it of fila){
-      const grande = ((it.blob&&it.blob.size)||0) > 5e6;
+      if(!it.blob || !it.blob.size){ it.status='perdido'; it.erro='o arquivo sumiu da memória do celular antes de subir (nada a enviar)'; it.erroEm=new Date().toISOString(); await DB.put(it); continue; }
+      const grande = it.blob.size > 5e6;
       try{
-        const ac=new AbortController(), lim=setTimeout(()=>ac.abort(), 60000 + 15000*(((it.blob&&it.blob.size)||0)/1e6));
-        const corpo={ token:S.cfg.token, acao:'enviar', id:it.id, obraId:it.obraId, obraNome:it.obraNome, pastaId:it.pastaId, quem:it.quem, tipo:it.tipo, slot:it.slot, slotTitulo:it.slotTitulo, nome:it.nome, mime:it.mime, meta:it.meta, criadoEm:it.criadoEm, b64: await b64(it.blob) };
-        const r=await fetch(S.cfg.script,{method:'POST',body:JSON.stringify(corpo),signal:ac.signal}); clearTimeout(lim);
-        const j=await r.json().catch(()=>({ok:false,erro:'resposta inválida',cortada:true}));
-        if(j.ok){ redeOk(); it.status='enviado'; it.enviadoEm=new Date().toISOString(); it.url=j.url||null; it.pasta=j.pasta||null; it.marco=j.marco||null; it.transito=!!j.transito; it.erro=null; it.erroEm=null;
+        const { r, j } = await enviarItem(it);
+        if(j.ok){ redeOk(); it.status='enviado'; it.enviadoEm=new Date().toISOString(); it.url=j.url||null; it.pasta=j.pasta||null; it.marco=j.marco||null; it.transito=!!j.transito; it.erro=null; it.erroEm=null; it.partesOk=null; it.cortes=0;
           try{ const at=await DB.get(it.id); if(at&&at.noCel) it.noCel=true; }catch(_){}
           /* v1.17.0: foto da câmera que ainda não foi salva no celular guarda o arquivo até ser salva (iPhone pede um toque) */
           if(!(S.salvarCel && it.tipo==='foto' && it.meta?.origem==='camera' && !it.meta?.original && !it.noCel)) it.blob=null; }
-        else if(j.cortada && (document.visibilityState==='hidden' || r.status===0 || r.status>=500)){ it.status='pendente'; it.erro=null; S.falhaOculta=document.visibilityState==='hidden'; await DB.put(it); break; }   /* resposta cortada (tela apagou / sinal caiu): tenta de novo, não é erro */
+        else if(j.ocupado){ it.status='pendente'; it.erro=null; await DB.put(it); clearTimeout(S.tOcup); S.tOcup=setTimeout(()=>enviarFila(),20000); break; }   /* robô ocupado: tenta de novo em 20 s, não é erro */
+        else if(j.cortada){ it.cortes=(it.cortes||0)+1; S.falhaOculta=document.visibilityState==='hidden';
+          if(it.cortes>=6){ it.status='erro'; it.erro=j.erro; it.erroEm=new Date().toISOString(); }
+          else { it.status='pendente'; it.erro=null; await DB.put(it); falhaDeRede(); break; } }   /* resposta cortada (sinal caiu / tela apagou): volta para a fila, continua da parte onde parou */
         else { it.status='erro'; it.erro=j.erro||('HTTP '+r.status); it.erroEm=new Date().toISOString(); }
-      }catch(e){ if(document.visibilityState==='hidden'){ it.status='pendente'; it.erro=null; await DB.put(it); S.falhaOculta=true; break; }   /* tela apagou no meio do envio: o celular cortou a conexão; manda de novo ao voltar, sem contar como falha */
+      }catch(e){ if(document.visibilityState==='hidden'){ it.status='pendente'; it.erro=null; await DB.put(it); S.falhaOculta=true; break; }   /* tela apagou no meio do envio: manda de novo ao voltar, da parte onde parou */
         if(e instanceof TypeError || e.name==='AbortError' || !navigator.onLine){ it.status='pendente'; it.erro=null; await DB.put(it); if(!grande) falhaDeRede();
-          if(grande && navigator.onLine) continue;   /* vídeo grande caiu no sinal fraco: os pequenos de trás ainda tentam */
+          if(grande && navigator.onLine) continue;   /* arquivo grande caiu no sinal fraco: os pequenos de trás ainda tentam */
           break; } it.status='erro'; it.erro=String(e.message||e); it.erroEm=new Date().toISOString(); }
       await DB.put(it); pintarFila();
       if(it.status==='erro' && !navigator.onLine) break;
@@ -985,7 +1017,7 @@ function erroLegivel(e){ e=String(e||'');
   return 'Não chegou ao Drive. O app tenta de novo sozinho; se continuar, avise o escritório.'; }
 function telaEnvios(ob){
   const da=S.fila.filter(x=>x.obraId===ob.id).sort((a,b)=>(b.enviadoEm||b.erroEm||b.criadoEm).localeCompare(a.enviadoEm||a.erroEm||a.criadoEm));
-  const err=da.filter(x=>x.status==='erro'), esp=da.filter(x=>x.status==='pendente'||x.status==='aguardando'), ok=da.filter(x=>x.status==='enviado');
+  const err=da.filter(x=>x.status==='erro'), esp=da.filter(x=>x.status==='pendente'||x.status==='aguardando'), ok=da.filter(x=>x.status==='enviado'), perd=da.filter(x=>x.status==='perdido');
   const mini=x=> x.thumb?`<img src="${x.thumb}" alt="" style="width:46px;height:46px;object-fit:cover;border-radius:8px;flex:none">`:`<span style="width:46px;height:46px;border-radius:8px;background:#E8ECF1;display:flex;align-items:center;justify-content:center;flex:none;font-size:20px">${{foto:'📷',video:'🎬',audio:'🎙',registro:'📝'}[x.tipo]||'📄'}</span>`;
   const linha=(x,corpo)=>`<div style="display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid #E8ECF1">${mini(x)}<div style="flex:1;min-width:0;font-size:14px"><b>${esc(rotuloEnvio(x))}</b><br>${corpo}</div></div>`;
   let h='';
@@ -996,14 +1028,18 @@ function telaEnvios(ob){
     : (da.length?`<div class="card" style="background:var(--ok-bg)"><b style="color:var(--green-2)">✓ Nenhum erro de envio nesta obra.</b></div>`:'');
   if(esp.length) h+=`<div class="card"><h2>Esperando para subir · ${esp.length}</h2><div class="nota">${navigator.onLine?'Sobe sozinho com o app aberto.':'Sem internet agora. Sobe sozinho quando voltar o sinal, com o app aberto.'}</div>`+
       esp.map(x=>{ const hrs=(Date.now()-new Date(x.criadoEm).getTime())/36e5;
-        return linha(x, x.status==='aguardando'?'<span style="color:var(--err)">Áudio gravado e ainda no celular: toque em Enviar agora (barra de baixo).</span>':`<span class="muted">feito ${esc(fmtData(x.criadoEm))}</span>${hrs>24?` <span class="chip e">parado há ${Math.floor(hrs/24)} dia(s)</span>`:''}`); }).join('')+`</div>`;
+        const pt=x.partesOk&&x.blob?` · <b style="color:var(--green-2)">${Math.round(100*x.partesOk/Math.ceil(x.blob.size/PARTE_BYTES))}% já subiu</b> (continua de onde parou)`:'';
+        return linha(x, x.status==='aguardando'?'<span style="color:var(--err)">Áudio gravado e ainda no celular: toque em Enviar agora (barra de baixo).</span>':`<span class="muted">feito ${esc(fmtData(x.criadoEm))}</span>${pt}${hrs>24&&!pt?` <span class="chip e">parado há ${Math.floor(hrs/24)} dia(s)</span>`:''}`); }).join('')+`</div>`;
+  if(perd.length) h+=`<div class="card" style="border-left:5px solid #8A5200"><h2>Sem arquivo para enviar · ${perd.length}</h2><div class="nota">O celular apagou o conteúdo destes itens antes de subirem (memória cheia ou dados do site limpos). Não há o que mandar: se ainda der, tire a foto ou grave de novo.</div>`+
+      perd.map(x=>linha(x,`<span class="muted">feito ${esc(fmtData(x.criadoEm))}</span>`)).join('')+`<button class="big ghost" id="envLimparPerd" style="margin-top:10px">Tirar da lista</button></div>`;
   h+=`<div class="card"><h2>Chegou no Drive da empresa · ${ok.length}</h2>`+
     (ok.length? ok.slice(0,60).map(x=>linha(x,`<span style="color:var(--green-2)">✓ ${esc(fmtData(x.enviadoEm))}</span>${x.transito?' <span class="chip w">pasta de entrada</span>':''}${x.url?` · <a href="${esc(x.url)}" target="_blank" rel="noopener">ver no Drive</a>`:''}`)).join('')
       + (ok.length>60?`<div class="nota">Mostrando os 60 mais recentes de ${ok.length}.</div>`:'')
       : `<div class="muted">Nada enviado desta obra ainda neste celular.</div>`)+
     `<div class="nota">Só aparece aqui o que saiu DESTE celular. "Pasta de entrada" quer dizer que a obra ainda não tem pasta no Drive: o escritório move.</div></div>`;
   return h; }
-function ligarEnvios(ob){ const b=$('#envTentar'); if(b) b.onclick=async()=>{
+function ligarEnvios(ob){ const lp=$('#envLimparPerd'); if(lp) lp.onclick=async()=>{ for(const x of S.fila.filter(x=>x.obraId===ob.id && x.status==='perdido')) await DB.del(x.id); await recarregarFila(); render(); toast('Tirados da lista'); };
+  const b=$('#envTentar'); if(b) b.onclick=async()=>{
   if(!navigator.onLine) return toast('Sem internet agora. Tente com sinal.',3500);
   for(const x of S.fila.filter(x=>x.obraId===ob.id && x.status==='erro')){ x.status='pendente'; await DB.put(x); }
   await recarregarFila(); toast('Enviando…'); await enviarFila(); const r=problemasEnvio(ob).erro.length;

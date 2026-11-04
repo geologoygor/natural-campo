@@ -29,6 +29,15 @@
  * linha se o fileId ainda não estiver no log (caso a 1ª tentativa tenha morrido antes de registrar).
  * E se a trava não for pega em 20 s, o robô NÃO grava nada sem trava: devolve erro temporário
  * (ocupado: true) e o app tenta de novo sozinho (a fila reenvia os itens com erro a cada 60 s).
+ *
+ * v1.8 (04/11/2026) — ENVIO QUE NÃO TRAVA. Três causas de foto "parada" mesmo com internet boa:
+ *  1) o RDO (gatilho de 15 em 15 min) segurava a MESMA trava do robô por até 4 min — todo envio nesse
+ *     intervalo voltava "ocupado". Agora o RDO tem trava própria (propriedade com hora) e não bloqueia envio;
+ *  2) a trava do envio cobria também a decodificação do arquivo (lenta em foto grande). Agora a trava
+ *     cobre só o "já existe? cria; grava no log" (segundos);
+ *  3) foto original do iPhone (8 a 13 MB) ia num pedido só, que caía em sinal fraco e recomeçava do zero.
+ *     Agora o app manda em PARTES de 1,5 MB (acao=parte): cada parte fica numa pasta temporária, a última
+ *     junta tudo e grava o arquivo normal. Parte repetida só sobrescreve; nada duplica.
  */
 
 var CFG = {
@@ -39,7 +48,8 @@ var CFG = {
   SUBPASTA_CAMPO: '03_CAMPO',                        // subpasta da pasta do serviço que recebe o material de campo
   LOG: 'campo_envios.jsonl',                         // um envio por linha, na pasta ENTRADA (o Claude importa para o painel)
   MAX_BYTES: 25 * 1024 * 1024,
-  SUBPASTA_MARCOS: 'MARCOS'
+  SUBPASTA_MARCOS: 'MARCOS',
+  SUBPASTA_PARTES: '_PARTES_ENVIO_TMP'                // v1.8: partes de arquivo grande, apagadas quando o arquivo fica pronto
 };
 
 function doGet(e) {
@@ -55,38 +65,68 @@ function doGet(e) {
     return ContentService.createTextOutput(lg ? lg.getBlob().getDataAsString('UTF-8') : '').setMimeType(ContentService.MimeType.TEXT);
   }
   if (p.acao === 'mapas' || p.acao === 'mapa') { try { return acaoMapas_(p); } catch (x) { return json_({ ok: false, erro: String(x && x.message || x) }); } }
-  return json_({ ok: true, robo: 'campo', versao: '1.7', agora: new Date().toISOString() });
+  return json_({ ok: true, robo: 'campo', versao: '1.8', partes: true, agora: new Date().toISOString() });
 }
 
 function doPost(e) {
   var d;
   try { d = JSON.parse(e.postData.contents); } catch (x) { return json_({ ok: false, erro: 'corpo inválido' }); }
   if (d.token !== CFG.TOKEN) return json_({ ok: false, erro: 'chave inválida' });
-  if (d.acao !== 'enviar' || !d.b64 || !d.nome) return json_({ ok: false, erro: 'faltou arquivo' });
-  var lock = LockService.getScriptLock();
-  // v1.7: sem a trava não grava nada (log sem trava perde/embaralha linhas); o app reenvia sozinho
-  if (!lock.tryLock(20000)) return json_({ ok: false, erro: 'robô ocupado com outro envio — o app tenta de novo sozinho', ocupado: true });
   try {
-    var bytes = Utilities.base64Decode(d.b64);
-    if (bytes.length > CFG.MAX_BYTES) return json_({ ok: false, erro: 'arquivo acima de 25 MB' });
-    var mime = String(d.mime || 'application/octet-stream');
-    if (!/^(image\/|audio\/|video\/|application\/json|application\/pdf|application\/vnd\.google-earth\.km[lz]|application\/gpx)/.test(mime)) return json_({ ok: false, erro: 'tipo não aceito: ' + mime });
+    if (d.acao === 'parte') return json_(receberParte_(d));
+    if (d.acao !== 'enviar' || !d.b64 || !d.nome) return json_({ ok: false, erro: 'faltou arquivo' });
+    return json_(salvarEnvio_(d, Utilities.base64Decode(d.b64)));
+  } catch (err) { return json_({ ok: false, erro: String(err && err.message || err) }); }
+}
 
-    var destino = pastaDestino_(d);
-    if (d.slot === 'marco' && /^image\//.test(mime)) return json_(salvarMarco_(d, bytes, mime, destino));
-    var nome = nomeArquivo_(d);
+/* v1.8: grava o arquivo já decodificado. A trava cobre só o trecho curto (existe? cria; log). */
+function salvarEnvio_(d, bytes) {
+  if (bytes.length > CFG.MAX_BYTES) return { ok: false, erro: 'arquivo acima de 25 MB' };
+  var mime = String(d.mime || 'application/octet-stream');
+  if (!/^(image\/|audio\/|video\/|application\/json|application\/pdf|application\/vnd\.google-earth\.km[lz]|application\/gpx)/.test(mime)) return { ok: false, erro: 'tipo não aceito: ' + mime };
+  var destino = pastaDestino_(d);
+  var nome = nomeArquivo_(d);
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(25000)) return { ok: false, erro: 'robô ocupado com outro envio — o app tenta de novo sozinho', ocupado: true };
+  try {
+    if (d.slot === 'marco' && /^image\//.test(mime)) return salvarMarco_(d, bytes, mime, destino);
     // idempotente: o app pode reenviar depois de uma falha de rede
     var jaExiste = acharPorNome_(destino.pasta, nome);
     var arq = jaExiste || destino.pasta.createFile(Utilities.newBlob(bytes, mime, nome));
     try { arq.setDescription(JSON.stringify({ app: 'campo', id: d.id, obraId: d.obraId, obra: d.obraNome, quem: d.quem, tipo: d.tipo, slot: d.slot, meta: d.meta })); } catch (x) {}
-
     // v1.7: reenvio do mesmo arquivo não grava linha nova; só grava se o fileId ainda não está no log
     if (!jaExiste || !jaNoLog_(arq.getId())) registrar_({ em: new Date().toISOString(), id: d.id, obraId: d.obraId, obra: d.obraNome, quem: d.quem, tipo: d.tipo, slot: d.slot, slotTitulo: d.slotTitulo, nome: nome, fileId: arq.getId(), url: arq.getUrl(), pasta: destino.rotulo, pastaId: destino.pasta.getId(), semPastaDaObra: destino.transito, meta: d.meta || null, criadoEm: d.criadoEm || null });
-    return json_({ ok: true, id: arq.getId(), url: arq.getUrl(), pasta: destino.rotulo, transito: destino.transito, repetido: !!jaExiste });
-  } catch (err) {
-    return json_({ ok: false, erro: String(err && err.message || err) });
+    return { ok: true, id: arq.getId(), url: arq.getUrl(), pasta: destino.rotulo, transito: destino.transito, repetido: !!jaExiste };
   } finally { try { lock.releaseLock(); } catch (x) {} }
 }
+
+/* v1.8: arquivo grande chega em partes (base64 de 1,5 MB cada, tamanho múltiplo de 3 bytes, então as partes
+ * em texto podem ser simplesmente coladas). Parte n guardada como <id>.<nnnn>.b64 na pasta temporária.
+ * Na última parte: junta, grava como um envio normal e apaga as partes. Faltou parte: devolve quais (faltam: [...]). */
+function receberParte_(d) {
+  var n = parseInt(d.n, 10), total = parseInt(d.total, 10);
+  if (!d.id || !d.nome || !d.b64 || !(total > 0) || !(n >= 0) || n >= total) return { ok: false, erro: 'parte inválida' };
+  var tmp = pastaPartes_();
+  var chave = String(d.id).replace(/[^A-Za-z0-9_-]/g, '_');
+  var nomeParte = function (i) { return chave + '.' + ('000' + i).slice(-4) + '.b64'; };
+  var f = arquivoVivo_(tmp, nomeParte(n));
+  if (f) f.setContent(d.b64); else tmp.createFile(nomeParte(n), d.b64, MimeType.PLAIN_TEXT);
+  if (n < total - 1) return { ok: true, parte: n, total: total };
+  var textos = [], faltam = [], arqs = [];
+  for (var i = 0; i < total; i++) { var fi = arquivoVivo_(tmp, nomeParte(i)); if (!fi) faltam.push(i); else { arqs.push(fi); textos.push(fi.getBlob().getDataAsString()); } }
+  if (faltam.length) {
+    var dest = pastaDestino_(d), ja = acharPorNome_(dest.pasta, nomeArquivo_(d)); // a 1ª tentativa da última parte já gravou e apagou as partes
+    if (ja) { arqs.forEach(function (x) { try { x.setTrashed(true); } catch (y) {} }); return { ok: true, id: ja.getId(), url: ja.getUrl(), pasta: dest.rotulo, transito: dest.transito, repetido: true }; }
+    return { ok: false, erro: 'faltam partes', faltam: faltam };
+  }
+  var r = salvarEnvio_(d, Utilities.base64Decode(textos.join('')));
+  if (r.ok) arqs.forEach(function (x) { try { x.setTrashed(true); } catch (y) {} });
+  return r;
+}
+function pastaPartes_() { var entrada = DriveApp.getFolderById(CFG.PASTA_ENTRADA); return acharSubpasta_(entrada, CFG.SUBPASTA_PARTES) || entrada.createFolder(CFG.SUBPASTA_PARTES); }
+function arquivoVivo_(pasta, nome) { var it = pasta.getFilesByName(nome); while (it.hasNext()) { var f = it.next(); if (!f.isTrashed()) return f; } return null; }
+/* limpeza: partes esquecidas há mais de 7 dias (envio abandonado) vão para a lixeira — roda junto com o RDO */
+function limparPartesVelhas_() { try { var it = pastaPartes_().getFiles(), lim = Date.now() - 7 * 864e5; while (it.hasNext()) { var f = it.next(); if (f.getLastUpdated().getTime() < lim) f.setTrashed(true); } } catch (x) {} }
 
 /* ---------- marcos de georreferenciamento ---------- */
 var PADRAO_MARCO = /([A-Z0-9]{3,5})\s*[-–—_ ]?\s*([MPV])\s*[-–—_ ]?\s*([0-9OIl]{3,5})/;
@@ -196,6 +236,17 @@ function testar() {
 }
 
 
+/* v1.8: teste manual das partes (Executar > testarPartes) — manda um JSON em 3 partes e confere que juntou */
+function testarPartes() {
+  var txt = JSON.stringify({ ok: true, teste: 'partes', quando: new Date().toISOString(), enchimento: new Array(400).join('x') });
+  var id = 'testepartes' + Date.now(), b = Utilities.newBlob(txt).getBytes(), tam = Math.ceil(b.length / 3 / 3) * 3, total = Math.ceil(b.length / tam), r;
+  for (var n = 0; n < total; n++) {
+    var parte = b.slice(n * tam, Math.min(b.length, (n + 1) * tam));
+    r = receberParte_({ token: CFG.TOKEN, acao: 'parte', id: id, n: n, total: total, b64: Utilities.base64Encode(parte), obraId: 'OBteste', obraNome: 'TESTE DO ROBO DE CAMPO', quem: 'Ygor Sousa', tipo: 'registro', slot: 'registro', nome: 'teste_partes.json', mime: 'application/json' });
+  }
+  Logger.log(JSON.stringify(r));
+}
+
 /* v1.2 (24/09/2026) — campo.json sem computador: a tarefa na nuvem grava campo_AAAAMMDD_HHMM.json (o Drive não sobrescreve arquivo).
  * Serve o mais recente; se não houver nenhum, cai no campo.json antigo. */
 function campoMaisRecente_() {
@@ -289,10 +340,14 @@ function instalarGatilhoRdo() {
 function processarAudiosRdo() {
   var chave = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
   if (!chave) return;
-  var lock = LockService.getScriptLock(); if (!lock.tryLock(5000)) return;
+  // v1.8: trava PRÓPRIA do RDO (antes era a mesma do envio e travava as fotos por até 4 min)
+  var props = PropertiesService.getScriptProperties();
+  var rodando = +(props.getProperty('rdo_rodando') || 0);
+  if (rodando && Date.now() - rodando < 6 * 60 * 1000) return;
+  props.setProperty('rdo_rodando', String(Date.now()));
+  limparPartesVelhas_();
   var t0 = Date.now();
   try {
-    var props = PropertiesService.getScriptProperties();
     var lg = acharPorNome_(DriveApp.getFolderById(CFG.PASTA_ENTRADA), CFG.LOG); if (!lg) return;
     var linhas = lg.getBlob().getDataAsString('UTF-8').split('\n');
     for (var i = linhas.length - 1; i >= 0; i--) {
@@ -321,7 +376,7 @@ function processarAudiosRdo() {
         props.setProperty(chaveProp, 'erro:' + (tentativas + 1) + ':' + msg.slice(0, 200));
       }
     }
-  } finally { try { lock.releaseLock(); } catch (x) {} }
+  } finally { try { props.deleteProperty('rdo_rodando'); } catch (x) {} }
 }
 
 function rdoDoAudio_(L, chave, t0) {
